@@ -7,7 +7,7 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AuditLogs')
 BEGIN
     CREATE TABLE [dbo].[AuditLogs] (
         [Id] NVARCHAR(36) PRIMARY KEY,
-        [UserId] UNIQUEIDENTIFIER NULL,
+        [UserId] NVARCHAR(36) NULL,
         [Action] NVARCHAR(100) NOT NULL,
         [EntityType] NVARCHAR(50) NULL,
         [EntityId] NVARCHAR(36) NULL,
@@ -34,4 +34,3 @@ BEGIN
     PRINT 'AuditLogs table already exists';
 END
 GO
-

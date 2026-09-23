@@ -15,9 +15,21 @@ import path from 'path';
 import fs from 'fs';
 import { logger } from '../utils/logger';
 
-// Helper function to get storage service (Desktop first for simple dev)
 const getStorageService = () => {
-    return desktopStorage || sharePointStorage || azureStorage;
+    switch (appConfig.storage.provider) {
+        case 'desktop':
+            if (desktopStorage) return desktopStorage;
+            break;
+        case 'sharepoint':
+            if (sharePointStorage) return sharePointStorage;
+            break;
+        case 'azure':
+            if (azureStorage && appConfig.azure.storage.connectionString) return azureStorage;
+            break;
+        default:
+            throw new Error(`Unsupported STORAGE_PROVIDER: ${appConfig.storage.provider}`);
+    }
+    throw new Error(`STORAGE_PROVIDER ${appConfig.storage.provider} is not configured`);
 };
 
 export class UploadController {
@@ -181,11 +193,12 @@ export class UploadController {
             copyFileSync(req.file.path, tempPath);
             logger.info(`[UPLOAD-TEMP] Persisted: ${tempPath}`);
             
-            // 2. THEN: Copy to storage (Desktop)
-            const storageService = getStorageService() as any;
+            // 2. THEN: Copy to configured storage
+            const storageService = getStorageService();
             const uploadResult = await storageService.uploadFile(req.file.path, storedFilename);
             
-            logger.info(`[UPLOAD-DESKTOP] UploadId: ${uploadId}, Path: ${uploadResult.fileUrl}`);
+            const storedUrl = 'fileUrl' in uploadResult ? uploadResult.fileUrl : uploadResult.blobUrl;
+            logger.info(`[UPLOAD-STORAGE] UploadId: ${uploadId}, Path: ${storedUrl}`);
             
             // NOTE: Keep multer temp until validation complete (or clean later)
 
@@ -203,7 +216,7 @@ export class UploadController {
             
             // 4. Update with storage URL (keep TempLocalPath)
             await Upload.update(upload.Id!, {
-                AzureBlobUrl: uploadResult.fileUrl  // Desktop path reference
+                AzureBlobUrl: storedUrl
                 // TempLocalPath preserved from createUpload
             });
 

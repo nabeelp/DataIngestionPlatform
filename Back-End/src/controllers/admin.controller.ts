@@ -21,7 +21,7 @@ import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
 
 // Extend Request to include user
-export interface AuthRequest extends Request {
+export interface AuthRequest extends Request<Record<string, string>> {
     user?: IJwtPayload;
 }
 
@@ -698,4 +698,3 @@ function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
         allowedUsers: def.AllowedUsers || []
     };
 }
-

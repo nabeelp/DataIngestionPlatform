@@ -20,6 +20,7 @@ BEGIN
         FileType NVARCHAR(50) NOT NULL,
         CompressedFileSize BIGINT NULL,
         CompressedBlobUrl NVARCHAR(500) NULL,
+        RetryCount INT NOT NULL DEFAULT 0,
         RowCountNo INT NULL DEFAULT 0,
         SheetCount INT NULL DEFAULT 0,
         Status NVARCHAR(50) NOT NULL DEFAULT 'UPLOADED',
@@ -47,6 +48,10 @@ GO
 IF COL_LENGTH('Uploads', 'TempLocalPath') IS NULL
 BEGIN
     ALTER TABLE Uploads ADD TempLocalPath NVARCHAR(1000) NULL;
+END;
+IF COL_LENGTH('Uploads', 'RetryCount') IS NULL
+BEGIN
+    ALTER TABLE Uploads ADD RetryCount INT NOT NULL DEFAULT 0;
 END;
 GO
 
@@ -86,10 +91,13 @@ BEGIN
         Id UNIQUEIDENTIFIER PRIMARY KEY,
         FileDefinitionId NVARCHAR(36) NOT NULL,
         Name NVARCHAR(255) NOT NULL,
+        Description NVARCHAR(1000) NULL,
         RuleType NVARCHAR(50) NOT NULL,
-        RuleSeverity NVARCHAR(20) NOT NULL,
+        Severity NVARCHAR(20) NOT NULL,
         ExecutionOrder INT NOT NULL DEFAULT 0,
+        SqlQuery NVARCHAR(MAX) NOT NULL,
         IsEnabled BIT NOT NULL DEFAULT 1,
+        CreatedBy NVARCHAR(36) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
@@ -97,6 +105,26 @@ BEGIN
     CREATE INDEX IX_Rules_FileDefinitionId ON Rules(FileDefinitionId);
     CREATE INDEX IX_Rules_IsEnabled ON Rules(IsEnabled);
 END;
+GO
+
+-- Align databases created with the older Rules schema with the model.
+IF COL_LENGTH('dbo.Rules', 'Description') IS NULL
+    ALTER TABLE dbo.Rules ADD Description NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.Rules', 'Severity') IS NULL
+BEGIN
+    ALTER TABLE dbo.Rules ADD Severity NVARCHAR(20) NOT NULL CONSTRAINT DF_Rules_Severity DEFAULT 'Error';
+    IF COL_LENGTH('dbo.Rules', 'RuleSeverity') IS NOT NULL
+        EXEC('UPDATE dbo.Rules SET Severity = RuleSeverity');
+END;
+IF COL_LENGTH('dbo.Rules', 'RuleSeverity') IS NOT NULL
+    ALTER TABLE dbo.Rules DROP COLUMN RuleSeverity;
+IF COL_LENGTH('dbo.Rules', 'SqlQuery') IS NULL
+BEGIN
+    ALTER TABLE dbo.Rules ADD SqlQuery NVARCHAR(MAX) NULL;
+    UPDATE dbo.Rules SET IsEnabled = 0;
+END;
+IF COL_LENGTH('dbo.Rules', 'CreatedBy') IS NULL
+    ALTER TABLE dbo.Rules ADD CreatedBy NVARCHAR(36) NULL;
 GO
 
 -- ============================================================================
@@ -174,7 +202,8 @@ BEGIN
         StartedAt DATETIME2 NULL,
         CompletedAt DATETIME2 NULL,
         ErrorMessage NVARCHAR(MAX) NULL,
-        RecordsDelivered INT NULL DEFAULT 0
+        RecordsDelivered INT NULL DEFAULT 0,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
     
     CREATE INDEX IX_DeliveryRecords_UploadId ON DeliveryRecords(UploadId);
@@ -186,6 +215,11 @@ GO
 -- ============================================================================
 -- UPLOAD TASKS TABLE - Task orchestration tracking
 -- ============================================================================
+IF COL_LENGTH('DeliveryRecords', 'CreatedAt') IS NULL
+BEGIN
+    ALTER TABLE DeliveryRecords ADD CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE();
+END;
+GO
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'UploadTasks')
 BEGIN
     CREATE TABLE UploadTasks (
@@ -301,7 +335,7 @@ BEGIN
         FileDefinitionId NVARCHAR(36) NOT NULL,
         UserId NVARCHAR(36) NOT NULL,
         AssignedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-        AssignedBy NVARCHAR(36) NOT NULL,
+        AssignedBy NVARCHAR(36) NULL,
         
         -- Constraints
         CONSTRAINT FK_FileDefinitionUserAccess_FileDefinition FOREIGN KEY (FileDefinitionId) 
@@ -315,6 +349,17 @@ BEGIN
     
     CREATE INDEX IX_FileDefinitionUserAccess_FileDefinitionId ON FileDefinitionUserAccess(FileDefinitionId);
     CREATE INDEX IX_FileDefinitionUserAccess_UserId ON FileDefinitionUserAccess(UserId);
+END;
+GO
+
+IF EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID('dbo.FileDefinitionUserAccess')
+      AND name = 'AssignedBy'
+      AND is_nullable = 0
+)
+BEGIN
+    ALTER TABLE dbo.FileDefinitionUserAccess ALTER COLUMN AssignedBy NVARCHAR(36) NULL;
 END;
 GO
 
@@ -359,4 +404,3 @@ GO
 
 PRINT 'Upload System tables created successfully!';
 GO
-

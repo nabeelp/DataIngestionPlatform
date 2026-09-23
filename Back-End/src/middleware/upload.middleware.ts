@@ -1,5 +1,6 @@
 import multer from 'multer';
 import path from 'path';
+import { mkdirSync } from 'fs';
 
 /**
  * Multer upload middleware for template files
@@ -22,7 +23,9 @@ export const uploadTemplate = multer({
     },
     storage: multer.diskStorage({
         destination: (req, file, cb) => {
-            cb(null, 'uploads/templates/');
+            const templateDir = path.join(process.cwd(), 'uploads', 'templates');
+            mkdirSync(templateDir, { recursive: true });
+            cb(null, templateDir);
         },
         filename: (req, file, cb) => {
             const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -30,4 +33,3 @@ export const uploadTemplate = multer({
         }
     })
 });
-

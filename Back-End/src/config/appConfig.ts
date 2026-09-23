@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Application Configuration - SSO and Auth Settings
 // =============================================================================
 
@@ -20,6 +20,15 @@ const ensureTempDirectory = (): string => {
 // Initialize temp directory immediately
 const TEMP_DIR = ensureTempDirectory();
 
+const isRedisEnabled = (): boolean => {
+    const value = process.env.REDIS_ENABLED;
+    if (value === undefined) return (process.env.NODE_ENV || 'development') !== 'development';
+    if (value !== 'true' && value !== 'false') {
+        throw new Error('REDIS_ENABLED must be true or false');
+    }
+    return value === 'true';
+};
+
 export const appConfig = {
     // Server
     port: process.env.PORT || 3000,
@@ -27,12 +36,12 @@ export const appConfig = {
 
     // Database
     database: {
-        connectionString: process.env.DB_CONNECTION_STRING || 'Server=PSDC-USQLCDS001.za.sbicdirectory.com\\CDSDEV,50000;Database=FileValidationPlatform;User ID=SBICZA01\\A252406;Password=Anganathi16@Abongile;TrustServerCertificate=True;Encrypt=False',
+        connectionString: process.env.DB_CONNECTION_STRING || '',
     },
 
     // JWT Configuration
     jwt: {
-        secret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production',
+        secret: process.env.JWT_SECRET || '',
         expiresIn: process.env.JWT_EXPIRES_IN || '24h',
         refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     },
@@ -75,7 +84,8 @@ export const appConfig = {
 
     // Redis Configuration
     redis: {
-host: process.env.REDIS_HOST || 'localhost',
+        enabled: isRedisEnabled(),
+        host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379'),
         password: process.env.REDIS_PASSWORD,
     },
@@ -131,4 +141,3 @@ host: process.env.REDIS_HOST || 'localhost',
         allowedExtensions: ['.csv', '.xlsx', '.xls', '.json', '.xml', '.txt'],
     }
 };
-

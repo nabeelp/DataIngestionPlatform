@@ -2,7 +2,6 @@
  * Admin Stats Service - Production-ready stats aggregation with caching
  */
 
-import Redis from 'ioredis';
 import { appConfig } from '../config/appConfig';
 import { User } from '../models/User.model';
 import { Upload } from '../models/Upload.model';
@@ -11,13 +10,7 @@ import { getAllQueueStats, getStuckJobs } from './Queue.service';
 import { getConnection } from '../config/database';
 import { AdminStats, QueueStats } from '../interfaces/admin.interface';
 import { logger } from '../utils/logger';
-
-const redis = new Redis({
-  host: appConfig.redis.host || 'localhost',
-  port: appConfig.redis.port || 6379,
-  password: appConfig.redis.password,
-  lazyConnect: true,
-});
+import { cacheService } from './Cache.service';
 
 const CACHE_KEY = 'admin:stats';
 const CACHE_TTL = appConfig.stats.cacheTtl;
@@ -28,10 +21,10 @@ export class StatsService {
    */
   static async getAdminStats(): Promise<AdminStats> {
     // Try cache first
-    const cached = await redis.get(CACHE_KEY);
+    const cached = await cacheService.get<AdminStats>(CACHE_KEY);
     if (cached) {
       logger.info('[STATS] Cache hit');
-      return JSON.parse(cached);
+      return cached;
     }
 
     logger.info('[STATS] Cache miss - fetching fresh stats');
@@ -88,7 +81,7 @@ export class StatsService {
       };
 
       // Cache for TTL
-      await redis.set(CACHE_KEY, JSON.stringify(stats), 'EX', CACHE_TTL);
+      await cacheService.set(CACHE_KEY, stats, CACHE_TTL);
       
       logger.info(`[STATS] Fresh stats cached: health=${systemHealth}% users=${stats.totalUsers} uploads=${stats.todayUploads}`);
 
@@ -134,8 +127,7 @@ export class StatsService {
    * Invalidate cache
    */
   static async invalidateCache(): Promise<void> {
-    await redis.del(CACHE_KEY);
+    await cacheService.delete(CACHE_KEY);
     logger.info('[STATS] Cache invalidated');
   }
 }
-

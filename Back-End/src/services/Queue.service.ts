@@ -3,6 +3,7 @@
 // =============================================================================
 
 import Bull, { Queue, Job, Worker } from 'bullmq';
+import { EventEmitter } from 'events';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
 import type { IValidationJobData, IDeliveryJobData, IRetryJobData } from '../interfaces/upload.interface';
@@ -28,8 +29,180 @@ const redisConnection = {
     host: appConfig.redis.host || 'localhost',
     port: appConfig.redis.port || 6379,
     password: appConfig.redis.password,
-    maxRetriesPerRequest: null // Required for BullMQ
+    maxRetriesPerRequest: null, // Required for BullMQ
+    connectTimeout: 3000,
+    retryStrategy: (times: number) => Math.min(times * 50, 2000)
 };
+
+type LocalJob = Job & {
+    state: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed';
+    finishedOn?: number;
+    failedReason?: string;
+    attemptsMade: number;
+};
+
+class LocalQueue {
+    private jobs = new Map<string, LocalJob>();
+    private processor?: (job: Job) => Promise<void>;
+    private worker?: EventEmitter;
+    private concurrency = 1;
+    private running = 0;
+    private paused = false;
+    private closed = false;
+    private timers = new Set<NodeJS.Timeout>();
+    private nextId = 0;
+
+    constructor(private readonly name: string) {}
+
+    async add(name: string, data: any, opts: { jobId?: string; attempts?: number } = {}): Promise<Job> {
+        if (this.closed) throw new Error(`Queue ${this.name} is closed`);
+        const id = opts.jobId || String(++this.nextId);
+        const existing = this.jobs.get(id);
+        if (existing && existing.state !== 'completed' && existing.state !== 'failed') return existing;
+        const job: LocalJob = {
+            id, name, data, opts, timestamp: Date.now(), state: 'waiting' as const,
+            attemptsMade: 0,
+            moveToFailed: async (error: Error) => {
+                job.state = 'failed';
+                job.failedReason = error.message;
+                job.finishedOn = Date.now();
+                this.worker?.emit('failed', job, error);
+            }
+        } as unknown as LocalJob;
+        this.jobs.set(id, job);
+        this.schedule();
+        return job;
+    }
+
+    async addBulk(items: Array<{ name: string; data: any; opts?: { jobId?: string; attempts?: number } }>): Promise<Job[]> {
+        return Promise.all(items.map(item => this.add(item.name, item.data, item.opts)));
+    }
+
+    start(processor: (job: Job) => Promise<void>, worker: EventEmitter, concurrency: number): void {
+        this.processor = processor;
+        this.worker = worker;
+        this.concurrency = Math.max(1, concurrency);
+        this.schedule();
+    }
+
+    stop(worker: EventEmitter): void {
+        if (this.worker === worker) {
+            this.processor = undefined;
+            this.worker = undefined;
+        }
+    }
+
+    private schedule(): void {
+        if (this.closed || this.paused || !this.processor) return;
+        setImmediate(() => void this.run());
+    }
+
+    private run(): void {
+        while (!this.closed && !this.paused && this.processor && this.running < this.concurrency) {
+            const job = [...this.jobs.values()].find(item => item.state === 'waiting');
+            if (!job) break;
+            job.state = 'active';
+            job.processedOn = Date.now();
+            this.running++;
+            const processor = this.processor;
+            const worker = this.worker;
+            void (async () => {
+                try {
+                    if (job.attemptsMade === 0) await this.waitUntilReady(job);
+                    if (job.state !== 'active') return;
+                    await processor(job);
+                    if (job.state === 'active') {
+                        job.state = 'completed';
+                        job.finishedOn = Date.now();
+                        worker?.emit('completed', job);
+                    }
+                } catch (error) {
+                    if (job.state !== 'active') return;
+                    job.attemptsMade++;
+                    const attempts = job.opts.attempts ?? (this.name === QUEUE_NAMES.RETRY ? 5 : 3);
+                    if (job.attemptsMade < attempts && !this.closed) {
+                        job.state = 'delayed';
+                        const delay = (this.name === QUEUE_NAMES.RETRY ? 10000 : 5000) * 2 ** (job.attemptsMade - 1);
+                        const timer = setTimeout(() => {
+                            this.timers.delete(timer);
+                            if (job.state === 'delayed') {
+                                job.state = 'waiting';
+                                this.schedule();
+                            }
+                        }, delay);
+                        this.timers.add(timer);
+                        logger.warn(`Local ${this.name} job ${job.id} failed; retrying in ${delay}ms`, error);
+                    } else {
+                        job.state = 'failed';
+                        job.failedReason = String(error);
+                        job.finishedOn = Date.now();
+                        logger.error(`Local ${this.name} job ${job.id} failed permanently`, error);
+                        worker?.emit('failed', job, error);
+                    }
+                } finally {
+                    this.running--;
+                    this.schedule();
+                }
+            })();
+        }
+    }
+
+    private async waitUntilReady(job: LocalJob): Promise<void> {
+        if (this.name !== QUEUE_NAMES.VALIDATION && this.name !== QUEUE_NAMES.DELIVERY) return;
+        const { Upload } = await import('../models/Upload.model');
+        const expected = this.name === QUEUE_NAMES.VALIDATION ? 'VALIDATION_IN_PROGRESS' : 'DELIVERY_IN_PROGRESS';
+        const deadline = Date.now() + (appConfig.workers.jobTimeout || 60000);
+        while (!this.closed && job.state === 'active') {
+            const upload = await Upload.findById(job.data.uploadId);
+            if (upload?.Status === expected) return;
+            if (Date.now() >= deadline) throw new Error(`Upload ${job.data.uploadId} did not reach ${expected}`);
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error(`Local queue ${this.name} stopped before job processing`);
+    }
+
+    async getWaitingCount() { return this.count('waiting'); }
+    async getActiveCount() { return this.count('active'); }
+    async getCompletedCount() { return this.count('completed'); }
+    async getFailedCount() { return this.count('failed'); }
+    async getDelayedCount() { return this.count('delayed'); }
+    private count(state: LocalJob['state']) { return [...this.jobs.values()].filter(job => job.state === state).length; }
+    async getJob(id: string) { return this.jobs.get(id); }
+    async getFailed(start = 0, end = 10) { return [...this.jobs.values()].filter(job => job.state === 'failed').slice(start, end + 1); }
+    async getActive() { return [...this.jobs.values()].filter(job => job.state === 'active'); }
+    async pause() { this.paused = true; }
+    async resume() { this.paused = false; this.schedule(); }
+    async drain() {
+        for (const [id, job] of this.jobs) if (job.state === 'waiting' || job.state === 'delayed') this.jobs.delete(id);
+    }
+    async clean(grace: number, _limit: number, status: 'completed' | 'failed') {
+        const removed: string[] = [];
+        for (const [id, job] of this.jobs) {
+            if (job.state === status && job.finishedOn && Date.now() - job.finishedOn >= grace) {
+                this.jobs.delete(id);
+                removed.push(id);
+                if (removed.length === 100) break;
+            }
+        }
+        return removed;
+    }
+    async close() {
+        this.closed = true;
+        for (const timer of this.timers) clearTimeout(timer);
+        this.timers.clear();
+        this.processor = undefined;
+    }
+}
+
+const localQueues = new Map<string, LocalQueue>();
+function localWorker(name: string, processor: (job: Job) => Promise<void>, concurrency: number): Worker {
+    const queue = localQueues.get(name);
+    if (!queue) throw new Error(`Local queue ${name} not initialized`);
+    const worker = new EventEmitter() as EventEmitter & { close: () => Promise<void> };
+    worker.close = async () => queue.stop(worker);
+    queue.start(processor, worker, concurrency);
+    return worker as unknown as Worker;
+}
 
 // Queue instances
 let validationQueue: Queue | null = null;
@@ -46,6 +219,17 @@ let retryWorker: Worker | null = null;
  * Initialize all queues
  */
 export async function initializeQueues(): Promise<void> {
+    if (!appConfig.redis.enabled) {
+        for (const name of Object.values(QUEUE_NAMES)) {
+            if (!localQueues.has(name)) localQueues.set(name, new LocalQueue(name));
+        }
+        validationQueue = localQueues.get(QUEUE_NAMES.VALIDATION)! as unknown as Queue;
+        deliveryQueue = localQueues.get(QUEUE_NAMES.DELIVERY)! as unknown as Queue;
+        retryQueue = localQueues.get(QUEUE_NAMES.RETRY)! as unknown as Queue;
+        cleanupQueue = localQueues.get(QUEUE_NAMES.CLEANUP)! as unknown as Queue;
+        logger.info('In-process queues initialized (REDIS_ENABLED=false)');
+        return;
+    }
     try {
         // Create queues
         validationQueue = new Queue(QUEUE_NAMES.VALIDATION, {
@@ -111,10 +295,22 @@ export async function initializeQueues(): Promise<void> {
             }
         });
 
+        let timeout: NodeJS.Timeout | undefined;
+        try {
+            await Promise.race([
+                Promise.all([validationQueue, deliveryQueue, retryQueue, cleanupQueue].map(queue => queue!.waitUntilReady())),
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(() => reject(new Error('Redis connection timed out')), 5000);
+                })
+            ]);
+        } finally {
+            if (timeout) clearTimeout(timeout);
+        }
         logger.info('All queues initialized successfully');
     } catch (error) {
         logger.error('Failed to initialize queues:', error);
-        throw error;
+        await closeAllQueues();
+        throw new Error(`REDIS_ENABLED=true but BullMQ queues cannot connect to Redis: ${String(error)}`);
     }
 }
 
@@ -427,7 +623,7 @@ export async function failStuckJobs(timeoutMs?: number): Promise<{
                     
                     if (stuckDurationMs > timeout) {
                         const error = new Error(`${TIMEOUT_ERROR_MESSAGE} (stuck for ${Math.round(stuckDurationMs / 1000)}s)`);
-                        await job.moveToFailed(error);
+                        await job.moveToFailed(error, job.token || '');
                         
                         failedDetails.push({
                             jobId: job.id || 'unknown',
@@ -456,7 +652,7 @@ export async function failStuckJobs(timeoutMs?: number): Promise<{
                     
                     if (stuckDurationMs > timeout) {
                         const error = new Error(`${TIMEOUT_ERROR_MESSAGE} (stuck for ${Math.round(stuckDurationMs / 1000)}s)`);
-                        await job.moveToFailed(error);
+                        await job.moveToFailed(error, job.token || '');
                         
                         failedDetails.push({
                             jobId: job.id || 'unknown',
@@ -684,7 +880,9 @@ export async function cleanOldJobs(
 export function createValidationWorker(
     processor: (job: Job<IValidationJobData>) => Promise<void>
 ): Worker {
-    validationWorker = new Worker(QUEUE_NAMES.VALIDATION, processor, {
+    validationWorker = !appConfig.redis.enabled
+        ? localWorker(QUEUE_NAMES.VALIDATION, processor as (job: Job) => Promise<void>, appConfig.workers.validation?.concurrency || 5)
+        : new Worker(QUEUE_NAMES.VALIDATION, processor, {
         connection: redisConnection,
         concurrency: appConfig.workers.validation?.concurrency || 5,
         limiter: {
@@ -714,7 +912,9 @@ export function createValidationWorker(
 export function createDeliveryWorker(
     processor: (job: Job<IDeliveryJobData>) => Promise<void>
 ): Worker {
-    deliveryWorker = new Worker(QUEUE_NAMES.DELIVERY, processor, {
+    deliveryWorker = !appConfig.redis.enabled
+        ? localWorker(QUEUE_NAMES.DELIVERY, processor as (job: Job) => Promise<void>, appConfig.workers.delivery?.concurrency || 5)
+        : new Worker(QUEUE_NAMES.DELIVERY, processor, {
         connection: redisConnection,
         concurrency: appConfig.workers.delivery?.concurrency || 5,
         limiter: {
@@ -744,7 +944,9 @@ export function createDeliveryWorker(
 export function createRetryWorker(
     processor: (job: Job<IRetryJobData>) => Promise<void>
 ): Worker {
-    retryWorker = new Worker(QUEUE_NAMES.RETRY, processor, {
+    retryWorker = !appConfig.redis.enabled
+        ? localWorker(QUEUE_NAMES.RETRY, processor as (job: Job) => Promise<void>, 2)
+        : new Worker(QUEUE_NAMES.RETRY, processor, {
         connection: redisConnection,
         concurrency: 2
     });
@@ -801,7 +1003,7 @@ export async function closeAllQueues(): Promise<void> {
         await cleanupQueue.close();
         cleanupQueue = null;
     }
+    localQueues.clear();
 
     logger.info('All queues closed');
 }
-

@@ -2,7 +2,7 @@
 // Azure Storage Service - Blob Storage Operations for File Management
 // =============================================================================
 
-import { BlobServiceClient, BlockBlobClient, ContainerClient, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { BlobServiceClient, BlobSASPermissions, BlockBlobClient, ContainerClient, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
 import { createGzip } from 'zlib';
@@ -57,7 +57,7 @@ export class AzureStorageService {
         
         const exists = await containerClient.exists();
         if (!exists) {
-            await containerClient.create({ access: 'private' });
+            await containerClient.create();
             logger.info(`Created container: ${containerName}`);
         }
         
@@ -329,7 +329,7 @@ export class AzureStorageService {
 
         const sasOptions = {
             expiresOn: new Date(Date.now() + expiryMinutes * 60 * 1000),
-            permissions: 'r' // Read only
+            permissions: BlobSASPermissions.parse('r')
         };
 
         const sasToken = blockBlobClient.generateSasUrl(sasOptions);
@@ -379,4 +379,3 @@ try {
     logger.warn('AzureStorageService initialization failed:', error);
 }
 export { azureStorage };
-

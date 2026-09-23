@@ -1,6 +1,6 @@
 // =============================================================================
 // Desktop Storage Service - Simple date-based Desktop folder storage
-// C:\Users\A252406\OneDrive - Standard Bank\Desktop\File-Uploads\{YYYY}\{MM}\{DD}\
+// Uses a configurable local destination by date.
 // =============================================================================
 
 import fs from 'fs';
@@ -19,7 +19,7 @@ export interface UploadedFileInfo {
     day: string;
 }
 
-const BASE_PATH = `C:/Users/A252406/OneDrive - Standard Bank/Desktop/File-Uploads`;
+const BASE_PATH = process.env.DESKTOP_STORAGE_PATH || path.join(process.cwd(), 'desktop-uploads');
 
 export class DesktopStorageService {
     private basePath: string = BASE_PATH;
@@ -208,10 +208,7 @@ export class DesktopStorageService {
 
 // Singleton export
 let desktopStorage: DesktopStorageService | null = null;
-try {
+if (appConfig.storage.provider === 'desktop') {
     desktopStorage = new DesktopStorageService();
-} catch (error) {
-    logger.error('DesktopStorageService initialization failed:', error);
 }
 export { desktopStorage };
-

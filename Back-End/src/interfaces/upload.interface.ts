@@ -24,7 +24,8 @@ export type ValidationStatus =
     | 'IN_PROGRESS'
     | 'PASSED'
     | 'FAILED'
-    | 'WARNING';
+    | 'WARNING'
+    | 'SKIPPED';
 
 /**
  * Delivery type
@@ -455,4 +456,3 @@ export interface IRetryJobData {
     jobType: string;
     retryCount: number;
 }
-

@@ -4,6 +4,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { FileDefinition } from '../models/FileDefinition.model';
+import { FileDefinitionService } from '../services/FileDefinition.service';
+import path from 'path';
 import type { 
     ICreateFileDefinitionDto, 
     IUpdateFileDefinitionDto,
@@ -416,10 +418,13 @@ export const downloadTemplate = async (req: AuthRequest, res: Response, next: Ne
             });
         }
 
-        // Stream file using storage service
-        const stream = await storageService.downloadAsStream(blobName);
-        res.setHeader('Content-Disposition', `attachment; filename="${blobName}"`);
-        stream.pipe(res);
+        if (path.basename(blobName) !== blobName) {
+            throw new Error('Invalid template filename');
+        }
+        const templatePath = path.join(process.cwd(), 'uploads', 'templates', blobName);
+        res.download(templatePath, blobName, (error) => {
+            if (error && !res.headersSent) next(error);
+        });
     } catch (error) {
         console.error('[DEFINITION_CTRL] Error downloading template:', error);
         next(error);
@@ -451,5 +456,4 @@ export const getDefinitionStats = async (req: AuthRequest, res: Response, next: 
         next(error);
     }
 };
-
 

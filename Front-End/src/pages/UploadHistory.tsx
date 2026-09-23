@@ -96,7 +96,9 @@ export default function UploadHistory() {
     };
 
     socket.on('uploadUpdate', handleUploadUpdate);
-    return () => socket.off('uploadUpdate', handleUploadUpdate);
+    return () => {
+      socket.off('uploadUpdate', handleUploadUpdate);
+    };
   }, [socket]);
 
   const loadUploads = useCallback(async () => {
@@ -261,4 +263,3 @@ export default function UploadHistory() {
     </div>
   );
 }
-

@@ -119,41 +119,36 @@ app.use(errorHandler);
 const PORT: number = parseInt(process.env.PORT || '3000', 10);
 
 const startServer = async () => {
-    // Initialize Redis cache before services that use cached upload progress.
-    try {
-        const { cacheService } = await import('./services/Cache.service');
-        await cacheService.initialize();
-        logger.info('Cache initialized successfully');
-    } catch (error) {
-        logger.warn('Failed to initialize cache (application will continue without cache):', error);
+    const missingConfig = [
+        !appConfig.jwt.secret.trim() && 'JWT_SECRET',
+        !appConfig.database.connectionString.trim() && 'DB_CONNECTION_STRING',
+    ].filter(Boolean);
+    if (missingConfig.length) {
+        throw new Error(`Missing required configuration: ${missingConfig.join(', ')}`);
     }
 
-    // Initialize queues
-    try {
-        const { initializeQueues } = await import('./services/Queue.service');
-        await initializeQueues();
-        logger.info('Queues initialized successfully');
-    } catch (error) {
-        logger.warn('Failed to initialize queues (validation/delivery may not work):', error);
+    const { cacheService } = await import('./services/Cache.service');
+    await cacheService.initialize();
+    const { initializeQueues } = await import('./services/Queue.service');
+    await initializeQueues();
+    const { initializeValidationWorker } = await import('./services/ValidationWorker.service');
+    const validationWorker = initializeValidationWorker();
+    const { initializeDeliveryWorker } = await import('./services/DeliveryWorker.service');
+    const deliveryWorker = initializeDeliveryWorker();
+    if (appConfig.redis.enabled) {
+        let timeout: NodeJS.Timeout | undefined;
+        try {
+            await Promise.race([
+                Promise.all([validationWorker.waitUntilReady(), deliveryWorker.waitUntilReady()]),
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(() => reject(new Error('Redis workers did not become ready within 5 seconds')), 5000);
+                })
+            ]);
+        } finally {
+            if (timeout) clearTimeout(timeout);
+        }
     }
-
-    // Initialize validation worker
-    try {
-        const { initializeValidationWorker } = await import('./services/ValidationWorker.service');
-        initializeValidationWorker();
-        logger.info('Validation worker initialized successfully');
-    } catch (error) {
-        logger.warn('Failed to initialize validation worker:', error);
-    }
-
-    // Initialize delivery worker
-    try {
-        const { initializeDeliveryWorker } = await import('./services/DeliveryWorker.service');
-        initializeDeliveryWorker();
-        logger.info('Delivery worker initialized successfully');
-    } catch (error) {
-        logger.warn('Failed to initialize delivery worker:', error);
-    }
+    logger.info('Cache, queues, and upload workers initialized successfully');
 
     // ✅ IMPORTANT: Use httpServer.listen (NOT app.listen)
     httpServer.listen(PORT, '0.0.0.0', () => {
@@ -163,4 +158,7 @@ const startServer = async () => {
     });
 };
 
-startServer();
+startServer().catch(error => {
+    logger.error('Startup failed; upload processing is unavailable:', error);
+    process.exit(1);
+});

@@ -1,0 +1,18 @@
+# Local development
+
+Use Node.js and npm, a local SQL Server instance (Windows SQL Server LocalDB also works), and two terminal windows. Redis is **not required** for local development: when `REDIS_ENABLED=false`, uploads use an in-process queue and cache. Jobs are not durable across backend restarts and should not be processed by multiple backend instances. Set `REDIS_ENABLED=true` and run Redis to use BullMQ for durable multi-instance processing.
+
+1. Run `npm ci` in `Back-End` and `Front-End` separately. Dependencies in the root package do not install backend or frontend dependencies.
+2. Create a local SQL Server database named `FileValidationPlatform` (or choose another name). On Windows, SQL Server LocalDB can use `Server=(localdb)\MSSQLLocalDB;Database=FileValidationPlatform;Integrated Security=true`, the optional `msnodesqlv8` dependency, and ODBC Driver 17 for SQL Server. Connect using a local account with schema-creation rights. Execute these scripts **against that database** in order:
+   `Back-End/database/users_schema.sql`, `file_definitions_schema.sql`, `upload_system_tables.sql`, `audit_logs_schema.sql`. For the optional mock-login demo, run `seed_local_users.sql`, then `sample_file_definitions.sql` (once), and finally `seed_user_assignments.sql`.
+3. Copy `Back-End/.env.example` to `Back-End/.env`, or update an existing `.env` to match it. Set `DB_CONNECTION_STRING` to your local SQL Server connection string and `JWT_SECRET` to a new random secret. Replace any old user-specific `UPLOAD_TEMP_DIR` or `SHAREPOINT_LOCAL_PATH` with writable local paths. Keep these files private. The backend loads `.env`, **not** `.env.development`. Set `DEV_BYPASS_AUTH=true` only for the seeded local mock-login demo.
+4. Copy `Front-End/.env.example` to `Front-End/.env.development`, if it is not already configured. Set `VITE_API_URL=http://localhost:3000/api/v1` (or omit it to use the Vite `/api` proxy). Set `VITE_DEV_BYPASS_AUTH=true` only with the backend flag above. The frontend must use the same backend port as the Vite proxy.
+5. Run `npm run build` in both project directories. From the repository root, run `.\start.ps1`, or run `npm run dev` from each project directory in separate terminals. Verify `http://localhost:3000/health` and open `http://localhost:5173`. Test logging in, viewing definitions, uploading a small CSV, and observing validation status.
+
+On an older database, `upload_system_tables.sql` adds missing rule fields and disables rules without a `SqlQuery`; review and reconfigure those rules before re-enabling them.
+
+The default `STORAGE_PROVIDER=sharepoint` is a **local filesystem emulator**, not a connection to Microsoft SharePoint. Uploads live in the configured local folder. The optional `desktop` provider uses `DESKTOP_STORAGE_PATH` or a local `desktop-uploads` folder. Azure Blob Storage requires its own connection configuration and may incur charges; no Azure provisioning is required for this local setup.
+
+The seeded definitions have no enabled validation rules or delivery targets. A local test upload can pass validation but will finish as `DELIVERY_FAILED` with `No delivery targets configured`; this does not exercise external delivery. Configure rules and a supported delivery destination before testing those stages. Restarting the backend with Redis disabled also discards pending jobs, so avoid restarting it while uploads are processing.
+
+The mock login is development-only and depends on the seeded demo user IDs. Disable both bypass flags outside local development; use real authentication and Redis-backed processing for production. Do not commit `.env` files, uploaded files, or customer data.

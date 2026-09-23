@@ -9,6 +9,7 @@ BEGIN
         Description NVARCHAR(1000) NULL,
         Columns NVARCHAR(MAX) NOT NULL,  -- JSON array of {name, type, required}
         Status NVARCHAR(50) NOT NULL DEFAULT 'Active',
+        TemplateFilename NVARCHAR(255) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
@@ -22,4 +23,10 @@ ELSE
 BEGIN
     PRINT 'FileDefinitions table already exists';
 END
+GO
+
+IF COL_LENGTH('dbo.FileDefinitions', 'TemplateFilename') IS NULL
+BEGIN
+    ALTER TABLE dbo.FileDefinitions ADD TemplateFilename NVARCHAR(255) NULL;
+END;
 GO

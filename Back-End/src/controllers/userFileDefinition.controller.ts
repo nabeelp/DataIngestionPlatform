@@ -9,7 +9,7 @@ import type { IFileDefinition } from '../interfaces/fileDefinition.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 
 // Extend Request to include user
-export interface AuthRequest extends Request {
+export interface AuthRequest extends Request<Record<string, string>> {
     user?: IJwtPayload;
 }
 
@@ -115,4 +115,3 @@ export const removeFileDefinitionFromUser = async (req: AuthRequest, res: Respon
         next(error);
     }
 };
-

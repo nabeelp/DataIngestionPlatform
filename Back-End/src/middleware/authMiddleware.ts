@@ -39,18 +39,12 @@ const MOCK_TOKEN_USERS: Record<string, { userId: string; email: string; role: Us
  * Check if token is a mock token (for development only)
  */
 const parseMockToken = (token: string): { userId: string; email: string; role: UserRole; loginMethod: string } | null => {
-    console.log('[AUTH] parseMockToken called with token:', token);
-    
     // Format: mock_token_{userId}_{timestamp}
     if (token.startsWith('mock_token_')) {
         const parts = token.split('_');
-        console.log('[AUTH] Token parts:', parts);
         if (parts.length >= 3) {
             const userId = parts[2];
-            console.log('[AUTH] Extracted userId:', userId);
-            console.log('[AUTH] MOCK_TOKEN_USERS keys:', Object.keys(MOCK_TOKEN_USERS));
             const mockUser = MOCK_TOKEN_USERS[userId];
-            console.log('[AUTH] Found mockUser:', mockUser);
             if (mockUser) {
                 return mockUser;
             }
@@ -76,10 +70,8 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
 
         const token = authHeader.substring(7);
         
-        console.log('[AUTH] Received token:', token);
-        
         // First check if it's a mock token (development mode)
-        if (token.startsWith('mock_token_')) {
+        if (appConfig.nodeEnv === 'development' && process.env.DEV_BYPASS_AUTH === 'true' && token.startsWith('mock_token_')) {
             const mockUser = parseMockToken(token);
             if (mockUser) {
                 logger.info(`[AUTH] Mock token accepted for user: ${mockUser.email}`);
@@ -105,7 +97,7 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
         }
         
         // Token format not recognized
-        logger.warn('Invalid token format:', token);
+        logger.warn('Invalid token format');
         return res.status(401).json({ 
             success: false, 
             message: 'Invalid token format' 
@@ -169,4 +161,3 @@ export const optionalAuth = (req: Request, res: Response, next: NextFunction) =>
         next();
     }
 };
-

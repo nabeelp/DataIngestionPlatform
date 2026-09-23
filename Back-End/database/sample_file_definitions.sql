@@ -1,9 +1,6 @@
 -- Sample File Definitions for Admin Testing
 -- Run after file_definitions_schema.sql and upload_system_tables.sql
 
-USE [YourDatabaseName];
-GO
-
 -- Customer Upload Definition
 DECLARE @customerId NVARCHAR(36) = NEWID();
 INSERT INTO FileDefinitions (Id, Name, Description, Columns, Status)

@@ -3,7 +3,9 @@ import { apiConfig } from '../config/api';
 import { io, Socket } from 'socket.io-client';
 import type { Socket as SocketType } from 'socket.io-client';
 
-// HARDCODED TEST USERS (Login Bypass)
+const devBypassAuth = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true';
+
+// Local-only test users (enabled explicitly via VITE_DEV_BYPASS_AUTH)
 const HARDCODED_USERS = [
   {
     id: '63BD96E4-1229-4399-8964-0795E50B3574',
@@ -88,6 +90,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const storedToken = localStorage.getItem('token');
         const storedUser = localStorage.getItem('user');
+
+        if (storedToken?.startsWith('mock_token_') && !devBypassAuth) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          return;
+        }
         
         if (!storedToken || !storedUser) {
           setIsLoading(false);
@@ -106,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         const isValidToken = 
           storedToken.split('.').length === 3 || 
-          storedToken.startsWith('mock_token_');
+          (devBypassAuth && storedToken.startsWith('mock_token_'));
         
         if (!isValidToken) {
           localStorage.removeItem('token');
@@ -147,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         u => u.email.toLowerCase() === normalizedEmail
       );
 
-      if (hardcodedUser && password === HARDCODED_PASSWORD) {
+      if (devBypassAuth && hardcodedUser && password === HARDCODED_PASSWORD) {
         console.log('[AUTH] Login bypass:', hardcodedUser.email);
         const mockToken = `mock_token_${hardcodedUser.id}_${Date.now()}`;
         
@@ -266,4 +274,3 @@ export function useAuth() {
   }
   return context;
 }
-

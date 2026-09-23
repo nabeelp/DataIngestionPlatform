@@ -15,10 +15,12 @@ coverage/
 # Runtime logs and uploaded files
 logs/
 *.log
+.playwright-mcp/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 uploads/
+desktop-uploads/
 Back-End/sharepoint/uploads/
 Back-End/sharepoint/compressed/
 Back-End/temp/*

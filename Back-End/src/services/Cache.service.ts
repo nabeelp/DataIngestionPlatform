@@ -17,6 +17,7 @@ export const CACHE_KEYS = {
 
 // Default TTL values (in seconds)
 const DEFAULT_TTL = 300; // 5 minutes
+const redisEnabled = appConfig.redis.enabled;
 const CACHE_TTL = {
     FILE_DEFINITION: 600,    // 10 minutes
     RULES: 300,              // 5 minutes
@@ -28,20 +29,25 @@ const CACHE_TTL = {
 class CacheService {
     private redis: Redis | null = null;
     private isConnected: boolean = false;
+    private memory = new Map<string, { value: string; expiresAt: number | null }>();
+    private subscribers = new Map<string, Set<(message: any) => void>>();
 
     /**
      * Initialize Redis connection
      */
     async initialize(): Promise<void> {
+        if (!redisEnabled) {
+            logger.info('Using in-memory cache (REDIS_ENABLED=false)');
+            return;
+        }
         try {
             this.redis = new Redis({
                 host: appConfig.redis.host || 'localhost',
                 port: appConfig.redis.port || 6379,
                 password: appConfig.redis.password,
-                retryStrategy: (times) => {
-                    const delay = Math.min(times * 50, 2000);
-                    return delay;
-                },
+                lazyConnect: true,
+                connectTimeout: 3000,
+                retryStrategy: () => null,
                 maxRetriesPerRequest: 3,
             });
 
@@ -61,11 +67,14 @@ class CacheService {
             });
 
             // Test connection
+            await this.redis.connect();
             await this.redis.ping();
             logger.info('Redis cache initialized successfully');
         } catch (error) {
             logger.error('Failed to initialize Redis cache:', error);
-            // Don't throw - allow app to work without cache
+            this.redis?.disconnect();
+            this.redis = null;
+            throw new Error(`REDIS_ENABLED=true but Redis cache is unavailable: ${String(error)}`);
         }
     }
 
@@ -73,13 +82,26 @@ class CacheService {
      * Check if Redis is connected
      */
     isReady(): boolean {
-        return this.isConnected && this.redis !== null;
+        return !redisEnabled || (this.isConnected && this.redis !== null);
+    }
+
+    private memoryEntry(key: string): { value: string; expiresAt: number | null } | undefined {
+        const entry = this.memory.get(key);
+        if (entry && entry.expiresAt !== null && entry.expiresAt <= Date.now()) {
+            this.memory.delete(key);
+            return undefined;
+        }
+        return entry;
     }
 
     /**
      * Get a value from cache
      */
     async get<T>(key: string): Promise<T | null> {
+        if (!redisEnabled) {
+            const entry = this.memoryEntry(key);
+            return entry ? JSON.parse(entry.value) as T : null;
+        }
         if (!this.isReady()) {
             return null;
         }
@@ -100,6 +122,10 @@ class CacheService {
      * Set a value in cache
      */
     async set(key: string, value: any, ttl: number = DEFAULT_TTL): Promise<boolean> {
+        if (!redisEnabled) {
+            this.memory.set(key, { value: JSON.stringify(value), expiresAt: Date.now() + ttl * 1000 });
+            return true;
+        }
         if (!this.isReady()) {
             return false;
         }
@@ -118,6 +144,7 @@ class CacheService {
      * Delete a value from cache
      */
     async delete(key: string): Promise<boolean> {
+        if (!redisEnabled) return this.memory.delete(key);
         if (!this.isReady()) {
             return false;
         }
@@ -135,6 +162,14 @@ class CacheService {
      * Delete keys by pattern
      */
     async deleteByPattern(pattern: string): Promise<number> {
+        if (!redisEnabled) {
+            const regex = new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+            let deleted = 0;
+            for (const key of this.memory.keys()) {
+                if (this.memoryEntry(key) && regex.test(key) && this.memory.delete(key)) deleted++;
+            }
+            return deleted;
+        }
         if (!this.isReady()) {
             return 0;
         }
@@ -155,6 +190,7 @@ class CacheService {
      * Check if a key exists in cache
      */
     async exists(key: string): Promise<boolean> {
+        if (!redisEnabled) return !!this.memoryEntry(key);
         if (!this.isReady()) {
             return false;
         }
@@ -172,6 +208,12 @@ class CacheService {
      * Set TTL for a key
      */
     async setTTL(key: string, ttl: number): Promise<boolean> {
+        if (!redisEnabled) {
+            const entry = this.memoryEntry(key);
+            if (!entry) return false;
+            entry.expiresAt = Date.now() + ttl * 1000;
+            return true;
+        }
         if (!this.isReady()) {
             return false;
         }
@@ -189,6 +231,11 @@ class CacheService {
      * Get TTL for a key
      */
     async getTTL(key: string): Promise<number> {
+        if (!redisEnabled) {
+            const entry = this.memoryEntry(key);
+            if (!entry) return -2;
+            return entry.expiresAt === null ? -1 : Math.ceil((entry.expiresAt - Date.now()) / 1000);
+        }
         if (!this.isReady()) {
             return -2;
         }
@@ -311,6 +358,11 @@ class CacheService {
      * Publish a message to a channel
      */
     async publish(channel: string, message: any): Promise<number> {
+        if (!redisEnabled) {
+            const listeners = this.subscribers.get(channel);
+            for (const listener of listeners || []) queueMicrotask(() => listener(message));
+            return listeners?.size || 0;
+        }
         if (!this.isReady()) {
             return 0;
         }
@@ -328,6 +380,11 @@ class CacheService {
      * Subscribe to a channel (returns a Promise that resolves when subscribed)
      */
     async subscribe(channel: string, callback: (message: any) => void): Promise<void> {
+        if (!redisEnabled) {
+            if (!this.subscribers.has(channel)) this.subscribers.set(channel, new Set());
+            this.subscribers.get(channel)!.add(callback);
+            return;
+        }
         if (!this.isReady()) {
             return;
         }
@@ -357,6 +414,8 @@ class CacheService {
      * Close Redis connection
      */
     async close(): Promise<void> {
+        this.memory.clear();
+        this.subscribers.clear();
         if (this.redis) {
             await this.redis.quit();
             this.redis = null;
@@ -369,6 +428,10 @@ class CacheService {
      * Flush all cache
      */
     async flushAll(): Promise<void> {
+        if (!redisEnabled) {
+            this.memory.clear();
+            return;
+        }
         if (!this.isReady()) {
             return;
         }
@@ -384,4 +447,3 @@ class CacheService {
 
 // Export singleton instance
 export const cacheService = new CacheService();
-

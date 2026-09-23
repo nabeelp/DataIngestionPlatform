@@ -46,28 +46,20 @@ const getStorageService = (upload: any): StorageService => {
         } as StorageService;
     }
     
-    if (desktopStorage) {
-        try {
-            if (desktopStorage.fileExists(upload.StoredFilename)) {
-                logger.info(`[STORAGE] Using DesktopStorage for ${upload.StoredFilename}`);
-                return desktopStorage as any;
-            }
-        } catch (e) {
-            logger.debug('[STORAGE] Desktop check failed:', e);
-        }
+    switch (appConfig.storage.provider) {
+        case 'desktop':
+            if (desktopStorage) return desktopStorage;
+            break;
+        case 'sharepoint':
+            if (sharePointStorage) return sharePointStorage;
+            break;
+        case 'azure':
+            if (azureStorage && appConfig.azure.storage.connectionString) return azureStorage;
+            break;
+        default:
+            throw new Error(`Unsupported STORAGE_PROVIDER: ${appConfig.storage.provider}`);
     }
-    
-    if (sharePointStorage) {
-        logger.info(`[STORAGE] Using SharePointStorage fallback`);
-        return sharePointStorage as any;
-    }
-    
-    if (azureStorage) {
-        logger.info(`[STORAGE] Using AzureStorage fallback`);
-        return azureStorage as any;
-    }
-    
-    throw new Error('No compatible storage service available');
+    throw new Error(`STORAGE_PROVIDER ${appConfig.storage.provider} is not configured`);
 };
 
 // =============================================================================
@@ -312,6 +304,9 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
         const fileDefinition = await FileDefinition.findById(fileDefinitionId);
         const rules = await Rule.findEnabledByFileDefinitionId(fileDefinitionId);
 
+        if (!tempFilePath) {
+            throw new Error(`Validation source is missing for upload ${uploadId}`);
+        }
         const parseResult = await parseFile(tempFilePath, upload.FileType);
         
         // Update upload with row count

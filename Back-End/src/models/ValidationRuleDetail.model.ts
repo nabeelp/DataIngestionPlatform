@@ -227,6 +227,14 @@ export class ValidationRuleDetail {
         });
     }
 
+    static async markSkipped(id: string, executionTimeMs: number): Promise<void> {
+        await this.update(id, {
+            Status: 'SKIPPED',
+            ExecutionTimeMs: executionTimeMs,
+            CompletedAt: new Date()
+        });
+    }
+
     /**
      * Delete validation rule details by upload ID
      */
@@ -249,4 +257,3 @@ export class ValidationRuleDetail {
             .query(`DELETE FROM ${this.TABLE_NAME} WHERE ValidationResultId = @ValidationResultId`);
     }
 }
-

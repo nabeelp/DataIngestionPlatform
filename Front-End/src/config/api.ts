@@ -63,11 +63,11 @@ export const apiConfig = {
             return wsUrl;
         }
         
-        // Default WebSocket URL based on current location
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrlResult = `${protocol}//${window.location.host}`;
-        debugLog('Using default WebSocket URL:', wsUrlResult);
-        return wsUrlResult;
+        // Socket.IO uses HTTP polling before upgrading to WebSocket.
+        // In development, Vite proxies /socket.io to the local backend.
+        const socketOrigin = window.location.origin;
+        debugLog('Using default Socket.IO origin:', socketOrigin);
+        return socketOrigin;
     },
     //#endregion
 
@@ -90,4 +90,3 @@ export const apiConfig = {
 
 export default apiConfig;
 //#endregion
-

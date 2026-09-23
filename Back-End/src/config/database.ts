@@ -17,8 +17,28 @@ export async function getConnection(): Promise<mssql.ConnectionPool> {
         return pool;
     }
 
+    if (!appConfig.database.connectionString) {
+        throw new Error('DB_CONNECTION_STRING is required to use the database');
+    }
+
     try {
-        pool = await mssql.connect(appConfig.database.connectionString);
+        const connectionString = appConfig.database.connectionString;
+        const localDb = /^Server=((?:\(localdb\))\\[^;]+);Database=([^;]+);Integrated Security=true;?$/i.exec(connectionString);
+        if (connectionString.toLowerCase().includes('(localdb)') && !localDb) {
+            throw new Error('LocalDB requires Server=(localdb)\\MSSQLLocalDB;Database=<database>;Integrated Security=true');
+        }
+
+        if (localDb) {
+            const driver = await import('mssql/msnodesqlv8');
+            pool = await driver.connect({
+                server: localDb[1],
+                database: localDb[2],
+                driver: 'ODBC Driver 17 for SQL Server',
+                options: { trustedConnection: true },
+            });
+        } else {
+            pool = await mssql.connect(connectionString);
+        }
 
         console.log('Database connected successfully');
         return pool;
@@ -41,4 +61,3 @@ export async function closeConnection(): Promise<void> {
 
 // Export the pool type for type safety
 export type DatabasePool = mssql.ConnectionPool;
-
