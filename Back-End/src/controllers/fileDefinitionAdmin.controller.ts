@@ -1,0 +1,234 @@
+// =============================================================================
+// FileDefinition Admin Controller - FileDefinition user assignment endpoints
+// Symmetric to userFileDefinition.controller.ts
+// =============================================================================
+
+import { Request, Response, NextFunction } from 'express';
+import { FileDefinitionService } from '../services/FileDefinition.service';
+import type { IFileDefinitionUser } from '../interfaces/fileDefinition.interface';
+import { IJwtPayload } from '../interfaces/user.interface';
+
+// Extend Request to include user
+export interface AuthRequest extends Request {
+    user?: IJwtPayload;
+}
+
+/**
+ * Get users assigned to specific file definition (admin only)
+ * GET /api/admin/file-definitions/:definitionId/users
+ */
+export const getFileDefinitionUsers = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId: string = req.params.definitionId as string;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Admin access required' 
+            });
+        }
+
+        const users = await FileDefinitionService.getAllowedUsers(definitionId);
+
+        res.json({
+            success: true,
+            users,
+            total: users.length
+        });
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error getting definition users:', error);
+        next(error);
+    }
+};
+
+/**
+ * Assign users to file definition (admin only)
+ * POST /api/admin/file-definitions/:definitionId/users
+ * Body: { userIds: string[] }
+ */
+export const addUsersToFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { definitionId } = req.params;
+        const { userIds } = req.body;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Admin access required' 
+            });
+        }
+
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds array is required and cannot be empty'
+            });
+        }
+
+        const updatedUsers = await FileDefinitionService.addUsersToDefinition(
+            definitionId, 
+            userIds, 
+            adminUserId
+        );
+
+        res.json({
+            success: true,
+            users: updatedUsers,
+            message: `Assigned ${userIds.length} users to file definition`
+        });
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error adding users:', error);
+        next(error);
+    }
+};
+
+/**
+ * Remove user from file definition (admin only)
+ * DELETE /api/admin/file-definitions/:definitionId/users/:userId
+ */
+export const removeUserFromFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { definitionId, userId } = req.params;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Admin access required' 
+            });
+        }
+
+        const remainingUsers = await FileDefinitionService.removeUserFromDefinition(
+            definitionId, 
+            userId
+        );
+
+        res.json({
+            success: true,
+            users: remainingUsers,
+            message: 'User removed from file definition'
+        });
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error removing user:', error);
+        next(error);
+    }
+};
+
+/**
+ * Get all available users for assignment (admin)
+ * GET /api/admin/file-definitions/users/all
+ */
+export const getAllAvailableUsers = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const users = await FileDefinitionService.getAllAvailableUsers();
+
+        res.json({
+            success: true,
+            users
+        });
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error getting available users:', error);
+        next(error);
+    }
+};
+
+/**
+ * Upload custom template file (admin only)
+ * POST /api/admin/file-definitions/:id/template-upload
+ * multipart/form-data file
+ */
+export const uploadTemplate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId = req.params.id as string;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Admin access required' 
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'No file uploaded' 
+            });
+        }
+
+        const templateFilename = req.file.filename;
+        await FileDefinitionService.setTemplateFilename(definitionId, templateFilename);
+
+        res.json({
+            success: true,
+            templateFilename,
+            message: 'Template uploaded successfully'
+        });
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error uploading template:', error);
+        next(error);
+    }
+};
+
+
+
+/**
+ * Export file definition for download (admin only)
+ * GET /api/admin/file-definitions/:id/export
+ */
+export const exportFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Admin access required' 
+            });
+        }
+
+        const exportData = await FileDefinitionService.exportDefinition(definitionId);
+
+        // Set download headers
+        const filename = `${exportData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-definition.json`;
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Type', 'application/json');
+
+        res.json(exportData);
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error exporting definition:', error);
+        next(error);
+    }
+};
+
+/**
+ * Get user counts for all file definitions (admin dashboard)
+ * GET /api/admin/file-definitions/users/counts
+ */
+export const getFileDefinitionUserCounts = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Admin access required' 
+            });
+        }
+
+        const counts = await FileDefinitionService.getAllDefinitionUserCounts();
+
+        res.json({
+            success: true,
+            counts
+        });
+    } catch (error) {
+        console.error('[FILEDEF_ADMIN_CTRL] Error getting user counts:', error);
+        next(error);
+    }
+};
+
+

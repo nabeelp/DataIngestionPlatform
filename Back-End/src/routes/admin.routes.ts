@@ -1,0 +1,349 @@
+﻿// =============================================================================
+// Admin Routes - API endpoints for Admin Dashboard
+// =============================================================================
+
+import { Router, Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
+import { body, validationResult } from 'express-validator';
+import { authenticate, authorize } from '../middleware/authMiddleware';
+import * as AdminController from '../controllers/admin.controller';
+
+const router = Router();
+
+// Validation middleware
+const validateRequest = (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        console.log('[ADMIN_ROUTES] Validation errors:', errors.array());
+        return res.status(400).json({ errors: errors.array() });
+    }
+    next();
+};
+
+// All admin routes require authentication and admin role
+router.use(authenticate);
+router.use(authorize('admin'));
+
+// ============================================================================
+// Dashboard Stats
+// ============================================================================
+
+/**
+ * GET /api/admin/stats
+ * Get dashboard statistics - rate limited for production
+ */
+router.get(
+    '/stats',
+    [
+      // Rate limit stats endpoint: 30/min per IP (high traffic dashboard)
+      // Note: requires rate-limit-flexible middleware imported
+      rateLimit({
+        windowMs: 60 * 1000, // 1 minute
+        max: 30,
+        message: { success: false, message: 'Too many stats requests, please wait' }
+      })
+    ],
+    AdminController.getStats
+);
+
+// ============================================================================
+// User Management
+// ============================================================================
+
+/**
+ * GET /api/admin/users
+ * Get all users (paginated)
+ */
+router.get(
+    '/users',
+    AdminController.getUsers
+    
+);
+console.log('We are here in the routes');
+
+/**
+ * GET /api/admin/users/:id
+ * Get user by ID
+ */
+router.get(
+    '/users/:id',
+    AdminController.getUserById
+);
+
+/**
+ * POST /api/admin/users
+ * Create new user
+ */
+router.post(
+    '/users',
+    [
+        body('email').isEmail().normalizeEmail(),
+        body('username').isLength({ min: 3, max: 50 }),
+        body('password').isLength({ min: 8 }),
+        body('firstName').optional().isLength({ max: 100 }),
+        body('lastName').optional().isLength({ max: 100 }),
+        body('role').optional().isIn(['admin', 'user']),
+    ],
+    validateRequest,
+    AdminController.createUser
+);
+
+/**
+ * PUT /api/admin/users/:id
+ * Update user
+ */
+router.put(
+    '/users/:id',
+    [
+        body('firstName').optional().isLength({ max: 100 }),
+        body('lastName').optional().isLength({ max: 100 }),
+        body('role').optional().isIn(['admin', 'user']),
+        body('isActive').optional().isBoolean(),
+    ],
+    validateRequest,
+    AdminController.updateUser
+);
+
+/**
+ * POST /api/admin/users/:id/unlock
+ * Unlock user account
+ */
+router.post(
+    '/users/:id/unlock',
+    AdminController.unlockUser
+);
+
+/**
+ * DELETE /api/admin/users/:id
+ * Delete (soft delete) user
+ */
+router.delete(
+    '/users/:id',
+    AdminController.deleteUser
+);
+
+// ============================================================================
+// Audit Logs
+// ============================================================================
+
+/**
+ * GET /api/admin/audit-logs
+ * Get audit logs with filters
+ */
+router.get(
+    '/audit-logs',
+    AdminController.getAuditLogs
+);
+
+/**
+ * GET /api/admin/audit-logs/recent
+ * Get recent audit logs (for dashboard)
+ */
+router.get(
+    '/audit-logs/recent',
+    AdminController.getRecentAuditLogs
+);
+
+// ============================================================================
+// Queue Monitoring
+// ============================================================================
+
+/**
+ * GET /api/admin/queue-stats
+ * Get queue statistics
+ */
+router.get(
+    '/queue-stats',
+    AdminController.getQueueStats
+);
+
+/**
+ * GET /api/admin/processing-files
+ * Get files currently being processed
+ */
+router.get(
+    '/processing-files',
+    AdminController.getProcessingFiles
+);
+
+// ============================================================================
+// File Definitions Management (Admin view)
+// ============================================================================
+
+/**
+ * GET /api/admin/file-definitions
+ * Get all file definitions (admin view)
+ */
+router.get(
+    '/file-definitions',
+    AdminController.getFileDefinitions
+);
+
+/**
+ * POST /api/admin/file-definitions
+ * Create new file definition
+ */
+router.post(
+    '/file-definitions',
+    [
+        body('name').isLength({ min: 1, max: 200 }).trim(),
+        body('description').optional().isLength({ max: 1000 }),
+        body('columns').isArray({ min: 1 }),
+        body('columns.*.name').isString().isLength({ min: 1, max: 100 }),
+        body('columns.*.type').isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
+        body('columns.*.required').isBoolean(),
+        body('status').optional().isIn(['Active', 'Inactive']),
+    ],
+    validateRequest,
+    AdminController.createFileDefinition
+);
+
+/**
+ * PUT /api/admin/file-definitions/:id
+ * Update file definition
+ */
+router.put(
+    '/file-definitions/:id',
+    [
+        body('name').optional().isLength({ min: 1, max: 200 }).trim(),
+        body('description').optional().isLength({ max: 1000 }),
+        body('columns').optional().isArray({ min: 1 }),
+        body('columns.*.name').optional().isString().isLength({ min: 1, max: 100 }),
+        body('columns.*.type').optional().isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
+        body('columns.*.required').optional().isBoolean(),
+        body('status').optional().isIn(['Active', 'Inactive']),
+    ],
+    validateRequest,
+    AdminController.updateFileDefinition
+);
+
+/**
+ * DELETE /api/admin/file-definitions/:id
+ * Delete file definition
+ */
+router.delete(
+    '/file-definitions/:id',
+    AdminController.deleteFileDefinition
+);
+
+// ============================================================================
+// File Definition User Assignments (Admin only)
+// ============================================================================
+
+import * as FileDefinitionAdminController from '../controllers/fileDefinitionAdmin.controller';
+import * as UserFileDefinitionController from '../controllers/userFileDefinition.controller';
+
+/**
+ * GET /api/admin/file-definitions/:definitionId/users
+ * Get users assigned to specific file definition
+ */
+router.get(
+    '/file-definitions/:definitionId/users',
+    FileDefinitionAdminController.getFileDefinitionUsers
+);
+
+/**
+ * POST /api/admin/file-definitions/:definitionId/users
+ * Assign users to file definition
+ * Body: { userIds: string[] }
+ */
+router.post(
+    '/file-definitions/:definitionId/users',
+    [
+        body('userIds').isArray({ min: 1 }),
+        body('userIds.*').isString().isUUID(),
+    ],
+    validateRequest,
+    FileDefinitionAdminController.addUsersToFileDefinition
+);
+
+/**
+ * DELETE /api/admin/file-definitions/:definitionId/users/:userId
+ * Remove specific user from file definition
+ */
+router.delete(
+    '/file-definitions/:definitionId/users/:userId',
+    FileDefinitionAdminController.removeUserFromFileDefinition
+);
+
+	/**
+ * GET /api/admin/file-definitions/users/all
+ * Get all available users for assignment
+ */
+router.get(
+    '/file-definitions/users/all',
+    FileDefinitionAdminController.getAllAvailableUsers
+);
+
+/**
+ * Upload template file - requires multer middleware
+ * POST /api/admin/file-definitions/:id/template-upload
+ */
+import { uploadTemplate } from '../middleware/upload.middleware';
+router.post(
+    '/file-definitions/:id/template-upload',
+    uploadTemplate.single('file'),
+    FileDefinitionAdminController.uploadTemplate
+);
+
+
+
+/**
+ * GET /api/admin/file-definitions/users/counts
+ * Get user counts for all file definitions (admin dashboard table)
+ */
+router.get(
+    '/file-definitions/users/counts',
+    FileDefinitionAdminController.getFileDefinitionUserCounts
+);
+
+/**
+ * GET /api/admin/file-definitions/:id/export
+ * Export file definition JSON for download
+ */
+router.get(
+    '/file-definitions/:id/export',
+    FileDefinitionAdminController.exportFileDefinition
+);
+
+
+// ============================================================================
+
+// User-File Definition Assignments (symmetric)
+// ============================================================================
+
+/**
+ * GET /api/admin/users/:userId/file-definitions
+ * Get file definitions assigned to a specific user
+ */
+router.get(
+    '/users/:userId/file-definitions',
+    UserFileDefinitionController.getUserFileDefinitions
+);
+
+/**
+ * POST /api/admin/users/:userId/file-definitions
+ * Assign file definitions to user
+ * Body: { fileDefinitionIds: string[] }
+ */
+router.post(
+    '/users/:userId/file-definitions',
+    [
+        body('fileDefinitionIds').isArray({ min: 1 }),
+        body('fileDefinitionIds.*').isString().isUUID(),
+    ],
+    validateRequest,
+    UserFileDefinitionController.assignFileDefinitionsToUser
+);
+
+/**
+ * DELETE /api/admin/users/:userId/file-definitions/:definitionId
+ * Remove specific file definition from user
+ */
+router.delete(
+    '/users/:userId/file-definitions/:definitionId',
+    UserFileDefinitionController.removeFileDefinitionFromUser
+);
+
+export default router;
+

@@ -1,0 +1,31 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Local configuration (keep safe-to-share templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.vscode/
+
+# Runtime logs and uploaded files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+uploads/
+Back-End/sharepoint/uploads/
+Back-End/sharepoint/compressed/
+Back-End/temp/*
+!Back-End/temp/.gitkeep
+
+# OS and editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
