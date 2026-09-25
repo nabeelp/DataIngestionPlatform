@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, History } from 'lucide-react';
 import { apiConfig } from '../config/api';
+import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
 import type { Socket } from 'socket.io-client';
 import type { UploadUpdateEvent } from '../types/websocket';
@@ -218,7 +219,7 @@ export default function UploadHistory() {
         <div className="bg-white shadow rounded-lg p-8 text-center">
           <p className="text-gray-500 mb-4">No uploads found.</p>
           <Link 
-            to="/upload" 
+            to={`${roleBasePath(user?.Role)}/upload`} 
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm inline-block"
           >
             Upload your first file

@@ -66,6 +66,21 @@ const Sidebar = () => {
       path: "/admin",
     },
     {
+      name: "My Dashboard",
+      icon: <LayoutDashboard size={18} />,
+      path: "/admin/my-dashboard",
+    },
+    {
+      name: "Upload File",
+      icon: <Upload size={18} />,
+      path: "/admin/upload",
+    },
+    {
+      name: "My Files",
+      icon: <FileText size={18} />,
+      path: "/admin/definitions",
+    },
+    {
       name: "Users Management",
       icon: <FileText size={18} />,
       path: "/admin/users",

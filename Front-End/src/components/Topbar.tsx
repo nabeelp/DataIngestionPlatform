@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Bell, ChevronDown, FileText, Search, UploadCloud } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { apiRequest } from "../services/http";
+import { roleBasePath } from "../config/routes";
 //#endregion
 
 //#region TYPES
@@ -201,7 +202,7 @@ const Topbar = () => {
 
       {/* Right Side */}
       <div className="flex items-center gap-4 md:gap-6 ml-auto">
-        <Link to="/history" className="text-slate-700 hover:text-blue-600" aria-label="Upload history" title="Upload history">
+        <Link to={`${roleBasePath(user?.Role)}/history`} className="text-slate-700 hover:text-blue-600" aria-label="Upload history" title="Upload history">
           <Bell size={20} />
         </Link>
 

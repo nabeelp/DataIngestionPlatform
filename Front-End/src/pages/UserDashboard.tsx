@@ -27,6 +27,7 @@ import {
 } from 'recharts';
 import { apiRequest } from '../services/http';
 import { useAuth } from '../context/AuthContext';
+import { roleBasePath } from '../config/routes';
 //#endregion
 
 //#region INTERFACES
@@ -188,6 +189,7 @@ const OUTCOME_COLORS = { successful: '#22c55e', failed: '#ef4444', inProgress: '
 export default function Dashboard() {
   //#region STATE
   const { user } = useAuth();
+  const basePath = roleBasePath(user?.Role);
   const [periodDays, setPeriodDays] = useState(7);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [recentUploads, setRecentUploads] = useState<FormattedUpload[]>([]);
@@ -383,7 +385,7 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm lg:col-span-8 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-bold text-slate-900">Recent Tasks</h2>
-            <Link to="/history" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
+            <Link to={`${basePath}/history`} className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
           </div>
           <div className="overflow-x-auto">
             {dashboard.recentTasks.length === 0 ? (
@@ -409,7 +411,7 @@ export default function Dashboard() {
                           {task.type === 'Delivery' ? <UploadCloud className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
                         </div>
                         <div className="truncate">
-                          <Link to={`/history/${task.uploadId}`} className="text-slate-900 font-bold text-[13px] leading-tight hover:text-blue-600 truncate block">
+                          <Link to={`${basePath}/history/${task.uploadId}`} className="text-slate-900 font-bold text-[13px] leading-tight hover:text-blue-600 truncate block">
                             {task.filename}
                           </Link>
                         </div>
@@ -439,7 +441,7 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-slate-900">Recent Uploads</h2>
-            <Link to="/history" className="text-xs font-medium text-blue-600 hover:underline">View all</Link>
+            <Link to={`${basePath}/history`} className="text-xs font-medium text-blue-600 hover:underline">View all</Link>
           </div>
           <div className="overflow-x-auto h-full">
             {recentUploads.length === 0 ? (
@@ -456,7 +458,7 @@ export default function Dashboard() {
                   {recentUploads.map((upload) => (
                     <tr key={upload.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="py-2.5 max-w-[170px]">
-                        <Link to={`/history/${upload.id}`} className="hover:text-blue-600 block truncate text-slate-900 font-semibold">
+                        <Link to={`${basePath}/history/${upload.id}`} className="hover:text-blue-600 block truncate text-slate-900 font-semibold">
                           {upload.filename}
                         </Link>
                         <div className="text-[10px] text-slate-400 mt-0.5 truncate">{upload.info}</div>
@@ -478,7 +480,7 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-slate-900">Top Definitions</h2>
-            <Link to="/definitions" className="text-xs font-medium text-blue-600 hover:underline">View all</Link>
+            <Link to={`${basePath}/definitions`} className="text-xs font-medium text-blue-600 hover:underline">View all</Link>
           </div>
           <div className="overflow-x-auto">
             {dashboard.topDefinitions.length === 0 ? (

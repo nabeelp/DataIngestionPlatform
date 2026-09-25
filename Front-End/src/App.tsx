@@ -104,6 +104,10 @@ function App() {
         }
       >
       <Route index element={<AdminDashboard />} />
+        {/* Standard user capabilities, also available to admins */}
+        <Route path="my-dashboard" element={<UserDashboard />} />
+        <Route path="upload" element={<Upload />} />
+        <Route path="definitions" element={<Definitions />} />
         <Route path="users" element={<AdminUsers />} />
         <Route path="file-definitions" element={<AdminFileDefinitions />} />
         <Route path="audit-logs" element={<AuditLogs />} />

@@ -4,7 +4,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
-import { authenticate } from '../middleware/authMiddleware';
+import { authenticate, authorize } from '../middleware/authMiddleware';
 import * as RuleController from '../controllers/rule.controller';
 import { SUPPORTED_RULE_TYPES } from '../services/validation/ValidationEngine';
 
@@ -44,11 +44,12 @@ router.get(
 /**
  * POST /api/rules
  * Create a new rule
- * Requires access to the file definition
+ * Admin only
  */
 router.post(
     '/',
     authenticate,
+    authorize('admin'),
     [
         body('FileDefinitionId').isUUID(),
         body('Name').isLength({ min: 1, max: 200 }).trim(),
@@ -66,11 +67,12 @@ router.post(
 /**
  * PUT /api/rules/:id
  * Update a rule
- * Requires access to the rule's file definition
+ * Admin only
  */
 router.put(
     '/:id',
     authenticate,
+    authorize('admin'),
     [
         body('Name').optional().isLength({ min: 1, max: 200 }).trim(),
         body('Description').optional().isLength({ max: 1000 }),
@@ -87,22 +89,24 @@ router.put(
 /**
  * DELETE /api/rules/:id
  * Delete a rule
- * Requires access to the rule's file definition
+ * Admin only
  */
 router.delete(
     '/:id',
     authenticate,
+    authorize('admin'),
     RuleController.deleteRule
 );
 
 /**
  * PATCH /api/rules/:id/toggle
  * Toggle rule enabled/disabled status
- * Requires access to the rule's file definition
+ * Admin only
  */
 router.patch(
     '/:id/toggle',
     authenticate,
+    authorize('admin'),
     RuleController.toggleRule
 );
 

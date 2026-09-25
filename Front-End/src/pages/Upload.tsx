@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { UploadCloud, ChevronDown, FileText, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiConfig } from '../config/api';
+import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
 import type { Socket } from 'socket.io-client';
 import type { UploadProgressEvent } from '../types/websocket';
@@ -706,7 +707,7 @@ const handleVerify = async (uploadId: string) => {
 
                 <div className="w-[15%] text-right">
                   <Link
-                    to={`/history/${item.id}`}
+                    to={`${roleBasePath(auth?.user?.Role)}/history/${item.id}`}
                     className="text-blue-600 hover:text-blue-800 font-semibold"
                   >
                     View

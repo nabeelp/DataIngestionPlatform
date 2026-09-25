@@ -30,6 +30,8 @@ Every upload is read in full (streaming CSV parser; all Excel sheets) and checke
 
 Rule failures with severity `Warning` do not fail the upload. Up to 100 sample issues are stored per rule, along with the total count.
 
+Only admins can create, edit, enable/disable or delete rules. Standard users can view the rules for the file definitions they have access to.
+
 `Custom SQL` and `Regex Pattern` rules are no longer supported. `upload_system_tables.sql` disables existing rules of those types, and on older databases it also disables rules without a `SqlQuery`. Review these rules on the Rules page and recreate them with a supported type before re-enabling them.
 
 ## Delivery

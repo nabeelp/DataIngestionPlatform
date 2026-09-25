@@ -50,7 +50,8 @@ const getRuleTypeMeta = (type: string) =>
   RULE_TYPES.find(t => t.value === type) || { value: type, label: type, help: 'This rule type is no longer supported. Choose a supported type.', example: '' };
 
 export default function ValidationRules() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canManageRules = user?.Role === 'admin';
 
   //#region STATE MANAGERS
   const [rules, setRules] = useState<Rule[]>([]);
@@ -370,15 +371,21 @@ export default function ValidationRules() {
                 </div>
                 <h1 className="text-3xl font-bold tracking-tight text-slate-900">Validation Rules</h1>
               </div>
-              <p className="text-slate-500 mt-1">Manage quality and compliance rules for data integrity platforms.</p>
+              <p className="text-slate-500 mt-1">
+                {canManageRules
+                  ? 'Manage quality and compliance rules for data integrity platforms.'
+                  : 'View the quality and compliance rules applied to your uploads. Contact an admin to request changes.'}
+              </p>
             </div>
-            <button 
-              onClick={() => { setEditingRule(null); setIsDrawerOpen(true); }}
-              disabled={!selectedDefinitionId}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors text-sm"
-            >
-              <Plus className="w-4 h-4" /> New Rule
-            </button>
+            {canManageRules && (
+              <button 
+                onClick={() => { setEditingRule(null); setIsDrawerOpen(true); }}
+                disabled={!selectedDefinitionId}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors text-sm"
+              >
+                <Plus className="w-4 h-4" /> New Rule
+              </button>
+            )}
           </div>
 
           {/* Operational Standard Notification Banner */}
@@ -534,15 +541,17 @@ export default function ValidationRules() {
                           </div>
                           <div className="flex items-center gap-4 relative">
                             {rule.creatorName && <span className="text-xs text-slate-400">By {rule.creatorName}</span>}
+                            {canManageRules && (
                             <button 
                               onClick={() => setActiveMenuId(activeMenuId === rule.id ? null : rule.id)}
                               className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100"
                             >
                               <MoreVertical className="w-4 h-4" />
                             </button>
+                            )}
 
                             {/* Dropdown Action Controls Block */}
-                            {activeMenuId === rule.id && (
+                            {canManageRules && activeMenuId === rule.id && (
                               <>
                                 <div className="fixed inset-0 z-10" onClick={() => setActiveMenuId(null)} />
                                 <div className="absolute right-0 top-7 w-40 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-20 text-xs font-medium">
@@ -572,6 +581,7 @@ export default function ValidationRules() {
                         )}
 
                         {/* Direct Control Actions Inline */}
+                        {canManageRules && (
                         <div className="flex items-center gap-4 pt-1 text-xs font-semibold">
                           <button onClick={() => { setEditingRule(rule); setIsDrawerOpen(true); }} className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700">
                             <Edit2 className="w-3.5 h-3.5" /> Edit
@@ -580,6 +590,7 @@ export default function ValidationRules() {
                             <Power className="w-3.5 h-3.5" /> {rule.isEnabled ? 'Disable' : 'Enable'}
                           </button>
                         </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -592,7 +603,7 @@ export default function ValidationRules() {
         {/* ========================================================================= */}
         {/* VALIDATION RULE CREATOR & EDITOR DRAWER (RIGHT PANEL)                    */}
         {/* ========================================================================= */}
-        {isDrawerOpen && (
+        {canManageRules && isDrawerOpen && (
           <div className="w-[450px] bg-white border border-slate-200 rounded-2xl shadow-lg flex flex-col overflow-hidden self-start sticky top-8 animate-slideLeft">
             
             {/* Header */}
