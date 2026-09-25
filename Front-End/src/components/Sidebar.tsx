@@ -12,9 +12,27 @@ import {
   HelpCircle,
   ChevronRight,
   History,
+  Users,
+  Clock,
+  Activity,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useState } from "react";
+import type { ReactNode } from "react";
+//#endregion
+
+//#region TYPES
+interface MenuItem {
+  name: string;
+  icon: ReactNode;
+  path: string;
+}
+
+interface MenuSection {
+  title?: string;
+  items: MenuItem[];
+}
 //#endregion
 
 //#region MAIN COMPONENT
@@ -30,7 +48,7 @@ const Sidebar = () => {
   //#endregion
 
   //#region MENU ITEMS
-  const userMenuItems = [
+  const userMenuItems: MenuItem[] = [
     {
       name: "Dashboard",
       icon: <LayoutDashboard size={18} />,
@@ -59,70 +77,80 @@ const Sidebar = () => {
     { name: "Lookups", icon: <Search size={18} />, path: "/lookups" },
   ];
 
-  const adminMenuItems = [
+  const adminMenuSections: MenuSection[] = [
     {
-      name: "Dashboard",
-      icon: <LayoutDashboard size={18} />,
-      path: "/admin",
+      title: "Admin",
+      items: [
+        {
+          name: "Dashboard",
+          icon: <LayoutDashboard size={18} />,
+          path: "/admin",
+        },
+        {
+          name: "Users Management",
+          icon: <Users size={18} />,
+          path: "/admin/users",
+        },
+        {
+          name: "File Definitions",
+          icon: <FileText size={18} />,
+          path: "/admin/file-definitions",
+        },
+        {
+          name: "Rules",
+          icon: <Settings size={18} />,
+          path: "/admin/rules",
+        },
+        {
+          name: "Lookups",
+          icon: <Search size={18} />,
+          path: "/admin/lookups",
+        },
+        {
+          name: "Audit Logs",
+          icon: <Clock size={18} />,
+          path: "/admin/audit-logs",
+        },
+        {
+          name: "Monitoring",
+          icon: <Activity size={18} />,
+          path: "/admin/monitoring",
+        },
+        {
+          name: "Compliance",
+          icon: <ShieldCheck size={18} />,
+          path: "/admin/compliance",
+        },
+      ],
     },
     {
-      name: "My Dashboard",
-      icon: <LayoutDashboard size={18} />,
-      path: "/admin/my-dashboard",
-    },
-    {
-      name: "Upload File",
-      icon: <Upload size={18} />,
-      path: "/admin/upload",
-    },
-    {
-      name: "My Files",
-      icon: <FileText size={18} />,
-      path: "/admin/definitions",
-    },
-    {
-      name: "Users Management",
-      icon: <FileText size={18} />,
-      path: "/admin/users",
-    },
-    {
-      name: "Files",
-      icon: <FileText size={18} />,
-      path: "/admin/file-definitions",
-    },
-    {
-      name: "Audit Logs",
-      icon: <FileText size={18} />,
-      path: "/admin/audit-logs",
-    },
-    {
-      name: "Monitoring",
-      icon: <Settings size={18} />,
-      path: "/admin/monitoring",
-    },
-    {
-      name: "Uploads",
-      icon: <History size={18} />,
-      path: "/admin/history",
-    },
-    {
-      name: "Rules",
-      icon: <Settings size={18} />,
-      path: "/admin/rules",
-    },
-    {
-      name: "Lookups",
-      icon: <Search size={18} />,
-      path: "/admin/lookups",
-    },
-    {
-      name: "Compliance",
-      icon: <FileText size={18} />,
-      path: "/admin/compliance",
+      title: "Files",
+      items: [
+        {
+          name: "My Dashboard",
+          icon: <LayoutDashboard size={18} />,
+          path: "/admin/my-dashboard",
+        },
+        {
+          name: "Upload File",
+          icon: <Upload size={18} />,
+          path: "/admin/upload",
+        },
+        {
+          name: "Upload History",
+          icon: <History size={18} />,
+          path: "/admin/history",
+        },
+        {
+          name: "My Files",
+          icon: <FileText size={18} />,
+          path: "/admin/definitions",
+        },
+      ],
     },
   ];
 
-  const menuItems = isAdmin ? adminMenuItems : userMenuItems;
+  const menuSections: MenuSection[] = isAdmin ? adminMenuSections : [{ items: userMenuItems }];
   //#endregion
 
   //#region RENDER
@@ -175,29 +203,38 @@ const Sidebar = () => {
         </div>
 
         {/* Navigation */}
-        <nav className="px-3 space-y-1.5 flex-1 overflow-y-auto">
-          {menuItems.map((item) => {
-            const active = location.pathname === item.path;
+        <nav className="px-3 flex-1 overflow-y-auto space-y-5">
+          {menuSections.map((section, index) => (
+            <div key={section.title ?? index} className="space-y-1.5">
+              {section.title && (
+                <h3 className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  {section.title}
+                </h3>
+              )}
+              {section.items.map((item) => {
+                const active = location.pathname === item.path;
 
-            return (
-              <Link
-                key={item.name}
-                to={item.path}
-                onClick={() => setIsMobileOpen(false)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
-                  active
-                    ? "bg-gradient-to-r from-blue-700 to-blue-500 text-white shadow-md"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {item.icon}
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setIsMobileOpen(false)}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                      active
+                        ? "bg-gradient-to-r from-blue-700 to-blue-500 text-white shadow-md"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {item.icon}
 
-                <span className="text-sm font-medium truncate">
-                  {item.name}
-                </span>
-              </Link>
-            );
-          })}
+                    <span className="text-sm font-medium truncate">
+                      {item.name}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}
