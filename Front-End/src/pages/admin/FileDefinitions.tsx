@@ -33,7 +33,8 @@ export default function FileDefinitions() {
     name: '',
     description: '',
     columns: INITIAL_COLUMNS,
-    status: 'Active'
+    status: 'Active',
+    deliveryFolder: ''
   });
 
   // User management state
@@ -89,28 +90,47 @@ export default function FileDefinitions() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploading) return;
+
+    const payload = {
+      name: formData.name,
+      description: formData.description,
+      columns: formData.columns,
+      status: formData.status,
+      deliveryFolder: formData.deliveryFolder.trim() || null
+    };
+
+    let savedId: string | null = null;
     try {
+      setUploading(true);
       setError(null);
-      if (editingId) {
-        await updateFileDefinitionAdmin(editingId, {
-          name: formData.name,
-          description: formData.description,
-          columns: formData.columns,
-          status: formData.status
-        });
-      } else {
-        await createFileDefinitionAdmin({
-          name: formData.name,
-          description: formData.description,
-          columns: formData.columns,
-          status: formData.status
-        });
-      }
-      await fetchDefinitions();
-      closeModal();
+      const saved = editingId
+        ? await updateFileDefinitionAdmin(editingId, payload)
+        : await createFileDefinitionAdmin(payload);
+      savedId = saved?.id || editingId;
     } catch (err) {
       console.error('Failed to save file definition:', err);
-      setError('Failed to save file definition');
+      setError(err instanceof Error ? err.message : 'Failed to save file definition');
+      setUploading(false);
+      return;
+    }
+
+    try {
+      if (templateFile) {
+        if (!savedId) {
+          throw new Error('Definition was saved, but its id was not returned');
+        }
+        await uploadTemplate(savedId, templateFile);
+      }
+      closeModal();
+    } catch (err) {
+      console.error('Failed to upload template:', err);
+      // Keep the modal open in edit mode so the admin can retry the template upload.
+      if (savedId) setEditingId(savedId);
+      setError(`Definition saved, but the template upload failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setUploading(false);
+      await fetchDefinitions();
     }
   };
 
@@ -120,7 +140,8 @@ export default function FileDefinitions() {
       name: def.name,
       description: def.description || '',
       columns: def.columns,
-      status: def.status
+      status: def.status,
+      deliveryFolder: def.deliveryFolder || ''
     });
     setCurrentTemplateFilename(def.templateFilename || null);
     setTemplateFile(null);
@@ -149,8 +170,10 @@ export default function FileDefinitions() {
       name: '',
       description: '',
       columns: INITIAL_COLUMNS,
-      status: 'Active'
+      status: 'Active',
+      deliveryFolder: ''
     });
+    setError(null);
   };
 
   const addColumn = () => {
@@ -276,23 +299,6 @@ export default function FileDefinitions() {
     } catch (error) {
       console.error('Download failed:', error);
       setError('Failed to download file definition');
-    }
-  };
-
-  const handleUploadTemplate = async (definitionId: string, file: File) => {
-    if (uploading) return;
-    
-    try {
-      setUploading(true);
-      setError(null);
-      await uploadTemplate(definitionId, file);
-      alert('Template uploaded successfully!');
-      await fetchDefinitions();
-    } catch (error) {
-      console.error('Upload failed:', error);
-      setError('Failed to upload template');
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -437,6 +443,11 @@ export default function FileDefinitions() {
             </div>
             
             <form onSubmit={handleSubmit} className="p-4">
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700" role="alert">
+                  {error}
+                </div>
+              )}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Name *
@@ -533,6 +544,25 @@ export default function FileDefinitions() {
                 ))}
               </div>
 
+              {/* Delivery Section */}
+              <div className="mb-4">
+                <label htmlFor="deliveryFolder" className="block text-sm font-medium text-gray-700 mb-2">
+                  Delivery folder (optional)
+                </label>
+                <input
+                  id="deliveryFolder"
+                  type="text"
+                  value={formData.deliveryFolder}
+                  onChange={(e) => setFormData(prev => ({ ...prev, deliveryFolder: e.target.value }))}
+                  placeholder="e.g. finance/customers"
+                  maxLength={200}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Relative to the server delivery root. Leave empty to finish uploads as validated without delivery.
+                </p>
+              </div>
+
               {/* Template Attachment Section */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -545,7 +575,7 @@ export default function FileDefinitions() {
                 )}
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.xls,.csv,.txt"
                   onChange={handleTemplateFileChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />

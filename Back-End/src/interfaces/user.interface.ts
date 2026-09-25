@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // User Interface - Defines the User type for authentication
 // =============================================================================
 
@@ -77,8 +77,12 @@ export interface ILoginDto {
  */
 export interface ISsoLoginDto {
     Provider: SsoProvider;
-    AccessToken: string;
-    IdToken?: string;
+    /** OAuth authorization code returned to the redirect URI */
+    Code: string;
+    /** State value returned on the redirect (must match the session) */
+    State: string;
+    /** Signed session token issued by GET /auth/sso/url and kept by the client */
+    Session: string;
 }
 
 /**

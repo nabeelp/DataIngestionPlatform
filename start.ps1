@@ -78,6 +78,17 @@ foreach ($name in @('DB_CONNECTION_STRING', 'JWT_SECRET')) {
     }
 }
 
+if (-not (Test-Path (Join-Path $frontend '.env.development'))) {
+    Write-Warning 'Front-End\.env.development not found; the frontend will use the Vite /api proxy and the mock login is disabled.'
+}
+
+foreach ($port in @(3000, 5173)) {
+    $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($listener) {
+        throw "Port $port is already in use by process $($listener.OwningProcess). Stop it before running start.ps1."
+    }
+}
+
 try {
     Write-Host 'Starting backend...'
     $backendProcess = Start-Process npm.cmd -WorkingDirectory $backend -ArgumentList 'run', 'dev' -NoNewWindow -PassThru

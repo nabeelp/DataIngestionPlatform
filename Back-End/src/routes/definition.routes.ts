@@ -6,6 +6,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import * as DefinitionController from '../controllers/definition.controller';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ const router = Router();
 const validateRequest = (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        console.log('[DEFINITION_ROUTES] Validation errors:', errors.array());
+        logger.debug('[DEFINITION_ROUTES] Validation errors:', errors.array());
         return res.status(400).json({ errors: errors.array() });
     }
     next();

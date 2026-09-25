@@ -326,7 +326,8 @@ export interface FileDefinitionAdmin {
   status: string;
   createdAt: string;
   updatedAt: string;
-  templateFilename?: string;
+  templateFilename?: string | null;
+  deliveryFolder?: string | null;
 }
 
 export const getFileDefinitionsAdmin = async (): Promise<{
@@ -346,6 +347,7 @@ export const createFileDefinitionAdmin = async (defData: {
   description?: string;
   columns: FileDefinitionColumn[];
   status?: string;
+  deliveryFolder?: string | null;
 }): Promise<FileDefinitionAdmin> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions`,
@@ -365,6 +367,7 @@ export const updateFileDefinitionAdmin = async (
     description?: string;
     columns?: FileDefinitionColumn[];
     status?: string;
+    deliveryFolder?: string | null;
   }
 ): Promise<FileDefinitionAdmin> => {
   const response = await fetch(
@@ -578,25 +581,23 @@ export const exportFileDefinition = async (definitionId: string): Promise<void> 
 /**
  * Upload template file (admin)
  */
-export const uploadTemplate = async (definitionId: string, file: File): Promise<void> => {
+export const uploadTemplate = async (definitionId: string, file: File): Promise<{ templateFilename: string }> => {
   const formData = new FormData();
   formData.append('file', file);
+  const token = getAuthToken();
 
   const response = await fetch(
-    `${getBaseUrl()}/admin/file-definitions/${definitionId}/template-upload`,
+    `${getBaseUrl()}/admin/file-definitions/${encodeURIComponent(definitionId)}/template-upload`,
     {
       method: 'POST',
+      headers: token ? { Authorization: 'Bearer ' + token } : undefined,
       body: formData,
     }
   );
 
-  const data = await response.json();
-  if (!data.success) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to upload template');
   }
+  return { templateFilename: data.templateFilename };
 };
-
-
-
-
-

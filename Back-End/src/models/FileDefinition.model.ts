@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // FileDefinition Model - Database operations for FileDefinitions table
 // =============================================================================
 
@@ -11,6 +11,7 @@ import type {
     IColumn,
     IFileDefinitionUser 
 } from '../interfaces/fileDefinition.interface';
+import { logger } from '../utils/logger';
 
 export class FileDefinition {
     private static readonly TABLE_NAME = 'FileDefinitions';
@@ -64,7 +65,7 @@ export class FileDefinition {
     static async findForUser(userId: string): Promise<IFileDefinition[]> {
         const pool = await getConnection();
         
-        console.log('[FILEDEFINITION_MODEL] findForUser called with userId:', userId);
+        logger.debug('[FILEDEFINITION_MODEL] findForUser called with userId:', userId);
         
         // If user is admin, they can see all definitions
         // First check if user is admin
@@ -72,15 +73,15 @@ export class FileDefinition {
             .input('UserId', userId)
             .query(`SELECT Role FROM Users WHERE Id = @UserId`);
         
-        console.log('[FILEDEFINITION_MODEL] User role result:', userResult.recordset);
+        logger.debug('[FILEDEFINITION_MODEL] User role result:', userResult.recordset);
         
         if (userResult.recordset[0]?.Role === 'admin') {
-            console.log('[FILEDEFINITION_MODEL] User is admin, returning all definitions');
+            logger.debug('[FILEDEFINITION_MODEL] User is admin, returning all definitions');
             // Admin sees all definitions
             return this.findAll();
         }
 
-        console.log('[FILEDEFINITION_MODEL] User is regular user, checking access table');
+        logger.debug('[FILEDEFINITION_MODEL] User is regular user, checking access table');
         
         // Regular users only see definitions they have access to
         const result = await pool.request()
@@ -92,7 +93,7 @@ export class FileDefinition {
                 ORDER BY fd.CreatedAt DESC
             `);
 
-        console.log('[FILEDEFINITION_MODEL] Access query result count:', result.recordset.length);
+        logger.debug('[FILEDEFINITION_MODEL] Access query result count:', result.recordset.length);
 
         return result.recordset.map((row: any) => {
             if (row.Columns && typeof row.Columns === 'string') {
@@ -139,20 +140,21 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
             .input('CreatedAt', now)
             .input('UpdatedAt', now);
 
-        if (dto.TemplateFilename) {
-            request.input('TemplateFilename', dto.TemplateFilename);
-        }
-
         const columnsList = ['Id', 'Name', 'Description', 'Columns', 'Status', 'CreatedAt', 'UpdatedAt'];
         if (dto.TemplateFilename) {
+            request.input('TemplateFilename', dto.TemplateFilename);
             columnsList.push('TemplateFilename');
+        }
+        if (dto.DeliveryFolder) {
+            request.input('DeliveryFolder', dto.DeliveryFolder);
+            columnsList.push('DeliveryFolder');
         }
 
         await request.query(`
             INSERT INTO ${this.TABLE_NAME} 
             (${columnsList.join(', ')})
             VALUES 
-            (@Id, @Name, @Description, @Columns, @Status, @CreatedAt, @UpdatedAt${dto.TemplateFilename ? ', @TemplateFilename' : ''})
+            (${columnsList.map(column => `@${column}`).join(', ')})
         `);
 
         // Add user access - the creator always has access
@@ -199,6 +201,10 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         if (updates.TemplateFilename !== undefined) {
             setClauses.push('TemplateFilename = @TemplateFilename');
             request.input('TemplateFilename', updates.TemplateFilename);
+        }
+        if (updates.DeliveryFolder !== undefined) {
+            setClauses.push('DeliveryFolder = @DeliveryFolder');
+            request.input('DeliveryFolder', updates.DeliveryFolder);
         }
 
         await request.query(`

@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Upload Service - Complete Upload Management with Queue Integration
 // =============================================================================
 
@@ -17,7 +17,9 @@ import { appConfig } from '../config/appConfig';
 import { sharePointStorage } from './SharePointStorage.service';
 import { cacheService } from './Cache.service';
 import { logger } from '../utils/logger';
-import { io } from '../index'; 
+import { emitUploadEvent } from '../websocket/socketServer';
+import { DEFINITION_SCHEMA_RULE_TYPE } from './validation/ValidationEngine';
+import { getDeliveryTargets, resolveDeliveryDestination } from './DeliveryTargets.service';
 import type { 
     IUpload, 
     IUploadSheet,
@@ -59,6 +61,12 @@ export class UploadService {
             throw new Error('Upload not found');
         }
 
+        // A retry starts from a clean slate: remove results and delivery records from earlier attempts.
+        await DeliveryRecord.deleteByUploadId(uploadId);
+        await ValidationRuleDetail.deleteByUploadId(uploadId);
+        await ValidationResult.deleteByUploadId(uploadId);
+        await Upload.update(uploadId, { ErrorMessage: null, ValidationCompletedAt: null, DeliveryCompletedAt: null });
+
         // Update status to VALIDATION_QUEUED
         await Upload.updateStatus(uploadId, 'VALIDATION_QUEUED');
 
@@ -73,12 +81,28 @@ export class UploadService {
 
         // Get enabled rules for this definition
         const rules = await Rule.findEnabledByFileDefinitionId(upload.FileDefinitionId);
+        const definitionColumns = Array.isArray(fileDefinition.Columns) ? fileDefinition.Columns : [];
+        const checkDefinitionSchema = definitionColumns.length > 0;
+        const totalChecks = rules.length + (checkDefinitionSchema ? 1 : 0);
         
         // Create validation result
         const validationResult = await ValidationResult.create({
             UploadId: uploadId,
-            TotalRules: rules.length
+            TotalRules: totalChecks
         });
+
+        // The file definition's columns are always enforced as the first check.
+        if (checkDefinitionSchema) {
+            await ValidationRuleDetail.create({
+                ValidationResultId: validationResult.Id,
+                UploadId: uploadId,
+                RuleId: null,
+                RuleName: 'File definition columns',
+                RuleType: DEFINITION_SCHEMA_RULE_TYPE,
+                RuleSeverity: 'Error',
+                ExecutionOrder: -1
+            });
+        }
 
         // Create validation rule details for each rule
         for (const rule of rules) {
@@ -98,7 +122,7 @@ export class UploadService {
             const sheets = await UploadSheet.findByUploadId(uploadId);
             for (const sheet of sheets) {
                 await UploadSheet.update(sheet.Id, {
-                    TotalRules: rules.length,
+                    TotalRules: totalChecks,
                     Status: 'PENDING'
                 });
             }
@@ -220,12 +244,9 @@ export class UploadService {
             delivery: null
         });
 
-        if (io) {
-            io.to(uploadId).emit('uploadProgress', {
-                uploadId,
-                type: 'VALIDATION_UPDATE'
-            });
-        }
+        void emitUploadEvent(uploadId, {
+            type: 'VALIDATION_UPDATE'
+        });
     }
 
     /**
@@ -245,7 +266,7 @@ export class UploadService {
 
     
     /**
-     * Start delivery process
+     * Start delivery process. Definitions without a delivery target finish as VALIDATED.
      */
     static async startDelivery(uploadId: string): Promise<void> {
         const upload = await Upload.findById(uploadId);
@@ -253,64 +274,45 @@ export class UploadService {
             throw new Error('Upload not found');
         }
 
-        // Get file definition for delivery targets
         const fileDefinition = await FileDefinition.findById(upload.FileDefinitionId);
         if (!fileDefinition) {
             throw new Error('File definition not found');
         }
 
-        // Update status to DELIVERY_QUEUED
-        await Upload.updateStatus(uploadId, 'DELIVERY_QUEUED');
-
-        // Get delivery targets from file definition (stored in columns or separate field)
-        // For now, we'll use a default structure - you can customize this
-        const deliveryTargets = this.extractDeliveryTargets(fileDefinition);
-
+        const deliveryTargets = getDeliveryTargets(fileDefinition);
         if (deliveryTargets.length === 0) {
-            await this.failDelivery(uploadId, 'No delivery targets configured');
+            await this.completeWithoutDelivery(uploadId);
             return;
         }
 
-        // Create delivery records for each target
-        const uploadSheets = await UploadSheet.findByUploadId(uploadId);
-        
-        for (const sheet of uploadSheets) {
-            for (const target of deliveryTargets) {
-                await DeliveryRecord.create({
-                    UploadId: uploadId,
-                    UploadSheetId: sheet.Id,
-                    DeliveryType: target.type as any,
-                    DestinationPath: this.resolveDestinationPath(target, upload, sheet),
-                    DestinationName: target.name
-                });
-            }
-        }
+        await Upload.updateStatus(uploadId, 'DELIVERY_QUEUED');
 
-        // Queue delivery jobs
+        // One delivery per target: the whole validated file is delivered once, regardless of sheet count.
         const deliveryJobs: IDeliveryJobData[] = [];
-        
-        for (const sheet of uploadSheets) {
-            for (const target of deliveryTargets) {
-                deliveryJobs.push({
-                    uploadId: upload.Id,
-                    uploadSheetId: sheet.Id,
-                    deliveryType: target.type as any,
-                    destinationPath: this.resolveDestinationPath(target, upload, sheet),
-                    azureBlobUrl: upload.CompressedBlobUrl || upload.AzureBlobUrl || '',
-                    userId: upload.UploadedBy
-                });
-            }
+        for (const target of deliveryTargets) {
+            const destinationPath = resolveDeliveryDestination(target.folder, upload.Id, upload.OriginalFilename);
+            await DeliveryRecord.create({
+                UploadId: uploadId,
+                DeliveryType: target.type,
+                DestinationPath: destinationPath,
+                DestinationName: target.name
+            });
+            deliveryJobs.push({
+                uploadId: upload.Id,
+                deliveryType: target.type,
+                destinationPath,
+                azureBlobUrl: upload.CompressedBlobUrl || upload.AzureBlobUrl || '',
+                userId: upload.UploadedBy
+            });
         }
 
-        // Add all delivery jobs
         for (const jobData of deliveryJobs) {
             await addDeliveryJob(jobData);
         }
 
-        // Update upload status
-        await Upload.updateStatus(uploadId, 'DELIVERY_IN_PROGRESS');
+        await Upload.update(uploadId, { Status: 'DELIVERY_IN_PROGRESS', DeliveryStartedAt: new Date() });
 
-        // Update sheet status
+        const uploadSheets = await UploadSheet.findByUploadId(uploadId);
         for (const sheet of uploadSheets) {
             await UploadSheet.update(sheet.Id, { Status: 'DELIVERING' });
         }
@@ -327,7 +329,24 @@ export class UploadService {
             }
         });
 
+        void emitUploadEvent(uploadId, { uploadId, type: 'DELIVERY_UPDATE' });
         logger.info(`Delivery started for upload: ${uploadId}, targets: ${deliveryTargets.length}`);
+    }
+
+    /**
+     * Finish an upload that passed validation and has no delivery target configured.
+     */
+    static async completeWithoutDelivery(uploadId: string): Promise<void> {
+        await Upload.update(uploadId, { Status: 'VALIDATED' });
+
+        const sheets = await UploadSheet.findByUploadId(uploadId);
+        for (const sheet of sheets) {
+            await UploadSheet.update(sheet.Id, { Status: 'VALIDATED' });
+        }
+
+        await cacheService.invalidateUploadProgress(uploadId);
+        void emitUploadEvent(uploadId, { uploadId, type: 'VALIDATED' });
+        logger.info(`Upload ${uploadId} validated; no delivery target configured`);
     }
 
     /**
@@ -344,8 +363,8 @@ export class UploadService {
         // 🔥 NEW: Emit WebSocket update
         const record = await DeliveryRecord.findById(deliveryRecordId);
 
-        if (record && io) {
-            io.to(record.UploadId).emit('uploadProgress', {
+        if (record) {
+            void emitUploadEvent(record.UploadId, {
                 uploadId: record.UploadId,
                 type: 'DELIVERY_UPDATE'
             });
@@ -387,6 +406,7 @@ export class UploadService {
 
             // Invalidate progress cache
             await cacheService.invalidateUploadProgress(uploadId);
+            void emitUploadEvent(uploadId, { type: 'DELIVERED', progress: 100 });
 
             logger.info(`Delivery completed for upload: ${uploadId}`);
         }
@@ -420,6 +440,7 @@ export class UploadService {
 
         // Invalidate progress cache
         await cacheService.invalidateUploadProgress(uploadId);
+        void emitUploadEvent(uploadId, { type: 'DELIVERY_FAILED', details: { error: errorMessage } });
 
         logger.error(`Delivery failed for upload: ${uploadId}, error: ${errorMessage}`);
     }
@@ -505,44 +526,6 @@ export class UploadService {
         const { page = 1, pageSize = 20, status } = options;
 
         return await Upload.findForUser(userId, { page, pageSize, status });
-    }
-
-    /**
-     * Extract delivery targets from file definition
-     * This is a placeholder - customize based on your data model
-     */
-    private static extractDeliveryTargets(fileDefinition: any): Array<{ type: string; path: string; name?: string }> {
-        // Try to get delivery targets from file definition
-        // This could be stored in a separate table or in the Columns JSON
-        const targets = fileDefinition.DeliveryTargets || [];
-        
-        if (targets.length === 0) {
-            // Default: return empty array - delivery targets need to be configured
-            // In production, you'd have a separate DeliveryTarget table
-            return [];
-        }
-
-        return targets;
-    }
-
-    /**
-     * Resolve destination path based on delivery type
-     */
-    private static resolveDestinationPath(
-        target: { type: string; path: string; name?: string },
-        upload: IUpload,
-        sheet: IUploadSheet
-    ): string {
-        switch (target.type) {
-            case 'FabricLakehouse':
-                return `${target.path}/${upload.OriginalFilename}`;
-            case 'SQLTable':
-                return target.path; // Table name
-            case 'SharePoint':
-                return `${target.path}/${upload.OriginalFilename}`;
-            default:
-                return target.path;
-        }
     }
 
     /**

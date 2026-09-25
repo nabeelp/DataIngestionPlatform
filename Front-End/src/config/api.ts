@@ -26,7 +26,7 @@ export const apiConfig = {
      */
     getBaseUrl: (): string => {
         // First check for explicit VITE_API_URL
-        let url = import.meta.env.VITE_API_URL;
+        const url = import.meta.env.VITE_API_URL;
         
         debugLog('VITE_API_URL from env:', url);
         

@@ -11,6 +11,7 @@ import { UploadService } from './Upload.service';
 import { createDeliveryWorker } from './Queue.service';
 import type { IDeliveryJobData } from '../interfaces/upload.interface';
 import { logger } from '../utils/logger';
+import { FILE_COPY_DELIVERY, assertInsideDeliveryRoot } from './DeliveryTargets.service';
 
 async function processDeliveryJob(job: Job<IDeliveryJobData>): Promise<void> {
     const { uploadId, uploadSheetId, deliveryType, destinationPath } = job.data;
@@ -22,7 +23,9 @@ async function processDeliveryJob(job: Job<IDeliveryJobData>): Promise<void> {
 
     const records = await DeliveryRecord.findByUploadId(uploadId);
     const record = records.find((item) =>
-        item.UploadSheetId === uploadSheetId && item.DeliveryType === deliveryType
+        (item.UploadSheetId ?? null) === (uploadSheetId ?? null) &&
+        item.DeliveryType === deliveryType &&
+        item.DestinationPath === destinationPath
     );
 
     if (!record) {
@@ -36,11 +39,12 @@ async function processDeliveryJob(job: Job<IDeliveryJobData>): Promise<void> {
             throw new Error(`Delivery source file not found for upload: ${uploadId}`);
         }
 
-        if (deliveryType === 'SQLTable') {
-            throw new Error('SQLTable delivery is not configured');
+        if (deliveryType !== FILE_COPY_DELIVERY) {
+            throw new Error(`Delivery type ${deliveryType} is not supported`);
         }
 
         const destination = path.resolve(destinationPath);
+        assertInsideDeliveryRoot(destination);
         fs.mkdirSync(path.dirname(destination), { recursive: true });
         fs.copyFileSync(upload.TempLocalPath, destination);
 

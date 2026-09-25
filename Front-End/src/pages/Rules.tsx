@@ -38,6 +38,17 @@ interface FormState {
 }
 //#endregion
 
+const RULE_TYPES = [
+  { value: 'Schema Validation', label: 'Required columns', help: 'Comma-separated columns that must exist in the file header.', example: 'CustomerId, Email, Country' },
+  { value: 'Required Values', label: 'Required values', help: 'Comma-separated columns whose values must not be empty.', example: 'CustomerId, Email' },
+  { value: 'Type Check', label: 'Data type', help: 'Column and type: string, integer, decimal, datetime, or boolean.', example: 'UnitPrice: decimal' },
+  { value: 'Enum Check', label: 'Allowed values', help: 'Column followed by the comma-separated allowed values.', example: 'CustomerStatus: Active, Inactive' },
+  { value: 'Range Check', label: 'Numeric range', help: 'Column and inclusive range "min..max"; either bound may be omitted.', example: 'StockQuantity: 0..10000' },
+];
+const DEFAULT_RULE_TYPE = RULE_TYPES[0].value;
+const getRuleTypeMeta = (type: string) =>
+  RULE_TYPES.find(t => t.value === type) || { value: type, label: type, help: 'This rule type is no longer supported. Choose a supported type.', example: '' };
+
 export default function ValidationRules() {
   const { token } = useAuth();
 
@@ -66,7 +77,7 @@ export default function ValidationRules() {
     name: '',
     executionOrder: '8',
     description: '',
-    ruleType: 'Custom SQL',
+    ruleType: DEFAULT_RULE_TYPE,
     severity: 'Error',
     sqlQuery: '',
     isEnabled: true
@@ -95,7 +106,7 @@ export default function ValidationRules() {
         name: editingRule.name || '',
         executionOrder: editingRule.executionOrder?.toString() || '8',
         description: editingRule.description || '',
-        ruleType: editingRule.ruleType || 'Custom SQL',
+        ruleType: editingRule.ruleType || DEFAULT_RULE_TYPE,
         severity: editingRule.severity || 'Error',
         sqlQuery: editingRule.sqlQuery || '',
         isEnabled: editingRule.isEnabled !== false
@@ -105,7 +116,7 @@ export default function ValidationRules() {
         name: '',
         executionOrder: '8',
         description: '',
-        ruleType: 'Custom SQL',
+        ruleType: DEFAULT_RULE_TYPE,
         severity: 'Error',
         sqlQuery: '',
         isEnabled: true
@@ -218,12 +229,14 @@ export default function ValidationRules() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to save rule');
+        const errorData = await response.json().catch(() => ({}));
+        const firstFieldError = errorData.errors?.[0];
+        throw new Error(errorData.message || (firstFieldError ? `${firstFieldError.path || firstFieldError.param}: ${firstFieldError.msg}` : 'Failed to save rule'));
       }
 
       const data = await response.json();
       if (data.success) {
+        setError(null);
         setIsDrawerOpen(false);
         fetchRules(selectedDefinitionId);
       }
@@ -288,7 +301,7 @@ export default function ValidationRules() {
       name: `${rule.name} - Copy`,
       executionOrder: (rule.executionOrder + 1).toString(),
       description: rule.description || '',
-      ruleType: rule.ruleType || 'Custom SQL',
+      ruleType: rule.ruleType || DEFAULT_RULE_TYPE,
       severity: rule.severity || 'Error',
       sqlQuery: rule.sqlQuery || '',
       isEnabled: rule.isEnabled
@@ -318,8 +331,11 @@ export default function ValidationRules() {
   //#region UTILITY RENDERING ASSISTS
   const getRuleIcon = (type: string) => {
     switch (type?.toLowerCase()) {
-      case 'custom sql': return { icon: Database, bg: "bg-blue-50 text-blue-600" };
-      case 'regex pattern': return { icon: ({ className }: any) => <span className={`font-bold text-sm ${className}`}>Aa</span>, bg: "bg-purple-50 text-purple-600" };
+      case 'type check':
+      case 'range check':
+        return { icon: Database, bg: "bg-blue-50 text-blue-600" };
+      case 'enum check':
+        return { icon: ({ className }: any) => <span className={`font-bold text-sm ${className}`}>Aa</span>, bg: "bg-purple-50 text-purple-600" };
       default: return { icon: LayoutGrid, bg: "bg-amber-50 text-amber-600" };
     }
   };
@@ -608,6 +624,11 @@ export default function ValidationRules() {
             {/* Form Entry Field Framework */}
             <form onSubmit={handleSaveRule} className="flex flex-col flex-1 overflow-y-auto">
               <div className="p-6 space-y-5 flex-1">
+                {error && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" role="alert">
+                    {error}
+                  </div>
+                )}
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">System Parameters</h3>
                   <p className="text-xs text-slate-400 mt-0.5">Define runtime parameters mapped directly to active schemas.</p>
@@ -679,10 +700,12 @@ export default function ValidationRules() {
                       onChange={(e) => setFormData({ ...formData, ruleType: e.target.value })}
                       className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 font-medium shadow-xs"
                     >
-                      <option value="Custom SQL">Custom SQL Query Evaluation</option>
-                      <option value="Schema Validation">Schema Constraints Validation</option>
-                      <option value="Enum Check">Enum Array Matching</option>
-                      <option value="Regex Pattern">Regex Pattern Verification</option>
+                      {!RULE_TYPES.some(t => t.value === formData.ruleType) && (
+                        <option value={formData.ruleType} disabled>{formData.ruleType} (no longer supported)</option>
+                      )}
+                      {RULE_TYPES.map(t => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
                     </select>
                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
                       <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
@@ -690,13 +713,16 @@ export default function ValidationRules() {
                   </div>
                 </div>
 
-                {/* Field: SQL Statement Target Logic Area */}
+                {/* Field: Rule expression */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-600">Target Statement Execution Criteria <span className="text-red-500">*</span></label>
+                  <label htmlFor="ruleExpression" className="text-xs font-bold text-slate-600">Rule Expression <span className="text-red-500">*</span></label>
+                  <p className="text-[11px] text-slate-500">{getRuleTypeMeta(formData.ruleType).help}</p>
                   <textarea 
+                    id="ruleExpression"
                     required
                     rows={4}
-                    placeholder="SELECT * FROM upload_data WHERE amount < 0"
+                    maxLength={4000}
+                    placeholder={getRuleTypeMeta(formData.ruleType).example}
                     value={formData.sqlQuery}
                     onChange={(e) => setFormData({ ...formData, sqlQuery: e.target.value })}
                     className="w-full border border-slate-200 rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-900 text-emerald-400 font-mono shadow-inner resize-y min-h-[100px]"

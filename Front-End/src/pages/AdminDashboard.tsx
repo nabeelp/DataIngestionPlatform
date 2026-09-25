@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Activity, Upload, CheckCircle, AlertTriangle, FileText, Clock } from 'lucide-react';
+import { Users, Activity, Upload, AlertTriangle, FileText, Clock, ShieldCheck, List } from 'lucide-react';
 import { getAdminStats, AdminStats } from '../services/adminApi';
 
-//#region MOCK MODULES (kept for navigation)
+//#region ADMIN MODULE NAVIGATION
 const ADMIN_MODULES = [
   { path: '/admin/users', label: 'User Management', description: 'Manage users and permissions', icon: <Users size={24} /> },
   { path: '/admin/file-definitions', label: 'File Definitions', description: 'Manage file definitions', icon: <FileText size={24} /> },
   { path: '/admin/audit-logs', label: 'Audit Logs', description: 'View immutable audit trail', icon: <Clock size={24} /> },
   { path: '/admin/monitoring', label: 'Monitoring', description: 'System health and performance', icon: <Activity size={24} /> },
+  { path: '/admin/compliance', label: 'Compliance', description: 'Validation and audit reports', icon: <ShieldCheck size={24} /> },
+  { path: '/admin/lookups', label: 'Lookups', description: 'Reference value lists', icon: <List size={24} /> },
 ];
 //#endregion
 
@@ -25,9 +27,7 @@ export default function AdminDashboard() {
         const data = await getAdminStats();
         setStats(data);
       } catch (err) {
-        console.error('Failed to fetch admin stats:', err);
-        setError('Failed to load dashboard statistics');
-        // Keep showing mock data on error
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard statistics');
       } finally {
         setLoading(false);
       }
@@ -40,7 +40,7 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  if (loading) {
+  if (loading && !stats) {
     return (
       <div className="w-full">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">Admin Dashboard</h1>
@@ -80,7 +80,7 @@ export default function AdminDashboard() {
           icon={<Users size={20} className="text-blue-600" />} 
         />
         <StatCard 
-          label="Active Sessions" 
+          label="Logins (last hour)"
           value={displayStats.activeSessions.toString()} 
           icon={<Activity size={20} className="text-green-600" />} 
         />
@@ -174,4 +174,3 @@ function StatCard({ label, value, icon, status }: { label: string; value: string
     </div>
   );
 }
-

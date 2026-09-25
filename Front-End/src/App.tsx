@@ -109,6 +109,10 @@ function App() {
         <Route path="audit-logs" element={<AuditLogs />} />
         <Route path="monitoring" element={<Monitoring />} />
         <Route path="compliance" element={<Compliance />} />
+        <Route path="history" element={<UploadHistory />} />
+        <Route path="history/:id" element={<UploadDetails />} />
+        <Route path="rules" element={<Rules />} />
+        <Route path="lookups" element={<Lookups />} />
       </Route>
 
       {/* Catch all - redirect to login or appropriate dashboard */}

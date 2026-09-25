@@ -32,7 +32,7 @@ export interface GetFileDefinitionsResponse {
  */
 export const downloadTemplate = async (definitionId: string): Promise<void> => {
   const token = localStorage.getItem('token');
-  const url = `${apiConfig.getBaseUrl()}/file-definitions/${definitionId}/template-download`;
+  const url = `${apiConfig.getBaseUrl()}/definitions/${encodeURIComponent(definitionId)}/template`;
   
   try {
     const response = await fetch(url, {
@@ -42,7 +42,7 @@ export const downloadTemplate = async (definitionId: string): Promise<void> => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || 'Failed to download template');
     }
 
@@ -61,7 +61,6 @@ export const downloadTemplate = async (definitionId: string): Promise<void> => {
     document.body.removeChild(a);
     URL.revokeObjectURL(downloadUrl);
   } catch (error) {
-    console.error('Download failed:', error);
     throw new Error(error instanceof Error ? error.message : 'Download failed');
   }
 };

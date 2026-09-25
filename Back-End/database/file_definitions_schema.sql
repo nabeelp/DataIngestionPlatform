@@ -30,3 +30,10 @@ BEGIN
     ALTER TABLE dbo.FileDefinitions ADD TemplateFilename NVARCHAR(255) NULL;
 END;
 GO
+
+-- Optional delivery folder (relative to DELIVERY_ROOT_PATH). NULL means uploads finish as VALIDATED.
+IF COL_LENGTH('dbo.FileDefinitions', 'DeliveryFolder') IS NULL
+BEGIN
+    ALTER TABLE dbo.FileDefinitions ADD DeliveryFolder NVARCHAR(500) NULL;
+END;
+GO

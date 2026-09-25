@@ -15,6 +15,7 @@ export type UploadStatus =
   | 'VALIDATION_IN_PROGRESS'
   | 'VALIDATION_FAILED'
   | 'VALIDATION_PASSED'
+  | 'VALIDATED'
   | 'DELIVERY_QUEUED'
   | 'DELIVERY_IN_PROGRESS'
   | 'DELIVERED'
@@ -351,6 +352,7 @@ export const mapStatusToDisplay = (status: UploadStatus): string => {
     'VALIDATION_IN_PROGRESS': 'Validation In Progress',
     'VALIDATION_FAILED': 'Validation Failed',
     'VALIDATION_PASSED': 'Validation Passed',
+    'VALIDATED': 'Validation Passed',
     'DELIVERY_QUEUED': 'Pending',
     'DELIVERY_IN_PROGRESS': 'Delivery In Progress',
     'DELIVERED': 'Delivered',

@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // File Definition Interface - Defines types for File Definitions
 // =============================================================================
 
@@ -23,6 +23,8 @@ export interface IFileDefinition {
     CreatedAt: Date;
     UpdatedAt: Date;
     TemplateFilename?: string;
+    /** Optional delivery folder relative to DELIVERY_ROOT_PATH */
+    DeliveryFolder?: string | null;
     // User access (populated when fetching)
     AllowedUsers?: IFileDefinitionUser[];
 }
@@ -47,6 +49,7 @@ export interface ICreateFileDefinitionDto {
     Columns: IColumn[];
     Status?: 'Active' | 'Inactive';
     TemplateFilename?: string;
+    DeliveryFolder?: string | null;
     AllowedUserIds?: string[];
 }
 
@@ -59,6 +62,7 @@ export interface IUpdateFileDefinitionDto {
     Columns?: IColumn[];
     Status?: 'Active' | 'Inactive';
     TemplateFilename?: string;
+    DeliveryFolder?: string | null;
 }
 
 /**

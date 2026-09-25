@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Rule Service - Business logic for Rules
 // =============================================================================
 
@@ -8,6 +8,31 @@ import type {
     ICreateRuleDto, 
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
+import { SUPPORTED_RULE_TYPES, parseRuleExpression } from './validation/ValidationEngine';
+
+/**
+ * Raised when a rule's type or expression is invalid (maps to HTTP 400).
+ */
+export class RuleValidationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'RuleValidationError';
+    }
+}
+
+/**
+ * Ensure a rule type is supported and its expression parses.
+ */
+export function assertValidRule(ruleType: string | undefined, expression: string | undefined): void {
+    if (!ruleType || !(SUPPORTED_RULE_TYPES as readonly string[]).includes(ruleType)) {
+        throw new RuleValidationError(`Rule type must be one of: ${SUPPORTED_RULE_TYPES.join(', ')}`);
+    }
+    try {
+        parseRuleExpression(ruleType, expression || '');
+    } catch (error) {
+        throw new RuleValidationError(error instanceof Error ? error.message : 'Invalid rule expression');
+    }
+}
 
 /**
  * Get all rules for a file definition (with access control)
@@ -63,6 +88,7 @@ export async function createRule(
         throw new Error('Access denied to this file definition');
     }
 
+    assertValidRule(dto.RuleType, dto.SqlQuery);
     return await Rule.create(dto, userId);
 }
 
@@ -79,6 +105,18 @@ export async function updateRule(
     
     if (!hasAccess) {
         throw new Error('Access denied to this rule');
+    }
+
+    const existing = await Rule.findById(ruleId);
+    if (!existing) {
+        return null;
+    }
+
+    const effectiveType = updates.RuleType ?? existing.RuleType;
+    const effectiveExpression = updates.SqlQuery ?? existing.SqlQuery;
+    const willBeEnabled = updates.IsEnabled ?? existing.IsEnabled;
+    if (updates.RuleType !== undefined || updates.SqlQuery !== undefined || (willBeEnabled && !existing.IsEnabled)) {
+        assertValidRule(effectiveType, effectiveExpression);
     }
 
     return await Rule.update(ruleId, updates);
@@ -116,6 +154,10 @@ export async function toggleRuleEnabled(
     
     if (!rule) {
         return null;
+    }
+
+    if (!rule.IsEnabled) {
+        assertValidRule(rule.RuleType, rule.SqlQuery);
     }
 
     return await Rule.update(ruleId, { IsEnabled: !rule.IsEnabled });

@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Admin Controller - Business logic for Admin Dashboard
 // =============================================================================
 
@@ -19,6 +19,10 @@ import type { IUpload, UploadStatus } from '../interfaces/upload.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
+import { getTemplateDisplayName } from '../services/TemplateStorage.service';
+import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
+import { COLUMN_TYPES } from '../services/validation/ValidationEngine';
+import { logger } from '../utils/logger';
 
 // Extend Request to include user
 export interface AuthRequest extends Request<Record<string, string>> {
@@ -41,7 +45,7 @@ export const getStats = async (req: AuthRequest, res: Response, next: NextFuncti
             stats
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting stats:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting stats:', error);
         next(error);
     }
 };
@@ -82,7 +86,7 @@ const result: GetUsersResult = await UserService.getUsers(page, limit, search);
 
 
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting users:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting users:', error);
         next(error);
     }
 };
@@ -120,7 +124,7 @@ export const getUserById = async (req: AuthRequest, res: Response, next: NextFun
             }
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting user:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting user:', error);
         next(error);
     }
 };
@@ -178,7 +182,7 @@ export const createUser = async (req: AuthRequest, res: Response, next: NextFunc
             }
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error creating user:', error);
+        logger.error('[ADMIN_CONTROLLER] Error creating user:', error);
         next(error);
     }
 };
@@ -233,7 +237,7 @@ export const updateUser = async (req: AuthRequest, res: Response, next: NextFunc
             }
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error updating user:', error);
+        logger.error('[ADMIN_CONTROLLER] Error updating user:', error);
         next(error);
     }
 };
@@ -272,7 +276,7 @@ export const unlockUser = async (req: AuthRequest, res: Response, next: NextFunc
             message: 'User unlocked successfully'
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error unlocking user:', error);
+        logger.error('[ADMIN_CONTROLLER] Error unlocking user:', error);
         next(error);
     }
 };
@@ -319,7 +323,7 @@ export const deleteUser = async (req: AuthRequest, res: Response, next: NextFunc
             message: 'User deleted successfully'
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error deleting user:', error);
+        logger.error('[ADMIN_CONTROLLER] Error deleting user:', error);
         next(error);
     }
 };
@@ -359,7 +363,7 @@ export const getAuditLogs = async (req: AuthRequest, res: Response, next: NextFu
             limit
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting audit logs:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting audit logs:', error);
         next(error);
     }
 };
@@ -378,7 +382,7 @@ export const getRecentAuditLogs = async (req: AuthRequest, res: Response, next: 
             logs
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting recent audit logs:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting recent audit logs:', error);
         next(error);
     }
 };
@@ -397,7 +401,7 @@ export const getQueueStats = async (req: AuthRequest, res: Response, next: NextF
         try {
             stats = await getAllQueueStats();
         } catch (error) {
-            console.warn('[ADMIN_CONTROLLER] Failed to get queue stats:', error);
+            logger.warn('[ADMIN_CONTROLLER] Failed to get queue stats:', error);
             stats = {
                 validation: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
                 delivery: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
@@ -410,7 +414,7 @@ export const getQueueStats = async (req: AuthRequest, res: Response, next: NextF
             stats
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting queue stats:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting queue stats:', error);
         next(error);
     }
 };
@@ -497,7 +501,7 @@ export const getProcessingFiles = async (req: AuthRequest, res: Response, next: 
         try {
             stuckJobs = await getStuckJobs();
         } catch (error) {
-            console.warn('[ADMIN_CONTROLLER] Failed to get stuck jobs:', error);
+            logger.warn('[ADMIN_CONTROLLER] Failed to get stuck jobs:', error);
         }
 
         res.json({
@@ -506,7 +510,7 @@ export const getProcessingFiles = async (req: AuthRequest, res: Response, next: 
             stuckJobs
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting processing files:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting processing files:', error);
         next(error);
     }
 };
@@ -529,7 +533,7 @@ export const getFileDefinitions = async (req: AuthRequest, res: Response, next: 
             total: camelCaseDefinitions.length
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error getting file definitions:', error);
+        logger.error('[ADMIN_CONTROLLER] Error getting file definitions:', error);
         next(error);
     }
 };
@@ -539,7 +543,7 @@ export const getFileDefinitions = async (req: AuthRequest, res: Response, next: 
  */
 export const createFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { name, description, columns, status } = req.body;
+        const { name, description, columns, status, deliveryFolder } = req.body;
 
         if (!name || !columns || !Array.isArray(columns)) {
             return res.status(400).json({
@@ -548,11 +552,20 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             });
         }
 
+        let normalizedDeliveryFolder: string | null;
+        try {
+            validateDefinitionColumns(columns);
+            normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
+        } catch (validationError) {
+            return res.status(400).json({ success: false, message: (validationError as Error).message });
+        }
+
         const dto = {
             Name: name,
             Description: description || '',
             Columns: columns,
-            Status: status || 'Active'
+            Status: status || 'Active',
+            DeliveryFolder: normalizedDeliveryFolder
         };
 
         const definition = await FileDefinitionService.createDefinition(dto, req.user!.userId);
@@ -575,7 +588,7 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             message: 'File definition created successfully'
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error creating file definition:', error);
+        logger.error('[ADMIN_CONTROLLER] Error creating file definition:', error);
         next(error);
     }
 };
@@ -586,9 +599,15 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
 export const updateFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
-        const { name, description, columns, status } = req.body;
+        const { name, description, columns, status, deliveryFolder } = req.body;
 
         const updates: any = {};
+        try {
+            if (columns !== undefined) validateDefinitionColumns(columns);
+            if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
+        } catch (validationError) {
+            return res.status(400).json({ success: false, message: (validationError as Error).message });
+        }
         if (name !== undefined) updates.Name = name;
         if (description !== undefined) updates.Description = description;
         if (columns !== undefined) updates.Columns = columns;
@@ -614,7 +633,7 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
             message: 'File definition updated successfully'
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error updating file definition:', error);
+        logger.error('[ADMIN_CONTROLLER] Error updating file definition:', error);
         next(error);
     }
 };
@@ -654,7 +673,7 @@ export const deleteFileDefinition = async (req: AuthRequest, res: Response, next
             message: 'File definition deleted successfully'
         });
     } catch (error) {
-        console.error('[ADMIN_CONTROLLER] Error deleting file definition:', error);
+        logger.error('[ADMIN_CONTROLLER] Error deleting file definition:', error);
         next(error);
     }
 };
@@ -684,6 +703,27 @@ interface MappedFileDefinition {
     createdAt: string;
     updatedAt: string;
     allowedUsers: any[];
+    templateFilename: string | null;
+    deliveryFolder: string | null;
+}
+
+/**
+ * Validate file definition columns: non-empty unique names and supported types.
+ */
+function validateDefinitionColumns(columns: unknown): void {
+    if (!Array.isArray(columns) || columns.length === 0) {
+        throw new Error('At least one column is required');
+    }
+    const seen = new Set<string>();
+    for (const column of columns) {
+        const name = typeof column?.name === 'string' ? column.name.trim() : '';
+        if (!name) throw new Error('Every column needs a name');
+        if (seen.has(name)) throw new Error(`Duplicate column name "${name}"`);
+        seen.add(name);
+        if (!(COLUMN_TYPES as readonly string[]).includes(column.type)) {
+            throw new Error(`Column "${name}" has unsupported type "${column.type}". Use: ${COLUMN_TYPES.join(', ')}`);
+        }
+    }
 }
 
 function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
@@ -695,6 +735,8 @@ function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
         status: def.Status || 'Active',
         createdAt: def.CreatedAt,
         updatedAt: def.UpdatedAt,
-        allowedUsers: def.AllowedUsers || []
+        allowedUsers: def.AllowedUsers || [],
+        templateFilename: def.TemplateFilename ? getTemplateDisplayName(def.TemplateFilename) : null,
+        deliveryFolder: def.DeliveryFolder || null
     };
 }

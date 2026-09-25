@@ -9,6 +9,7 @@ import type {
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
+import { logger } from '../utils/logger';
 
 // Extend Request to include user
 export interface AuthRequest extends Request {
@@ -45,7 +46,7 @@ export const getRules = async (req: AuthRequest, res: Response, next: NextFuncti
             total: rules.length
         });
     } catch (error) {
-        console.error('[RULE_CONTROLLER] Error getting rules:', error);
+        logger.error('[RULE_CONTROLLER] Error getting rules:', error);
         
         // Handle access denied error
         if (error instanceof Error && error.message === 'Access denied to this file definition') {
@@ -95,7 +96,7 @@ export const getRuleById = async (req: AuthRequest, res: Response, next: NextFun
             rule
         });
     } catch (error) {
-        console.error('[RULE_CONTROLLER] Error getting rule:', error);
+        logger.error('[RULE_CONTROLLER] Error getting rule:', error);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -160,7 +161,7 @@ export const createRule = async (req: AuthRequest, res: Response, next: NextFunc
             message: 'Rule created successfully'
         });
     } catch (error) {
-        console.error('[RULE_CONTROLLER] Error creating rule:', error);
+        logger.error('[RULE_CONTROLLER] Error creating rule:', error);
         
         if (error instanceof Error && error.message === 'Access denied to this file definition') {
             return res.status(403).json({ 
@@ -169,6 +170,10 @@ export const createRule = async (req: AuthRequest, res: Response, next: NextFunc
             });
         }
         
+        if (error instanceof RuleService.RuleValidationError) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+
         next(error);
     }
 };
@@ -230,7 +235,7 @@ export const updateRule = async (req: AuthRequest, res: Response, next: NextFunc
             message: 'Rule updated successfully'
         });
     } catch (error) {
-        console.error('[RULE_CONTROLLER] Error updating rule:', error);
+        logger.error('[RULE_CONTROLLER] Error updating rule:', error);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -239,6 +244,10 @@ export const updateRule = async (req: AuthRequest, res: Response, next: NextFunc
             });
         }
         
+        if (error instanceof RuleService.RuleValidationError) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+
         next(error);
     }
 };
@@ -272,7 +281,7 @@ export const deleteRule = async (req: AuthRequest, res: Response, next: NextFunc
             message: 'Rule deleted successfully'
         });
     } catch (error) {
-        console.error('[RULE_CONTROLLER] Error deleting rule:', error);
+        logger.error('[RULE_CONTROLLER] Error deleting rule:', error);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -322,7 +331,7 @@ export const toggleRule = async (req: AuthRequest, res: Response, next: NextFunc
             message: `Rule ${rule.IsEnabled ? 'enabled' : 'disabled'} successfully`
         });
     } catch (error) {
-        console.error('[RULE_CONTROLLER] Error toggling rule:', error);
+        logger.error('[RULE_CONTROLLER] Error toggling rule:', error);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -331,6 +340,10 @@ export const toggleRule = async (req: AuthRequest, res: Response, next: NextFunc
             });
         }
         
+        if (error instanceof RuleService.RuleValidationError) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+
         next(error);
     }
 };

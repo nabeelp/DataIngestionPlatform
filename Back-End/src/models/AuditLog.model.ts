@@ -74,8 +74,8 @@ export class AuditLog {
         const { page = 1, pageSize = 50, userId, action, entityType, startDate, endDate } = options;
         const offset = (page - 1) * pageSize;
 
-        let whereClauses: string[] = [];
-        let request = pool.request();
+        const whereClauses: string[] = [];
+        const request = pool.request();
 
         if (userId) {
             whereClauses.push('UserId = @UserId');

@@ -12,7 +12,6 @@ const ensureTempDirectory = (): string => {
     const tempDir = process.env.UPLOAD_TEMP_DIR || path.join(process.cwd(), 'temp');
     if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
-        console.log(`[CONFIG] Created temp directory: ${tempDir}`);
     }
     return tempDir;
 };
@@ -75,10 +74,10 @@ export const appConfig = {
         credentials: true,
     },
 
-    // Rate Limiting
+    // Rate Limiting (per client IP across /api). SPA pages issue several requests per view, so keep headroom.
     rateLimit: {
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        maxRequests: 100, // limit each IP to 100 requests per windowMs
+        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000)),
+        maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '1000'),
         loginMaxAttempts: 5, // limit login attempts
     },
 
@@ -138,6 +137,12 @@ export const appConfig = {
     upload: {
         tempDirectory: process.env.UPLOAD_TEMP_DIR || path.join(process.cwd(), 'temp'),
         maxFileSize: parseInt(process.env.UPLOAD_MAX_FILE_SIZE || '100'), // MB
-        allowedExtensions: ['.csv', '.xlsx', '.xls', '.json', '.xml', '.txt'],
+        // Only tabular formats can be validated against a file definition.
+        allowedExtensions: ['.csv', '.tsv', '.txt', '.xlsx', '.xls'],
+    },
+
+    // Optional file-copy delivery. Definition delivery folders are resolved under this root.
+    delivery: {
+        rootPath: process.env.DELIVERY_ROOT_PATH || path.join(process.cwd(), 'deliveries'),
     }
 };

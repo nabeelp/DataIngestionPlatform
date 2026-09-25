@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // AuditLog Interface - Type definitions for Audit Logs
 // =============================================================================
 
@@ -67,6 +67,11 @@ export const AUDIT_ACTIONS = {
     RULE_DELETED: 'RULE_DELETED',
     RULE_ENABLED: 'RULE_ENABLED',
     RULE_DISABLED: 'RULE_DISABLED',
+
+    // Lookups
+    LOOKUP_CREATED: 'LOOKUP_CREATED',
+    LOOKUP_UPDATED: 'LOOKUP_UPDATED',
+    LOOKUP_DELETED: 'LOOKUP_DELETED',
     
     // Admin Actions
     SYSTEM_SETTINGS_UPDATED: 'SYSTEM_SETTINGS_UPDATED',
@@ -82,6 +87,7 @@ export const ENTITY_TYPES = {
     RULE: 'RULE',
     VALIDATION_RESULT: 'VALIDATION_RESULT',
     DELIVERY_RECORD: 'DELIVERY_RECORD',
+    LOOKUP: 'LOOKUP',
     SYSTEM: 'SYSTEM',
 } as const;
 

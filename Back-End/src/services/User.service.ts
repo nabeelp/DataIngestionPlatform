@@ -1,10 +1,11 @@
-﻿// =============================================================================
+// =============================================================================
 // User Service - Business logic for user management
 // =============================================================================
 
 import { getConnection } from '../config/database';
 import { User } from '../models/User.model';
 import type { IUser } from '../interfaces/user.interface';
+import { logger } from '../utils/logger';
 
 export interface AdminUserList {
   Id: string;
@@ -38,9 +39,9 @@ export class UserService {
    */
 static async getUsers(page: number = 1, limit: number = 20, search: string = ''): Promise<GetUsersResult> {
     try {
-      console.log('[USER_SERVICE] Fetching users - page:', page, 'limit:', limit, 'search:', search);
+      logger.debug('[USER_SERVICE] Fetching users - page:', page, 'limit:', limit, 'search:', search);
       const result = await User.findAll(page, limit, search);
-      console.log('[USER_SERVICE] Raw model result - users count:', result.users?.length || 0, 'total:', result.total);
+      logger.debug('[USER_SERVICE] Raw model result - users count:', result.users?.length || 0, 'total:', result.total);
 
       // Transform to frontend expected camelCase AdminUser format
       const users = (result.users || []).map((user: any) => ({
@@ -65,10 +66,10 @@ static async getUsers(page: number = 1, limit: number = 20, search: string = '')
         limit
       };
       
-      console.log('[USER_SERVICE] Returning transformed users:', response.users.length);
+      logger.debug('[USER_SERVICE] Returning transformed users:', response.users.length);
       return response;
     } catch (error) {
-      console.error('[USER_SERVICE] Error getting users:', error);
+      logger.error('[USER_SERVICE] Error getting users:', error);
       throw error;
     }
   }

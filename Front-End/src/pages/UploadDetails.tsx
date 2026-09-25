@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiConfig } from '../config/api';
+import { useAuth } from '../context/AuthContext';
 
 // ============================================================================
 // Types
@@ -169,6 +170,7 @@ const mapStatusToDisplay = (status: string): string => {
     'VALIDATION_IN_PROGRESS': 'Validation In Progress',
     'VALIDATION_FAILED': 'Validation Failed',
     'VALIDATION_PASSED': 'Validation Passed',
+    'VALIDATED': 'Validated',
     'DELIVERY_QUEUED': 'Pending',
     'DELIVERY_IN_PROGRESS': 'Delivery In Progress',
     'DELIVERED': 'Delivered',
@@ -251,10 +253,13 @@ const UploadDetails = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const loadUploadDetails = useCallback(async () => {
+  const { socket, user } = useAuth();
+  const historyBase = user?.Role === 'admin' ? '/admin/history' : '/history';
+
+  const loadUploadDetails = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!id) return;
     
-    setLoading(true);
+    if (!options.silent) setLoading(true);
     setError(null);
     try {
       const details = await fetchUploadDetails(id);
@@ -263,13 +268,38 @@ const UploadDetails = () => {
       console.error('Failed to fetch upload details:', err);
       setError(err instanceof Error ? err.message : 'Failed to load upload details');
     } finally {
-      setLoading(false);
+      if (!options.silent) setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
     loadUploadDetails();
   }, [loadUploadDetails]);
+
+  // Live updates: subscribe to this upload and refresh (at most once per second) on progress events.
+  useEffect(() => {
+    if (!socket || !id) return;
+
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const subscribe = () => socket.emit('subscribeToUpload', id);
+    const handleProgress = (event: { uploadId?: string }) => {
+      if (event?.uploadId?.toLowerCase() !== id.toLowerCase() || pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        loadUploadDetails({ silent: true });
+      }, 1000);
+    };
+
+    subscribe();
+    socket.on('connect', subscribe);
+    socket.on('uploadProgress', handleProgress);
+    return () => {
+      if (pending) clearTimeout(pending);
+      socket.emit('unsubscribeFromUpload', id);
+      socket.off('connect', subscribe);
+      socket.off('uploadProgress', handleProgress);
+    };
+  }, [socket, id, loadUploadDetails]);
 
   const handleVerify = async () => {
     if (!id || !upload) return;
@@ -323,7 +353,7 @@ const UploadDetails = () => {
     try {
       const result = await deleteUpload(id);
       if (result.success) {
-        navigate('/history');
+        navigate(historyBase);
       } else {
         setActionMessage({ type: 'error', text: result.message || 'Failed to delete upload' });
       }
@@ -349,7 +379,7 @@ const UploadDetails = () => {
       <div className="max-w-[1600px] mx-auto space-y-6">
         <div className="text-center py-8">
           <p className="text-gray-500">{error || 'Upload not found'}</p>
-          <Link to="/history" className="text-blue-600 hover:underline mt-2 inline-block">
+          <Link to={historyBase} className="text-blue-600 hover:underline mt-2 inline-block">
             Back to Upload History
           </Link>
         </div>
@@ -368,7 +398,7 @@ const UploadDetails = () => {
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
-            <Link to="/history" className="text-xs text-blue-600 hover:underline mb-2 inline-block">
+            <Link to={historyBase} className="text-xs text-blue-600 hover:underline mb-2 inline-block">
               ← Back to Upload History
             </Link>
             <h2 className="text-xl font-bold text-[#1e293b]">{upload.filename}</h2>
@@ -450,7 +480,7 @@ const UploadDetails = () => {
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
-            <Link to="/history" className="text-xs text-blue-600 hover:underline mb-2 inline-block">
+            <Link to={historyBase} className="text-xs text-blue-600 hover:underline mb-2 inline-block">
               ← Back to Upload History
             </Link>
             <h2 className="text-xl font-bold text-[#1e293b]">{upload.filename}</h2>
@@ -515,7 +545,7 @@ const UploadDetails = () => {
       {/* Header Area */}
       <div className="flex justify-between items-start">
         <div>
-          <Link to="/history" className="text-xs text-blue-600 hover:underline mb-2 inline-block">
+          <Link to={historyBase} className="text-xs text-blue-600 hover:underline mb-2 inline-block">
             ← Back to Upload History
           </Link>
           <h2 className="text-xl font-bold text-[#1e293b]">{upload.filename}</h2>
@@ -629,7 +659,7 @@ const InfoItem = ({ label, value }: { label: string; value: string }) => (
 );
 
 const SheetRow = ({ index, name, rows, status, path }: { index: string; name: string; rows: number; status: string; path: string }) => {
-  const statusClass = status === 'Delivered' ? 'bg-[#f0fdf4] text-[#22c55e]' : 
+  const statusClass = status === 'Delivered' || status === 'Validated' ? 'bg-[#f0fdf4] text-[#22c55e]' :
                      status === 'Failed' ? 'bg-[#fef2f2] text-[#ef4444]' : 
                      'bg-[#fffbeb] text-[#f59e0b]';
   
@@ -806,4 +836,3 @@ const ErrorRow = ({ col, err, row, val }: { col: string; err: string; row: numbe
 );
 
 export default UploadDetails;
-

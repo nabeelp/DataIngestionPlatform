@@ -2,8 +2,11 @@
 node_modules/
 dist/
 coverage/
+.nyc_output/
 *.tsbuildinfo
 .vite/
+.cache/
+.eslintcache
 
 # Local configuration (keep safe-to-share templates)
 .env
@@ -21,13 +24,24 @@ yarn-debug.log*
 yarn-error.log*
 uploads/
 desktop-uploads/
+deliveries/
 Back-End/sharepoint/uploads/
 Back-End/sharepoint/compressed/
 Back-End/temp/*
 !Back-End/temp/.gitkeep
 
+# Test output
+test-results/
+playwright-report/
+blob-report/
+junit.xml
+
 # OS and editor artifacts
 .DS_Store
 Thumbs.db
+.idea/
+.vs/
+*.suo
+*.user
 *.swp
 *.swo

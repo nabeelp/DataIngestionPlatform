@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // User FileDefinition Controller - Admin endpoints for user-definition assignments
 // Symmetric to definition.controller.ts user endpoints
 // =============================================================================
@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { FileDefinitionService } from '../services/FileDefinition.service';
 import type { IFileDefinition } from '../interfaces/fileDefinition.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
+import { logger } from '../utils/logger';
 
 // Extend Request to include user
 export interface AuthRequest extends Request<Record<string, string>> {
@@ -37,7 +38,7 @@ export const getUserFileDefinitions = async (req: AuthRequest, res: Response, ne
             total: definitions.length
         });
     } catch (error) {
-        console.error('[USER_FILEDEF_CTRL] Error getting user definitions:', error);
+        logger.error('[USER_FILEDEF_CTRL] Error getting user definitions:', error);
         next(error);
     }
 };
@@ -79,7 +80,7 @@ export const assignFileDefinitionsToUser = async (req: AuthRequest, res: Respons
             message: `Assigned ${fileDefinitionIds.length} file definitions to user`
         });
     } catch (error) {
-        console.error('[USER_FILEDEF_CTRL] Error assigning definitions:', error);
+        logger.error('[USER_FILEDEF_CTRL] Error assigning definitions:', error);
         next(error);
     }
 };
@@ -111,7 +112,7 @@ export const removeFileDefinitionFromUser = async (req: AuthRequest, res: Respon
             message: 'File definition access removed from user'
         });
     } catch (error) {
-        console.error('[USER_FILEDEF_CTRL] Error removing definition:', error);
+        logger.error('[USER_FILEDEF_CTRL] Error removing definition:', error);
         next(error);
     }
 };

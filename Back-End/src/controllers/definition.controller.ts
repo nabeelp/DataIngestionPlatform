@@ -5,7 +5,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { FileDefinitionService } from '../services/FileDefinition.service';
-import path from 'path';
+import { TemplateStorage, getTemplateContentType, getTemplateDisplayName } from '../services/TemplateStorage.service';
+import { logger } from '../utils/logger';
 import type { 
     ICreateFileDefinitionDto, 
     IUpdateFileDefinitionDto,
@@ -27,7 +28,7 @@ export const getDefinitions = async (req: AuthRequest, res: Response, next: Next
         const userId = req.user?.userId;
         const userRole = req.user?.role;
         
-        console.log('[DEFINITION_CONTROLLER] getDefinitions called:', { userId, userRole });
+        logger.debug('[DEFINITION_CONTROLLER] getDefinitions called:', { userId, userRole });
         
         if (!userId) {
             return res.status(401).json({ 
@@ -38,7 +39,7 @@ export const getDefinitions = async (req: AuthRequest, res: Response, next: Next
 
         const definitions = await FileDefinition.findForUser(userId);
         
-        console.log('[DEFINITION_CONTROLLER] Found definitions:', definitions.length);
+        logger.debug('[DEFINITION_CONTROLLER] Found definitions:', definitions.length);
 
         res.json({
             success: true,
@@ -46,7 +47,7 @@ export const getDefinitions = async (req: AuthRequest, res: Response, next: Next
             total: definitions.length
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error getting definitions:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error getting definitions:', error);
         next(error);
     }
 };
@@ -90,7 +91,7 @@ export const getDefinitionById = async (req: AuthRequest, res: Response, next: N
             definition
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error getting definition:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error getting definition:', error);
         next(error);
     }
 };
@@ -144,7 +145,7 @@ export const createDefinition = async (req: AuthRequest, res: Response, next: Ne
             message: 'Definition created successfully'
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error creating definition:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error creating definition:', error);
         next(error);
     }
 };
@@ -197,7 +198,7 @@ export const updateDefinition = async (req: AuthRequest, res: Response, next: Ne
             message: 'Definition updated successfully'
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error updating definition:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error updating definition:', error);
         next(error);
     }
 };
@@ -242,7 +243,7 @@ export const deleteDefinition = async (req: AuthRequest, res: Response, next: Ne
             message: 'Definition deleted successfully'
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error deleting definition:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error deleting definition:', error);
         next(error);
     }
 };
@@ -304,7 +305,7 @@ export const addUsersToDefinition = async (req: AuthRequest, res: Response, next
             message: 'Users added successfully'
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error adding users to definition:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error adding users to definition:', error);
         next(error);
     }
 };
@@ -345,7 +346,7 @@ export const removeUserFromDefinition = async (req: AuthRequest, res: Response, 
             message: 'User removed successfully'
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error removing user from definition:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error removing user from definition:', error);
         next(error);
     }
 };
@@ -380,7 +381,7 @@ export const getAllUsers = async (req: AuthRequest, res: Response, next: NextFun
             users
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error getting users:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error getting users:', error);
         next(error);
     }
 };
@@ -418,15 +419,30 @@ export const downloadTemplate = async (req: AuthRequest, res: Response, next: Ne
             });
         }
 
-        if (path.basename(blobName) !== blobName) {
-            throw new Error('Invalid template filename');
+        let template;
+        try {
+            template = await TemplateStorage.openReadStream(blobName);
+        } catch (error) {
+            logger.warn(`[DEFINITION_CTRL] Template ${blobName} could not be opened`, error);
+            return res.status(404).json({
+                success: false,
+                message: 'Template file is missing'
+            });
         }
-        const templatePath = path.join(process.cwd(), 'uploads', 'templates', blobName);
-        res.download(templatePath, blobName, (error) => {
-            if (error && !res.headersSent) next(error);
+
+        const downloadName = getTemplateDisplayName(blobName);
+        res.attachment(downloadName);
+        res.type(getTemplateContentType(downloadName));
+        if (template.size !== undefined) {
+            res.setHeader('Content-Length', String(template.size));
+        }
+        template.stream.on('error', (error) => {
+            if (!res.headersSent) next(error);
+            else res.destroy(error);
         });
+        template.stream.pipe(res);
     } catch (error) {
-        console.error('[DEFINITION_CTRL] Error downloading template:', error);
+        logger.error('[DEFINITION_CTRL] Error downloading template:', error);
         next(error);
     }
 };
@@ -452,7 +468,7 @@ export const getDefinitionStats = async (req: AuthRequest, res: Response, next: 
             ...stats
         });
     } catch (error) {
-        console.error('[DEFINITION_CONTROLLER] Error getting definition stats:', error);
+        logger.error('[DEFINITION_CONTROLLER] Error getting definition stats:', error);
         next(error);
     }
 };

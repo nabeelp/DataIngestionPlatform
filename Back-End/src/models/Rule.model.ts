@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Rule Model - Database operations for Rules table
 // =============================================================================
 
@@ -105,7 +105,7 @@ export class Rule {
             .input('FileDefinitionId', dto.FileDefinitionId)
             .input('Name', dto.Name)
             .input('Description', dto.Description || '')
-            .input('RuleType', dto.RuleType || 'Custom SQL')
+            .input('RuleType', dto.RuleType)
             .input('Severity', dto.Severity || 'Error')
             .input('ExecutionOrder', dto.ExecutionOrder || 1)
             .input('SqlQuery', dto.SqlQuery)

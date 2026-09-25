@@ -1,80 +1,15 @@
-# Data Ingestion Platform - Template System Update
-## Status: 🚀 In Progress
+# Backlog
 
-### Approved Plan Summary
-1. **Remove ALL template generation code** (XLSX auto-generation)
-2. **Add attachment upload section** to Admin Add/Edit File Definition modal  
-3. **Admin uploads template file** → stores in TemplateFilename → **Users download** from Definitions page (already works)
+Known follow-up work after the review and remediation of the current solution. Items are grouped by priority.
 
----
+## Next
+- **Azure deployment**: add `azd` + Bicep for App Service or Container Apps, Azure SQL, Blob Storage, Azure Cache for Redis, Key Vault, managed identity, and a CI pipeline.
+- **Token storage**: move the app JWT from `localStorage` to an httpOnly, SameSite cookie (with CSRF protection) to reduce XSS exposure.
+- **`xlsx` dependency**: the npm `xlsx@0.18.x` package has known advisories and is no longer published to npm. Move to the SheetJS CDN build or another maintained parser.
+- **Lookup-based validation**: add a rule type that checks column values against a Lookup list.
 
-## ✅ Step 1: Remove TemplateGenerator.service.ts (Backend)
-- ✅ Delete entire file `Back-End/src/services/TemplateGenerator.service.ts`
-
-## ✅ Step 2: Clean FileDefinition.service.ts
-- ✅ Remove `import TemplateGeneratorService`
-- ✅ Remove `generateAndStoreTemplate()` method
-
-## ✅ Step 3: Clean fileDefinitionAdmin.controller.ts  
-- ✅ Remove `generateTemplate()` controller function
-
-## ✅ Step 4: Clean admin.routes.ts
-- ✅ Remove `POST /admin/file-definitions/:id/template-generate` route + import
-
-## ✅ Step 5: Update Admin UI - FileDefinitions.tsx
-- [ ] **ADD**: Template file upload input after Columns section (not required)
-- [ ] **ADD**: State for `templateFile: File | null`
-- [ ] **ADD**: Display current template filename when editing
-- [ ] **REMOVE**: `handleGenerateTemplate()` + generate button
-- [ ] Update `handleSubmit()` to upload template after create/update
-
-## ✅ Step 6: Clean adminApi.ts
-- [ ] Remove `generateTemplate()` API function
-
-## ✅ Step 7: Test Flow
-```
-1. Admin: Add File Definition → Upload template.xlsx → Save
-2. User: Definitions page → See download button → Download template
-3. Verify: TemplateFilename saved in DB, download works
-```
-
-## 🔍 Verification Commands
-```bash
-# Backend restart (check no TemplateGenerator errors)
-cd Back-End && npm run dev
-
-# Frontend dev server  
-cd Front-End && npm run dev
-
-# Test in browser:
-# 1. Admin → File Definitions → Add → Upload template → Verify saved
-# 2. User → Definitions → Download button works
-```
-
-**Backend Cleanup COMPLETE** (Steps 1-4 ✅)
-
-**ALL STEPS COMPLETE ✅**
-
-## 🎉 **Task Complete: Template System Updated**
-
-**Changes Made:**
-✅ Removed all template generation code (Backend + Frontend)  
-✅ Added template file upload to Admin modal (after Columns)  
-✅ Template now uploaded by admin, downloaded by users  
-✅ Full flow: Admin Create → Upload Template → User Download works
-
-**Test Flow:**
-```
-1. Admin → File Definitions → Add Definition  
-2. Fill form → Select template.xlsx → Submit  
-3. User → Definitions page → Download button works
-```
-
-**Run to test:**
-```bash
-cd Back-End && npm run dev
-cd Front-End && npm run dev
-```
-
-**Ready for production!** 🚀
-
+## Later
+- Real-time updates on the admin Monitoring page (it currently polls).
+- Rename the `Rules.SqlQuery` column to reflect that it stores a declarative rule expression.
+- An "unauthorized" page for non-admin deep links into `/admin`.
+- A token revocation/blocklist for logout.

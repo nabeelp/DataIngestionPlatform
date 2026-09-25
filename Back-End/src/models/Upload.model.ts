@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Upload Model - Database operations for Uploads table
 // =============================================================================
 
@@ -76,29 +76,29 @@ export class Upload {
                 query = `
                     SELECT DISTINCT u.* FROM ${this.TABLE_NAME} u
                     LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
-                    WHERE u.UploadedBy = @UserId OR ua.UserId = @UserId
+                    WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                     AND u.Status = @Status
                     ORDER BY u.UploadedAt DESC
                     OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY
                 `;
                 countQuery = `
-                    SELECT COUNT(*) as total FROM ${this.TABLE_NAME} u
+                    SELECT COUNT(DISTINCT u.Id) as total FROM ${this.TABLE_NAME} u
                     LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
-                    WHERE u.UploadedBy = @UserId OR ua.UserId = @UserId
+                    WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                     AND u.Status = @Status
                 `;
             } else {
                 query = `
                     SELECT DISTINCT u.* FROM ${this.TABLE_NAME} u
                     LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
-                    WHERE u.UploadedBy = @UserId OR ua.UserId = @UserId
+                    WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                     ORDER BY u.UploadedAt DESC
                     OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY
                 `;
                 countQuery = `
-                    SELECT COUNT(*) as total FROM ${this.TABLE_NAME} u
+                    SELECT COUNT(DISTINCT u.Id) as total FROM ${this.TABLE_NAME} u
                     LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
-                    WHERE u.UploadedBy = @UserId OR ua.UserId = @UserId
+                    WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                 `;
             }
         }
@@ -144,7 +144,7 @@ export class Upload {
             query = `
                 SELECT DISTINCT TOP (@Limit) u.* FROM ${this.TABLE_NAME} u
                 LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
-                WHERE u.UploadedBy = @UserId OR ua.UserId = @UserId
+                WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                 ORDER BY u.UploadedAt DESC
             `;
         }
@@ -403,7 +403,7 @@ export class Upload {
         const pool = await getConnection();
         const statusList = statuses.map((s, i) => `@Status${i}`).join(', ');
         
-        let query = `SELECT COUNT(*) as count FROM ${this.TABLE_NAME} WHERE Status IN (${statusList})`;
+        const query = `SELECT COUNT(*) as count FROM ${this.TABLE_NAME} WHERE Status IN (${statusList})`;
         
         const request = pool.request();
         statuses.forEach((status, i) => {

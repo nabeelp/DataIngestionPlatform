@@ -46,13 +46,32 @@ interface AuthContextType {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   login: (email: string, password: string) => Promise<User>;
-  loginWithSso: (token: string, user: User) => Promise<void>;
+  loginWithSso: (token: string, user: unknown) => Promise<void>;
   logout: () => Promise<void>;
   token: string | null;
   socket: SocketType | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/**
+ * Normalize the backend user payload (PascalCase from the API, camelCase from storage).
+ */
+const normalizeUser = (raw: any, fallbackLoginMethod: string): User | null => {
+  if (!raw) return null;
+  const id = raw.id ?? raw.Id;
+  const email = raw.email ?? raw.Email;
+  if (!id || !email) return null;
+  return {
+    id,
+    email,
+    username: raw.username ?? raw.Username ?? '',
+    firstName: raw.firstName ?? raw.FirstName ?? null,
+    lastName: raw.lastName ?? raw.LastName ?? null,
+    Role: raw.Role ?? raw.role ?? 'user',
+    loginMethod: raw.loginMethod ?? raw.LoginMethod ?? fallbackLoginMethod,
+  };
+};
 
 // AUTH PROVIDER
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -74,12 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const socketUrl = (apiConfig.getWebSocketUrl?.() as string) || apiConfig.getBaseUrl().replace(/^http/, 'ws');
     const newSocket = io(socketUrl, { auth: { token } });
-    
-    console.log('[SOCKET] Connecting:', socketUrl);
+
     setSocket(newSocket);
 
     return () => {
-      console.log('[SOCKET] Disconnecting');
       newSocket.disconnect();
     };
   }, [token]);
@@ -156,7 +173,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (devBypassAuth && hardcodedUser && password === HARDCODED_PASSWORD) {
-        console.log('[AUTH] Login bypass:', hardcodedUser.email);
         const mockToken = `mock_token_${hardcodedUser.id}_${Date.now()}`;
         
         localStorage.setItem('token', mockToken);
@@ -183,15 +199,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Invalid response');
       }
 
-      const validatedUser: User = {
-        id: data.user.id,
-        email: data.user.email,
-        username: data.user.username,
-        firstName: data.user.firstName ?? null,
-        lastName: data.user.lastName ?? null,
-        Role: data.user.role || data.user.Role || 'user',
-        loginMethod: data.user.loginMethod || 'password',
-      };
+      const validatedUser = normalizeUser(data.user, 'password');
+      if (!validatedUser) {
+        throw new Error('Invalid response');
+      }
       
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(validatedUser));
@@ -207,20 +218,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loginWithSso = async (ssoToken: string, ssoUser: User): Promise<void> => {
-    if (!ssoToken || !ssoUser?.id || !ssoUser.email) {
+  const loginWithSso = async (ssoToken: string, ssoUser: unknown): Promise<void> => {
+    const validatedUser = normalizeUser(ssoUser, 'sso');
+    if (!ssoToken || !validatedUser) {
       throw new Error('Invalid SSO data');
     }
-    
-    const validatedUser: User = {
-      id: ssoUser.id,
-      email: ssoUser.email,
-      username: ssoUser.username || '',
-      firstName: ssoUser.firstName ?? null,
-      lastName: ssoUser.lastName ?? null,
-      Role: ssoUser.Role || 'user',
-      loginMethod: 'sso',
-    };
+    validatedUser.loginMethod = 'sso';
     
     localStorage.setItem('token', ssoToken);
     localStorage.setItem('user', JSON.stringify(validatedUser));
@@ -243,8 +246,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await fetch(`${apiConfig.getBaseUrl()}/auth/logout`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${currentToken}` },
-        }).catch(console.error);
-      } catch {}
+        });
+      } catch {
+        // Logout is best-effort; the local session is already cleared.
+      }
     }
   };
 

@@ -127,6 +127,13 @@ IF COL_LENGTH('dbo.Rules', 'CreatedBy') IS NULL
     ALTER TABLE dbo.Rules ADD CreatedBy NVARCHAR(36) NULL;
 GO
 
+-- Custom SQL and Regex Pattern rules are no longer supported. Disable any existing ones so they
+-- can be reviewed and recreated with a supported declarative type.
+UPDATE dbo.Rules
+SET IsEnabled = 0, UpdatedAt = GETUTCDATE()
+WHERE RuleType IN ('Custom SQL', 'Regex Pattern') AND IsEnabled = 1;
+GO
+
 -- ============================================================================
 -- VALIDATION RULE DETAILS TABLE - Individual rule execution results
 -- ============================================================================

@@ -1,9 +1,10 @@
-﻿// =============================================================================
+// =============================================================================
 // Queue Service - BullMQ + Redis Queue Management
 // =============================================================================
 
 import Bull, { Queue, Job, Worker } from 'bullmq';
 import { EventEmitter } from 'events';
+import { randomUUID } from 'crypto';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
 import type { IValidationJobData, IDeliveryJobData, IRetryJobData } from '../interfaces/upload.interface';
@@ -368,7 +369,8 @@ export async function addValidationJob(data: IValidationJobData): Promise<Job> {
         JOB_TYPES.FILE_VALIDATION,
         data,
         {
-            jobId: data.uploadId,
+            // Unique per attempt so retries are not deduplicated against a finished job (fits NVARCHAR(36) job id columns).
+            jobId: randomUUID(),
             priority: 1 // High priority
         }
     );
@@ -388,7 +390,8 @@ export async function addValidationJobs(dataList: IValidationJobData[]): Promise
             name: JOB_TYPES.FILE_VALIDATION,
             data,
             opts: {
-                jobId: data.uploadId,
+                // Unique per attempt so retries are not deduplicated against a finished job (fits NVARCHAR(36) job id columns).
+            jobId: randomUUID(),
                 priority: 1
             }
         }))
@@ -412,7 +415,7 @@ export async function addDeliveryJob(data: IDeliveryJobData): Promise<Job> {
         JOB_TYPES.FILE_DELIVERY,
         data,
         {
-            jobId: `${data.uploadId}-${data.deliveryType}`
+            jobId: randomUUID()
         }
     );
 
@@ -431,7 +434,7 @@ export async function addDeliveryJobs(dataList: IDeliveryJobData[]): Promise<Job
             name: JOB_TYPES.FILE_DELIVERY,
             data,
             opts: {
-                jobId: `${data.uploadId}-${data.uploadSheetId}-${data.deliveryType}`
+                jobId: randomUUID()
             }
         }))
     );

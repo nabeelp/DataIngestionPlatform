@@ -68,6 +68,7 @@ const mapStatusToDisplay = (status: string): string => {
     'VALIDATION_IN_PROGRESS': 'Processing',
     'VALIDATION_FAILED': 'Validation Failed',
     'VALIDATION_PASSED': 'Validation Passed',
+    'VALIDATED': 'Validation Passed',
     'DELIVERY_QUEUED': 'Pending',
     'DELIVERY_IN_PROGRESS': 'Processing',
     'DELIVERED': 'Delivered',
@@ -81,7 +82,8 @@ const mapStatusToDisplay = (status: string): string => {
 // ============================================================================
 
 export default function UploadHistory() {
-  const { socket } = useAuth() as { socket: Socket | null };
+  const { socket, user } = useAuth() as { socket: Socket | null; user: { Role: string } | null };
+  const historyBase = user?.Role === 'admin' ? '/admin/history' : '/history';
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +92,8 @@ export default function UploadHistory() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleUploadUpdate = (data: UploadUpdateEvent) => {
-      console.log('[WS HISTORY] Update:', data);
+    const handleUploadUpdate = (event: UploadUpdateEvent) => {
+      if (event.type === 'VALIDATION_UPDATE') return;
       loadUploads(); // Refresh list live
     };
 
@@ -251,7 +253,7 @@ export default function UploadHistory() {
                       {upload.deliveredTo ? upload.deliveredTo.split(',')[0] || '-' : '-'}
                     </td>
                     <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm">
-                      <Link to={`/history/${upload.id}`} className="text-blue-600 hover:text-blue-900 font-medium">View</Link>
+                      <Link to={`${historyBase}/${upload.id}`} className="text-blue-600 hover:text-blue-900 font-medium">View</Link>
                     </td>
                   </tr>
                 ))}

@@ -1,10 +1,12 @@
-﻿// =============================================================================
+// =============================================================================
 // Upload Controller - API endpoints for file uploads
 // =============================================================================
 
 import { Request, Response } from 'express';
 import { UploadService } from '../services/Upload.service';
 import { Upload } from '../models/Upload.model';
+import { FileDefinition } from '../models/FileDefinition.model';
+import { sanitizeFilename } from '../services/TemplateStorage.service';
 import { sharePointStorage } from '../services/SharePointStorage.service';
 import { desktopStorage } from '../services/DesktopStorage.service';
 import { azureStorage } from '../services/AzureStorage.service';
@@ -108,7 +110,7 @@ export class UploadController {
      * Get upload progress (for real-time updates)
      */
     static async getUploadProgress(req: Request, res: Response): Promise<void> {
-        console.log('Getting upload progress...');
+        logger.debug('Getting upload progress...');
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
             const userId = (req as any).user?.userId;
@@ -150,7 +152,6 @@ export class UploadController {
      * Upload a file (multipart form data)
      */
     static async uploadFile(req: Request, res: Response): Promise<void> {
-        console.log('Starting upload process...');
         try {
             const userId = (req as any).user?.userId;
             const definitionId = Array.isArray(req.body.definitionId) ? req.body.definitionId[0] : req.body.definitionId as string;
@@ -171,14 +172,24 @@ export class UploadController {
                 return;
             }
 
+            const hasDefinitionAccess = await FileDefinition.hasAccess(definitionId, userId);
+            if (!hasDefinitionAccess) {
+                res.status(403).json({
+                    success: false,
+                    message: 'You do not have access to this file definition'
+                });
+                return;
+            }
+
             const fileSize = req.file.size;
             const fileType = path.extname(req.file.originalname).toLowerCase().slice(1);
             logger.info(`[UPLOAD-START] User: ${userId}, File: ${req.file.originalname}, Size: ${fileSize}B, Type: ${fileType}, DefId: ${definitionId}`);
 
             // Generate unique IDs
             const uploadId = uuidv4();
-            const storedFilename = `${uploadId}_${req.file.originalname}`;
-            const tempFilename = `${uploadId}_${req.file.originalname}`;
+            const safeFilename = sanitizeFilename(req.file.originalname);
+            const storedFilename = `${uploadId}_${safeFilename}`;
+            const tempFilename = `${uploadId}_${safeFilename}`;
             
             // 1. FIRST: Persist copy to temp directory for validation worker
             const tempDir = appConfig.upload.tempDirectory;
@@ -200,7 +211,6 @@ export class UploadController {
             const storedUrl = 'fileUrl' in uploadResult ? uploadResult.fileUrl : uploadResult.blobUrl;
             logger.info(`[UPLOAD-STORAGE] UploadId: ${uploadId}, Path: ${storedUrl}`);
             
-            // NOTE: Keep multer temp until validation complete (or clean later)
 
             // 3. Create upload record WITH TempLocalPath
             const upload = await UploadService.createUpload({
@@ -236,6 +246,11 @@ export class UploadController {
                 success: false,
                 message: error.message || 'Failed to upload file'
             });
+        } finally {
+            // The validation worker uses its own persisted copy (TempLocalPath), so the multer file can go.
+            if (req.file?.path) {
+                await fs.promises.rm(req.file.path, { force: true }).catch(() => undefined);
+            }
         }
     }
 
@@ -244,7 +259,7 @@ export class UploadController {
      * Start validation for an uploaded file
      */
     static async startVerification(req: Request, res: Response): Promise<void> {
-        console.log('Starting verification process...');
+        logger.debug('Starting verification process...');
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
             const userId = (req as any).user?.userId;
@@ -267,7 +282,7 @@ export class UploadController {
                 });
                 return;
             }
-            console.log('We are validating, validation has started: ');
+            logger.debug('We are validating, validation has started: ');
             // Check if upload is in valid state for verification
             if (upload.Status !== 'UPLOADED' && upload.Status !== 'VALIDATION_FAILED') {
                 res.status(400).json({
@@ -382,16 +397,11 @@ export class UploadController {
                 return;
             }
 
-            // Delete temp file if exists and conditions met (Delivered or RetryCount >= 2)
+            // The upload record is being removed, so its persisted validation copy is no longer needed.
             try {
                 if (upload.TempLocalPath && fs.existsSync(upload.TempLocalPath)) {
-                    const shouldDeleteTemp = upload.Status === 'DELIVERED' || upload.RetryCount >= 2;
-                    if (shouldDeleteTemp) {
-                        fs.unlinkSync(upload.TempLocalPath);
-                        logger.info(`[DELETE-TEMP] Deleted temp file: ${upload.TempLocalPath}`);
-                    } else {
-                        logger.info(`[DELETE-SKIP] Keeping temp file for retry: ${upload.TempLocalPath} (Status: ${upload.Status}, Retries: ${upload.RetryCount})`);
-                    }
+                    fs.unlinkSync(upload.TempLocalPath);
+                    logger.info(`[DELETE-TEMP] Deleted temp file for upload ${upload.Id}`);
                 }
                 
                 // Delete from storage if exists

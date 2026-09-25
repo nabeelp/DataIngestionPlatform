@@ -56,14 +56,14 @@ const Sidebar = () => {
       icon: <Settings size={18} />,
       path: "/rules",
     },
-    // { name: "Lookups", icon: <Search size={18} />, path: "/lookups" },
+    { name: "Lookups", icon: <Search size={18} />, path: "/lookups" },
   ];
 
   const adminMenuItems = [
     {
       name: "Dashboard",
       icon: <LayoutDashboard size={18} />,
-      path: "/",
+      path: "/admin",
     },
     {
       name: "Users Management",
@@ -85,7 +85,26 @@ const Sidebar = () => {
       icon: <Settings size={18} />,
       path: "/admin/monitoring",
     },
-    // { name: "Compliance", icon: <Search size={18} />, path: "/admin/compliance" },
+    {
+      name: "Uploads",
+      icon: <History size={18} />,
+      path: "/admin/history",
+    },
+    {
+      name: "Rules",
+      icon: <Settings size={18} />,
+      path: "/admin/rules",
+    },
+    {
+      name: "Lookups",
+      icon: <Search size={18} />,
+      path: "/admin/lookups",
+    },
+    {
+      name: "Compliance",
+      icon: <FileText size={18} />,
+      path: "/admin/compliance",
+    },
   ];
 
   const menuItems = isAdmin ? adminMenuItems : userMenuItems;

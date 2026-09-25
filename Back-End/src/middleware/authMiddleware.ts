@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Authentication Middleware - Protects routes using JWT
 // =============================================================================
 
@@ -18,9 +18,8 @@ export interface AuthRequest extends Request {
     };
 }
 
-// Mock token users for development - these IDs must match frontend hardcoded users
+// Development-only mock users (DEV_BYPASS_AUTH=true with NODE_ENV=development). IDs match seed_local_users.sql.
 const MOCK_TOKEN_USERS: Record<string, { userId: string; email: string; role: UserRole; loginMethod: string }> = {
-    // Frontend hardcoded IDs (from AuthContext.tsx) - OLD IDs that align with database
     '63BD96E4-1229-4399-8964-0795E50B3574': {
         userId: '63BD96E4-1229-4399-8964-0795E50B3574',
         email: 'admin@company.com',
@@ -53,57 +52,52 @@ const parseMockToken = (token: string): { userId: string; email: string; role: U
     return null;
 };
 
+export type AuthenticatedUser = NonNullable<AuthRequest['user']>;
+
+const isDevBypassEnabled = (): boolean =>
+    appConfig.nodeEnv === 'development' && process.env.DEV_BYPASS_AUTH === 'true';
+
+/**
+ * Verify an access token (app JWT, or a mock token when the development bypass is enabled).
+ * Throws when the token is missing, malformed, expired, or has an invalid signature.
+ */
+export function verifyAccessToken(token: string | undefined | null): AuthenticatedUser {
+    if (!token) {
+        throw new Error('No token provided');
+    }
+
+    if (token.startsWith('mock_token_')) {
+        const mockUser = isDevBypassEnabled() ? parseMockToken(token) : null;
+        if (!mockUser) {
+            throw new Error('Mock tokens are only accepted when DEV_BYPASS_AUTH is enabled in development');
+        }
+        return mockUser;
+    }
+
+    const decoded = jwt.verify(token, appConfig.jwt.secret, { algorithms: ['HS256'] }) as AuthenticatedUser;
+    if (!decoded?.userId || !decoded.role) {
+        throw new Error('Token is missing required claims');
+    }
+    return { userId: decoded.userId, email: decoded.email, role: decoded.role, loginMethod: decoded.loginMethod };
+}
+
 /**
  * Middleware to verify JWT token and protect routes
  */
 export const authenticate = (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const authHeader = req.headers.authorization;
-        
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            logger.warn('No token provided');
-            return res.status(401).json({ 
-                success: false, 
-                message: 'No token provided' 
-            });
-        }
-
-        const token = authHeader.substring(7);
-        
-        // First check if it's a mock token (development mode)
-        if (appConfig.nodeEnv === 'development' && process.env.DEV_BYPASS_AUTH === 'true' && token.startsWith('mock_token_')) {
-            const mockUser = parseMockToken(token);
-            if (mockUser) {
-                logger.info(`[AUTH] Mock token accepted for user: ${mockUser.email}`);
-                (req as AuthRequest).user = mockUser;
-                return next();
-            }
-        }
-        
-        // Check if token is a valid JWT format (has 2 dots)
-        const tokenParts = token.split('.');
-        if (tokenParts.length === 3) {
-            // Verify the JWT token
-            const decoded = jwt.verify(token, appConfig.jwt.secret) as {
-                userId: string;
-                email: string;
-                role: UserRole;
-                loginMethod: string;
-            };
-
-            // Attach user to request
-            (req as AuthRequest).user = decoded;
-            return next();
-        }
-        
-        // Token format not recognized
-        logger.warn('Invalid token format');
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ 
             success: false, 
-            message: 'Invalid token format' 
+            message: 'No token provided'
         });
+    }
+
+    try {
+        (req as AuthRequest).user = verifyAccessToken(authHeader.substring(7));
+        return next();
     } catch (error) {
-        logger.error('Authentication error:', error);
+        logger.warn(`[AUTH] Rejected token: ${error instanceof Error ? error.message : 'unknown error'}`);
         return res.status(401).json({ 
             success: false, 
             message: 'Invalid or expired token' 
@@ -141,23 +135,13 @@ export const authorize = (...allowedRoles: UserRole[]) => {
  * Optional authentication - attaches user if token exists but doesn't require it
  */
 export const optionalAuth = (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const authHeader = req.headers.authorization;
-        
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.substring(7);
-            const decoded = jwt.verify(token, appConfig.jwt.secret) as {
-                userId: string;
-                email: string;
-                role: UserRole;
-                loginMethod: string;
-            };
-            (req as AuthRequest).user = decoded;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+            (req as AuthRequest).user = verifyAccessToken(authHeader.substring(7));
+        } catch {
+            // Invalid token - continue without user (optional auth)
         }
-        
-        next();
-    } catch (error) {
-        // Token invalid - continue without user (optional auth)
-        next();
     }
+    next();
 };

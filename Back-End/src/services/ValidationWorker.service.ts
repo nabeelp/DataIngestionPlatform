@@ -4,13 +4,12 @@
 
 import { Job } from 'bullmq';
 import path from 'path';
-import fs from 'fs';
 import { unlinkSync, existsSync, mkdirSync, copyFileSync } from 'fs';
 import { appConfig } from '../config/appConfig';
 import { azureStorage } from './AzureStorage.service';
 import { sharePointStorage } from './SharePointStorage.service';
 import { desktopStorage } from './DesktopStorage.service';
-import { io } from '../index';
+import { emitUploadEvent } from '../websocket/socketServer';
 import { Upload } from '../models/Upload.model';
 import { UploadSheet } from '../models/UploadSheet.model';
 import { ValidationResult } from '../models/ValidationResult.model';
@@ -20,6 +19,16 @@ import { FileDefinition } from '../models/FileDefinition.model';
 import { logger } from '../utils/logger';
 import type { IValidationJobData } from '../interfaces/upload.interface';
 import type { IRule as IRuleType } from '../interfaces/rule.interface';
+import {
+    DEFINITION_SCHEMA_RULE_TYPE,
+    SUPPORTED_RULE_TYPES,
+    createDefinitionSchemaEvaluator,
+    createRuleEvaluator,
+    type DefinitionColumn,
+    type RowEvaluator,
+} from './validation/ValidationEngine';
+import { readRecords } from './validation/FileRecordReader';
+import { createValidationWorker } from './Queue.service';
 
 // =============================================================================
 // Storage Resolver
@@ -63,214 +72,38 @@ const getStorageService = (upload: any): StorageService => {
 };
 
 // =============================================================================
-// FILE PARSING (UNCHANGED)
+// RULE EVALUATION
 // =============================================================================
-async function parseCSV(filePath: string): Promise<{ rowCount: number; headers: string[]; sampleData: any[] }> {
-    const readline = await import('readline');
-    const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
-    
-    const rl = readline.createInterface({
-        input: stream,
-        crlfDelay: Infinity
-    });
 
-    const headers: string[] = [];
-    const sampleData: any[] = [];
-    let rowCount = 0;
-    let isFirstLine = true;
-    let lineIndex = 0;
-    const maxSampleRows = 10;
-
-    for await (const line of rl) {
-        if (!line.trim()) continue;
-        
-        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-        
-        if (isFirstLine) {
-            headers.push(...values);
-            isFirstLine = false;
-        } else {
-            rowCount++;
-            if (sampleData.length < maxSampleRows) {
-                const row: any = {};
-                headers.forEach((h, i) => {
-                    row[h] = values[i] || '';
-                });
-                sampleData.push(row);
-            }
-        }
-        lineIndex++;
-    }
-
-    stream.close();
-    
-    return { rowCount, headers, sampleData };
+interface ActiveCheck {
+    detailId: string;
+    name: string;
+    severity: string;
+    evaluator: RowEvaluator;
+    elapsedNs: bigint;
 }
 
-async function parseExcel(filePath: string): Promise<{ rowCount: number; headers: string[]; sampleData: any[]; sheets?: { name: string; rowCount: number }[] }> {
+const parseDefinitionColumns = (columns: unknown): DefinitionColumn[] => {
+    if (Array.isArray(columns)) return columns as DefinitionColumn[];
+    if (typeof columns === 'string' && columns.trim()) {
+        try {
+            const parsed = JSON.parse(columns);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+};
+
+const timed = (check: ActiveCheck, fn: () => void): void => {
+    const start = process.hrtime.bigint();
     try {
-        if (!existsSync(filePath)) {
-            logger.warn(`Excel file not found for parsing: ${filePath}`);
-            return { rowCount: 0, headers: [], sampleData: [], sheets: [] };
-        }
-        const XLSX = await import('xlsx');
-        const workbook = XLSX.readFile(filePath);
-        
-        const sheets: { name: string; rowCount: number }[] = [];
-        let totalRowCount = 0;
-        let allHeaders: string[] = [];
-        const sampleData: any[] = [];
-        
-        for (const sheetName of workbook.SheetNames) {
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-            
-            if (jsonData.length > 0) {
-                const sheetRowCount = jsonData.length - 1;
-                sheets.push({ name: sheetName, rowCount: sheetRowCount });
-                totalRowCount += sheetRowCount;
-                
-                if (allHeaders.length === 0 && jsonData.length > 0) {
-                    allHeaders = (jsonData[0] as any[]).map((h: any) => String(h || ''));
-                }
-                
-                if (sampleData.length < 10 && jsonData.length > 1) {
-                    for (let i = 1; i < Math.min(jsonData.length, 11); i++) {
-                        const row: any = {};
-                        allHeaders.forEach((h, j) => {
-                            row[h] = (jsonData[i] as any[])[j];
-                        });
-                        sampleData.push(row);
-                    }
-                }
-            }
-        }
-        
-        return { 
-            rowCount: totalRowCount, 
-            headers: allHeaders, 
-            sampleData, 
-            sheets
-        };
-    } catch (error: any) {
-        logger.warn(`Excel parsing error: ${error.message}`);
-        return { 
-            rowCount: 0, 
-            headers: [], 
-            sampleData: [],
-            sheets: []
-        };
+        fn();
+    } finally {
+        check.elapsedNs += process.hrtime.bigint() - start;
     }
-}
-
-async function parseFile(filePath: string, fileType: string): Promise<{
-    rowCount: number;
-    headers: string[];
-    sampleData: any[];
-    sheets?: { name: string; rowCount: number }[];
-}> {
-    const ext = fileType.toLowerCase();
-    
-    if (ext === 'csv' || ext === 'txt' || ext === 'tsv') {
-        return await parseCSV(filePath);
-    } else if (ext === 'xlsx' || ext === 'xls') {
-        return await parseExcel(filePath);
-    }
-    
-    return { rowCount: 0, headers: [], sampleData: [] };
-}
-
-/**
- * Execute a validation rule against the data
- */
-async function executeRule(
-    rule: IRuleType,
-    data: any[],
-    headers: string[]
-): Promise<{ passed: boolean; errorCount: number; errors: any[] }> {
-    const errors: any[] = [];
-    
-    try {
-        switch (rule.RuleType) {
-            case 'Schema Validation':
-                const requiredColumns = rule.SqlQuery.split(',').map(c => c.trim());
-                for (const col of requiredColumns) {
-                    if (!headers.includes(col)) {
-                        errors.push({
-                            rule: rule.Name,
-                            column: col,
-                            error: `Required column "${col}" not found`,
-                            value: null
-                        });
-                    }
-                }
-                break;
-                
-            case 'Enum Check':
-                const [enumCol, enumValuesStr] = rule.SqlQuery.split(':');
-                if (enumCol && enumValuesStr) {
-                    const allowedValues = enumValuesStr.trim().split(',').map(v => v.trim());
-                    
-                    for (let i = 0; i < data.length; i++) {
-                        const row = data[i];
-                        const value = row[enumCol.trim()];
-                        if (value && !allowedValues.includes(String(value))) {
-                            if (errors.length < 100) {  // Limit errors for performance
-                                errors.push({
-                                    row: i + 2,  // +2 for header + 1-based
-                                    column: enumCol.trim(),
-                                    value: value,
-                                    error: `Value "${value}" not in allowed values: ${enumValuesStr.trim()}`
-                                });
-                            }
-                        }
-                    }
-                }
-                break;
-                
-            case 'Regex Pattern':
-                const [regexCol, regexPattern] = rule.SqlQuery.split(':').map(s => s.trim());
-                if (regexCol && regexPattern) {
-                    const regex = new RegExp(regexPattern);
-                    
-                    for (let i = 0; i < data.length; i++) {
-                        const row = data[i];
-                        const value = row[regexCol];
-                        if (value && !regex.test(String(value))) {
-                            if (errors.length < 100) {
-                                errors.push({
-                                    row: i + 2,
-                                    column: regexCol,
-                                    value: value,
-                                    error: `Value does not match pattern: ${regexPattern}`
-                                });
-                            }
-                        }
-                    }
-                }
-                break;
-                
-            case 'Custom SQL':
-            default:
-                logger.info(`Custom SQL rule "${rule.Name}" - requires database execution (skipped in sample validation)`);
-                // For full validation, would execute SQL against full dataset
-                break;
-        }
-        
-        return {
-            passed: errors.length === 0,
-            errorCount: errors.length,
-            errors
-        };
-    } catch (error: any) {
-        logger.error(`Error executing rule ${rule.Name}:`, error);
-        return {
-            passed: false,
-            errorCount: 1,
-            errors: [{ error: error.message }]
-        };
-    }
-}
+};
 
 // =============================================================================
 // MAIN WORKER
@@ -284,169 +117,137 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
     try {
         upload = await Upload.findById(uploadId);
         if (!upload) throw new Error('Upload not found');
+        await Upload.update(uploadId, { ValidationStartedAt: new Date() });
 
-        // ✅ Fix 1: Set tempFilePath properly
         const tempLocalPath = upload.TempLocalPath;
         if (tempLocalPath && existsSync(tempLocalPath)) {
             tempFilePath = tempLocalPath;
-            logger.info(`[VAL-WORKER] Using existing TempLocalPath: ${tempFilePath}`);
         } else {
             const storageService = getStorageService(upload);
-            const tempDir = path.join(process.cwd(), 'temp');
+            const tempDir = appConfig.upload.tempDirectory;
             if (!existsSync(tempDir)) {
                 mkdirSync(tempDir, { recursive: true });
             }
-            tempFilePath = path.join(tempDir, `${uploadId}_${upload.OriginalFilename}`);
+            tempFilePath = path.join(tempDir, `${uploadId}_${path.basename(upload.StoredFilename || 'upload')}`);
             await storageService.downloadFile(upload.StoredFilename, tempFilePath);
-            logger.info(`[VAL-WORKER] Downloaded file to: ${tempFilePath}`);
+        }
+
+        const validationResult = await ValidationResult.findByUploadId(uploadId);
+        if (!validationResult) {
+            throw new Error(`Validation result not found for upload ${uploadId}`);
         }
 
         const fileDefinition = await FileDefinition.findById(fileDefinitionId);
-        const rules = await Rule.findEnabledByFileDefinitionId(fileDefinitionId);
+        const rules: IRuleType[] = await Rule.findEnabledByFileDefinitionId(fileDefinitionId);
+        const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
 
-        if (!tempFilePath) {
-            throw new Error(`Validation source is missing for upload ${uploadId}`);
+        // Build one evaluator per rule detail; the file is then read once for all of them.
+        const checks: ActiveCheck[] = [];
+        for (const ruleDetail of ruleDetails) {
+            let evaluator: RowEvaluator | null = null;
+
+            if (ruleDetail.RuleType === DEFINITION_SCHEMA_RULE_TYPE) {
+                evaluator = createDefinitionSchemaEvaluator(parseDefinitionColumns(fileDefinition?.Columns));
+            } else {
+                const rule = rules.find(r => String(r.Id).toLowerCase() === String(ruleDetail.RuleId).toLowerCase());
+                if (!rule) {
+                    logger.warn(`[VAL-WORKER] Rule ${ruleDetail.RuleId} is no longer enabled; skipping for upload ${uploadId}`);
+                } else if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
+                    logger.warn(`[VAL-WORKER] Rule "${rule.Name}" has unsupported type "${rule.RuleType}"; skipping`);
+                } else {
+                    evaluator = createRuleEvaluator(rule.RuleType, rule.SqlQuery);
+                }
+            }
+
+            if (!evaluator) {
+                await ValidationRuleDetail.markSkipped(ruleDetail.Id, 0);
+                continue;
+            }
+
+            await ValidationRuleDetail.markStarted(ruleDetail.Id);
+            checks.push({
+                detailId: ruleDetail.Id,
+                name: ruleDetail.RuleName,
+                severity: ruleDetail.RuleSeverity,
+                evaluator,
+                elapsedNs: BigInt(0),
+            });
         }
-        const parseResult = await parseFile(tempFilePath, upload.FileType);
-        
-        // Update upload with row count
-        await Upload.update(uploadId, {
-            RowCountNo: parseResult.rowCount
+
+        logger.info(`[VAL-WORKER] Validating upload ${uploadId} with ${checks.length} check(s)`);
+
+        let lastEmit = 0;
+        const sourcePath = tempFilePath as string;
+        const summary = await readRecords(sourcePath, upload.FileType, {
+            onHeaders: (headers, sheet) => {
+                for (const check of checks) timed(check, () => check.evaluator.onHeaders(headers, sheet));
+            },
+            onRow: (row, rowNumber, sheet) => {
+                for (const check of checks) timed(check, () => check.evaluator.onRow(row, rowNumber, sheet));
+            },
+            onProgress: (percent) => {
+                const now = Date.now();
+                if (now - lastEmit < 1000) return;
+                lastEmit = now;
+                void emitUploadEvent(uploadId, {
+                    uploadId,
+                    type: 'VALIDATION_UPDATE',
+                    progress: percent,
+                    details: { currentRule: 'Reading file', progress: percent }
+                });
+            },
         });
-        
-        // Update/create upload sheets
-        if (parseResult.sheets && parseResult.sheets.length > 0) {
+
+        await Upload.update(uploadId, { RowCountNo: summary.rowCount });
+
+        if (summary.sheets.length > 0) {
             await UploadSheet.deleteByUploadId(uploadId);
-            for (let i = 0; i < parseResult.sheets!.length; i++) {
-                const sheet = parseResult.sheets![i];
+            for (let i = 0; i < summary.sheets.length; i++) {
                 await UploadSheet.create({
                     UploadId: uploadId,
                     SheetIndex: i,
-                    SheetName: sheet.name,
-                    RowCountNo: sheet.rowCount
+                    SheetName: summary.sheets[i].name,
+                    RowCountNo: summary.sheets[i].rowCount
                 });
             }
         } else {
             const sheets = await UploadSheet.findByUploadId(uploadId);
             if (sheets.length > 0) {
-                await UploadSheet.update(sheets[0].Id, { RowCountNo: parseResult.rowCount });
+                await UploadSheet.update(sheets[0].Id, { RowCountNo: summary.rowCount });
             }
         }
-        
-        const validationResult = await ValidationResult.findByUploadId(uploadId);
-        const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);      
-        
-        
-        if (!validationResult) {          
-            logger.error(`Validation result not found for upload: ${uploadId}`);
-            await Upload.updateStatus(uploadId, 'VALIDATION_FAILED');
-            io.to(uploadId).emit('uploadProgress', {
-                uploadId,
-                type: 'VALIDATION_FAILED'
-            });          
-            return;
-        }
 
-        // Verify expected rules exist
-        if (rules.length === 0) {
-            logger.warn(`No enabled rules found for FileDefinition: ${fileDefinitionId}, Upload: ${uploadId}`);
-        }
-
-        logger.info(`[WORKER-VAL] Starting ${ruleDetails.length} rules for upload ${uploadId}`);
-        
         let passedRules = 0;
         let failedRules = 0;
         let warningRules = 0;
-        
-        for (const ruleDetail of ruleDetails) {
-            const rule = rules.find(r => r.Id === ruleDetail.RuleId);
-            if (!rule) {
-                logger.warn(`Rule not found for detail: ${ruleDetail.RuleId}`);
-                await ValidationRuleDetail.markSkipped(ruleDetail.Id, 0);
-                continue;
-            }
-            
-            // Mark rule as started
-            await ValidationRuleDetail.markStarted(ruleDetail.Id);
-            
-            const startTime = Date.now();
-            
-            // Use limited sample for performance
-            const sampleSize = Math.min(parseResult.sampleData.length, 1000);
-            const dataToValidate = parseResult.sampleData.slice(0, sampleSize);
-            
-            const result = await executeRule(rule, dataToValidate, parseResult.headers);
-            
-            logger.info(`[WORKER-RULE] Upload: ${uploadId}, Rule: ${rule.Name} (${rule.RuleType}), Sample: ${dataToValidate.length}, Errors: ${result.errorCount}`);
-            
-            const executionTime = Date.now() - startTime;
-            
+
+        for (const check of checks) {
+            const result = check.evaluator.result();
+            const executionTime = Number(check.elapsedNs / BigInt(1_000_000));
+
             if (result.passed) {
-                await ValidationRuleDetail.markPassed(ruleDetail.Id, executionTime);
+                await ValidationRuleDetail.markPassed(check.detailId, executionTime);
                 passedRules++;
-            } else if (rule.Severity === 'Warning') {
-                await ValidationRuleDetail.markWarning(ruleDetail.Id, executionTime, result.errorCount, result.errors);
+            } else if (check.severity === 'Warning') {
+                await ValidationRuleDetail.markWarning(check.detailId, executionTime, result.errorCount, result.errors);
                 warningRules++;
             } else {
-                await ValidationRuleDetail.markFailed(ruleDetail.Id, executionTime, result.errorCount, result.errors);
+                await ValidationRuleDetail.markFailed(check.detailId, executionTime, result.errorCount, result.errors);
                 failedRules++;
             }
 
-            // ✅ Fix 2: Incremental progress update after each rule
-            const updatedRuleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
-            const currPassed = updatedRuleDetails.filter((r: any) => r.Status === 'PASSED').length;
-            const currFailed = updatedRuleDetails.filter((r: any) => r.Status === 'FAILED').length;
-            const currWarning = updatedRuleDetails.filter((r: any) => r.Status === 'WARNING').length;
-            await ValidationResult.updateProgress(
-                validationResult.Id,
-                currPassed,
-                currFailed,
-                currWarning,
-                rule.Name,
-                ruleDetails.length
-            );
-
-            // Emit progress for real-time UI updates
-            const ruleProgress = Math.round(((currPassed + currFailed + currWarning) / ruleDetails.length) * 100);
-            io.to(uploadId).emit('uploadProgress', {
-                uploadId,
-                type: 'VALIDATION_UPDATE',
-                progress: ruleProgress,
-                details: { currentRule: rule.Name, progress: ruleProgress }
-            });
+            logger.info(`[VAL-WORKER] Upload ${uploadId}, check "${check.name}": ${result.passed ? 'passed' : `${result.errorCount} issue(s)`}`);
         }
 
-// 10. Calculate final status from rule counters
         const finalStatus = failedRules > 0 ? 'FAILED' : (warningRules > 0 ? 'WARNING' : 'PASSED');
-        const errorSummary = failedRules > 0 
+        const errorSummary = failedRules > 0
             ? `${failedRules} rule(s) failed validation`
-            : warningRules > 0 
+            : warningRules > 0
                 ? `${warningRules} rule(s) had warnings`
                 : null;
-        
-        logger.info(`[WORKER-VAL-COMPL] UploadId: ${uploadId}, FinalStatus: ${finalStatus}, Passed: ${passedRules}, Failed: ${failedRules}, Warnings: ${warningRules}`);
 
-// 11. Update validation result
-        await ValidationResult.markCompleted(validationResult.Id, finalStatus, errorSummary || undefined);
-        
-        // 12. Update upload status and completion time
-        const uploadStatus = failedRules > 0 ? 'VALIDATION_FAILED' : 'VALIDATION_PASSED';
-        await Upload.updateStatus(uploadId, uploadStatus);
-        await Upload.update(uploadId, {
-            Status: uploadStatus,
-            ValidationCompletedAt: new Date()
-        });
-        
-        // Update sheet status
-        const sheets = await UploadSheet.findByUploadId(uploadId);
-        for (const sheet of sheets) {
-            await UploadSheet.update(sheet.Id, {
-                Status: failedRules > 0 ? 'FAILED' : 'VALIDATED',
-                ValidationProgress: 100
-            });
-        }
-        
-        // ✅ Fix 4: Force final 100% progress
+        logger.info(`[VAL-WORKER] Upload ${uploadId} validated: ${finalStatus}, rows=${summary.rowCount}, passed=${passedRules}, failed=${failedRules}, warnings=${warningRules}`);
+
         await ValidationResult.updateProgress(
             validationResult.Id,
             passedRules,
@@ -455,12 +256,25 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
             'Completed',
             ruleDetails.length
         );
+        await ValidationResult.markCompleted(validationResult.Id, finalStatus, errorSummary || undefined);
 
-        // Emit completion + final progress
-        const eventType = failedRules > 0 ? 'VALIDATION_FAILED' : 'VALIDATION_PASSED';
-        io.to(uploadId).emit('uploadProgress', {
+        const uploadStatus = failedRules > 0 ? 'VALIDATION_FAILED' : 'VALIDATION_PASSED';
+        await Upload.update(uploadId, {
+            Status: uploadStatus,
+            ValidationCompletedAt: new Date()
+        });
+
+        const sheets = await UploadSheet.findByUploadId(uploadId);
+        for (const sheet of sheets) {
+            await UploadSheet.update(sheet.Id, {
+                Status: failedRules > 0 ? 'FAILED' : 'VALIDATED',
+                ValidationProgress: 100
+            });
+        }
+
+        void emitUploadEvent(uploadId, {
             uploadId,
-            type: eventType,
+            type: failedRules > 0 ? 'VALIDATION_FAILED' : 'VALIDATION_PASSED',
             details: {
                 status: finalStatus,
                 passedRules,
@@ -468,9 +282,7 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
                 warningRules
             }
         });
-
-        // ✅ Final WebSocket: VALIDATION_COMPLETE at 100%
-        io.to(uploadId).emit('uploadProgress', {
+        void emitUploadEvent(uploadId, {
             uploadId,
             type: 'VALIDATION_COMPLETE',
             progress: 100
@@ -480,20 +292,22 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
             const { UploadService } = await import('./Upload.service');
             await UploadService.startDelivery(uploadId);
         }
-
-
     } catch (error: any) {
-        logger.error(error);
+        logger.error(`[VAL-WORKER] Validation failed for upload ${uploadId}:`, error);
 
-        await Upload.updateStatus(uploadId, 'VALIDATION_FAILED');
+        await Upload.update(uploadId, {
+            Status: 'VALIDATION_FAILED',
+            ErrorMessage: error?.message ? String(error.message).slice(0, 4000) : 'Validation failed',
+            ValidationCompletedAt: new Date()
+        }).catch(updateError => logger.error('[VAL-WORKER] Could not record validation failure', updateError));
 
-        io.to(uploadId).emit('uploadProgress', {
+        void emitUploadEvent(uploadId, {
             uploadId,
-            type: 'VALIDATION_FAILED'
+            type: 'VALIDATION_FAILED',
+            details: { error: error?.message }
         });
 
         throw error;
-
     } finally {
         if (tempFilePath && upload?.TempLocalPath !== tempFilePath && existsSync(tempFilePath)) {
             unlinkSync(tempFilePath);
@@ -505,6 +319,5 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
 // INIT
 // =============================================================================
 export function initializeValidationWorker() {
-    const { createValidationWorker } = require('./Queue.service');
     return createValidationWorker(processValidationJob);
 }

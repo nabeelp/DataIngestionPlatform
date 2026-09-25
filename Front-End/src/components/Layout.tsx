@@ -3,7 +3,6 @@ import { ReactNode } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import { useAuth } from "../context/AuthContext";
 //#endregion
 
 //#region INTERFACES
@@ -16,10 +15,6 @@ interface LayoutProps {
 export default function Layout({
   children,
 }: LayoutProps) {
-  //#region HOOKS
-  const {} = useAuth();
-  //#endregion
-
   //#region RENDER
   return (
     <div className="h-screen flex bg-[#F7F9FC] overflow-hidden">

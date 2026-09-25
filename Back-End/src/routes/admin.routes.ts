@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { body, validationResult } from 'express-validator';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import * as AdminController from '../controllers/admin.controller';
+import { ComplianceService } from '../services/Compliance.service';
 
 const router = Router();
 
@@ -14,7 +15,6 @@ const router = Router();
 const validateRequest = (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        console.log('[ADMIN_ROUTES] Validation errors:', errors.array());
         return res.status(400).json({ errors: errors.array() });
     }
     next();
@@ -46,6 +46,20 @@ router.get(
     AdminController.getStats
 );
 
+/**
+ * GET /api/admin/compliance?days=30
+ * Operational compliance controls derived from platform data
+ */
+router.get('/compliance', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const days = parseInt(String(req.query.days || '30'), 10);
+        const report = await ComplianceService.getReport(days);
+        res.json({ success: true, report });
+    } catch (error) {
+        next(error);
+    }
+});
+
 // ============================================================================
 // User Management
 // ============================================================================
@@ -59,7 +73,6 @@ router.get(
     AdminController.getUsers
     
 );
-console.log('We are here in the routes');
 
 /**
  * GET /api/admin/users/:id
@@ -282,7 +295,15 @@ router.get(
 import { uploadTemplate } from '../middleware/upload.middleware';
 router.post(
     '/file-definitions/:id/template-upload',
-    uploadTemplate.single('file'),
+    (req: Request, res: Response, next: NextFunction) => {
+        uploadTemplate.single('file')(req, res, (err: unknown) => {
+            if (err) {
+                const message = err instanceof Error ? err.message : 'Invalid template upload';
+                return res.status(400).json({ success: false, message });
+            }
+            next();
+        });
+    },
     FileDefinitionAdminController.uploadTemplate
 );
 

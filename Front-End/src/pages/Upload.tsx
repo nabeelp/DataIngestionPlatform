@@ -159,6 +159,7 @@ const mapStatusToDisplay = (status: string): string => {
     'VALIDATION_IN_PROGRESS': 'Validation In Progress',
     'VALIDATION_FAILED': 'Validation Failed',
     'VALIDATION_PASSED': 'Validation Passed',
+    'VALIDATED': 'Validation Passed',
     'DELIVERY_QUEUED': 'Delivery Pending',
     'DELIVERY_IN_PROGRESS': 'Delivery In Progress',
     'DELIVERED': 'Delivered',
@@ -230,6 +231,8 @@ const [verifyingId, setVerifyingId] = useState<string | null>(null);
     setIsDragging(false);
   };
 
+  const isSupportedFile = (name: string) => /\.(csv|tsv|txt|xlsx|xls)$/i.test(name);
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -237,20 +240,20 @@ const [verifyingId, setVerifyingId] = useState<string | null>(null);
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (file.name.endsWith('.csv') || file.name.endsWith('.txt') || file.name.match(/\.(xlsx?|xls)$/)) {
+      if (isSupportedFile(file.name)) {
         setSelectedFile(file);
       } else {
-        setUploadMessage({ type: 'error', text: 'Please drop a CSV, TXT, or Excel file (.xlsx, .xls)' });
+        setUploadMessage({ type: 'error', text: 'Please drop a CSV, TSV, TXT, or Excel file (.xlsx, .xls)' });
       }
     }
   };
 
 const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && (file.name.endsWith('.csv') || file.name.endsWith('.txt') || file.name.match(/\.(xlsx?|xls)$/))) {
+    if (file && isSupportedFile(file.name)) {
       setSelectedFile(file);
     } else {
-      setUploadMessage({ type: 'error', text: 'Please select a CSV, TXT, or Excel file (.xlsx, .xls)' });
+      setUploadMessage({ type: 'error', text: 'Please select a CSV, TSV, TXT, or Excel file (.xlsx, .xls)' });
     }
     // Reset input
     e.target.value = '';
@@ -270,7 +273,8 @@ const handleFileUpload = async (file: File) => {
       const uploadId = result.upload?.Id || result.uploadId || result.id;
       
       if (result.success) {
-        if (uploadId) await startVerification(uploadId);
+        // The backend queues validation as part of the upload; subscribe for live progress.
+        if (uploadId && socket) socket.emit('subscribeToUpload', uploadId);
         setUploadMessage({ type: 'success', text: result.message || `✅ File uploaded! ID: ${uploadId || 'N/A'}` });
       } else {
         setUploadMessage({ type: 'error', text: result.message || 'Upload failed' });
@@ -278,7 +282,7 @@ const handleFileUpload = async (file: File) => {
       
       await loadUploads();
       setSelectedFile(null);
-      fileInputRef.current && (fileInputRef.current.value = '');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       
     } catch (error: any) {
       setUploadMessage({ type: 'error', text: error.message || 'Failed to upload file' });
@@ -295,7 +299,7 @@ const handleVerify = async (uploadId: string) => {
         setUploadMessage({ type: 'success', text: result.message || 'Verification started! Live updates via WebSocket.' });
         // WebSocket will handle live updates - no polling needed
         if (socket) {
-          socket.emit('joinUploadRoom', { uploadId });
+          socket.emit('subscribeToUpload', uploadId);
         }
       } else {
         setUploadMessage({ type: 'error', text: result.message || 'Failed to start verification' });
@@ -312,12 +316,17 @@ const handleVerify = async (uploadId: string) => {
   if (!socket) return;
 
   const handleProgress = (data: UploadProgressEvent) => {
+    const label = data.type.replace(/_/g, ' ').toLowerCase();
+    const failed = data.type === 'VALIDATION_FAILED' || data.type === 'DELIVERY_FAILED';
     setUploadMessage({
-      type: 'success',
-      text: `${data.progress}% - ${data.status}`,
+      type: failed ? 'error' : 'success',
+      text: data.progress !== undefined ? `${data.progress}% - ${label}` : label,
     });
 
-    loadUploads();
+    // Progress updates are frequent; refresh the list only on stage changes.
+    if (data.type !== 'VALIDATION_UPDATE') {
+      loadUploads();
+    }
   };
 
   socket.on('uploadProgress', handleProgress);
@@ -478,7 +487,7 @@ const handleVerify = async (uploadId: string) => {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept=".csv,.txt,.xlsx,.xls"
+            accept=".csv,.tsv,.txt,.xlsx,.xls"
             onChange={handleFileSelect}
           />
 

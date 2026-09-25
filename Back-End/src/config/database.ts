@@ -1,9 +1,10 @@
-﻿// =============================================================================
+// =============================================================================
 // Database Configuration - MSSQL Connection Pool
 // =============================================================================
 
 import mssql from 'mssql';
 import { appConfig } from './appConfig';
+import { logger } from '../utils/logger';
 
 // Database connection pool
 let pool: mssql.ConnectionPool | null = null;
@@ -40,10 +41,10 @@ export async function getConnection(): Promise<mssql.ConnectionPool> {
             pool = await mssql.connect(connectionString);
         }
 
-        console.log('Database connected successfully');
+        logger.debug('Database connected successfully');
         return pool;
     } catch (error) {
-        console.error('Database connection failed:', error);
+        logger.error('Database connection failed:', error);
         throw error;
     }
 }
@@ -55,7 +56,7 @@ export async function closeConnection(): Promise<void> {
     if (pool) {
         await pool.close();
         pool = null;
-        console.log('Database connection closed');
+        logger.debug('Database connection closed');
     }
 }
 

@@ -117,7 +117,7 @@ export class StatsService {
         SELECT COUNT(*) as failed 
         FROM Uploads 
         WHERE Status IN ('VALIDATION_FAILED', 'DELIVERY_FAILED') 
-        AND UpdatedAt >= @Last24h
+        AND COALESCE(DeliveryCompletedAt, ValidationCompletedAt, UploadedAt) >= @Last24h
       `);
     
     return Number(result.recordset[0]?.failed) || 0;

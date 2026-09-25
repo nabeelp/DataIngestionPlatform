@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext';
 import { apiConfig } from '../config/api';
 //#endregion
 
+const SSO_STATE_KEY = 'ssoState';
+const SSO_SESSION_KEY = 'ssoSession';
+
 //#region MAIN COMPONENT
 export default function Login() {
   //#region STATE
@@ -22,6 +25,7 @@ export default function Login() {
   
   // Check for SSO callback parameters
   const code = searchParams.get('code');
+  const returnedState = searchParams.get('state');
   const errorParam = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
   //#endregion
@@ -29,97 +33,73 @@ export default function Login() {
   //#region EFFECTS
   // Handle SSO callback from Microsoft redirect
   useEffect(() => {
-    console.log('[LOGIN] Component mounted, checking for callback params');
-    console.log('[LOGIN] Code:', code ? 'present' : 'not present');
-    console.log('[LOGIN] Error param:', errorParam);
-    
     if (code) {
-      console.log('[LOGIN] SSO callback detected with code');
-      handleSsoCallback(code);
+      handleSsoCallback(code, returnedState);
     }
     if (errorParam) {
-      console.log('[LOGIN] SSO error detected:', errorParam, errorDescription);
       setError(decodeURIComponent(errorDescription || errorParam));
     }
-  }, [code, errorParam, errorDescription]);
+  }, [code, returnedState, errorParam, errorDescription]);
   //#endregion
 
   //#region SSO HANDLER
   const handleSsoLogin = async () => {
-    console.log('[LOGIN] handleSsoLogin called');
     setIsSsoLoading(true);
     setError('');
 
     try {
-      // Get the Microsoft OAuth URL from backend
-      const baseUrl = apiConfig.getBaseUrl();
-      console.log('[LOGIN] Fetching SSO URL from:', `${baseUrl}/auth/sso/url?provider=microsoft`);
-      
-      const response = await fetch(`${baseUrl}/auth/sso/url?provider=microsoft`);
-      console.log('[LOGIN] SSO URL response status:', response.status);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('[LOGIN] SSO URL error:', errorData);
-        throw new Error('Failed to get SSO URL');
-      }
+      const response = await fetch(`${apiConfig.getBaseUrl()}/auth/sso/url?provider=microsoft`);
+      const data = await response.json().catch(() => ({}));
 
-      const data = await response.json();
-      console.log('[LOGIN] SSO URL data:', data);
-      
-      if (data.success && data.url) {
-        console.log('[LOGIN] Redirecting to Microsoft OAuth');
-        window.location.href = data.url;
-      } else {
-        console.error('[LOGIN] SSO URL missing from response');
+      if (!response.ok || !data.success || !data.url || !data.state || !data.session) {
         throw new Error(data.message || 'Failed to initiate SSO');
       }
+
+      sessionStorage.setItem(SSO_STATE_KEY, data.state);
+      sessionStorage.setItem(SSO_SESSION_KEY, data.session);
+      window.location.href = data.url;
     } catch (err) {
-      console.error('[LOGIN] SSO login error:', err);
       setError(err instanceof Error ? err.message : 'SSO login failed');
       setIsSsoLoading(false);
     }
   };
 
-  const handleSsoCallback = async (authCode: string) => {
-    console.log('[LOGIN] handleSsoCallback called with code:', authCode.substring(0, 20) + '...');
+  const handleSsoCallback = async (authCode: string, state: string | null) => {
     setIsSsoLoading(true);
     setError('');
 
+    const expectedState = sessionStorage.getItem(SSO_STATE_KEY);
+    const ssoSession = sessionStorage.getItem(SSO_SESSION_KEY);
+    sessionStorage.removeItem(SSO_STATE_KEY);
+    sessionStorage.removeItem(SSO_SESSION_KEY);
+
     try {
-      const baseUrl = apiConfig.getBaseUrl();
-      console.log('[LOGIN] Sending SSO code to backend:', `${baseUrl}/auth/sso/login`);
-      
-      const response = await fetch(`${baseUrl}/auth/sso/login`, {
+      if (!state || !expectedState || !ssoSession || state !== expectedState) {
+        throw new Error('SSO session could not be verified. Please try signing in again.');
+      }
+
+      const response = await fetch(`${apiConfig.getBaseUrl()}/auth/sso/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           Provider: 'microsoft',
-          AccessToken: authCode,
+          Code: authCode,
+          State: state,
+          Session: ssoSession,
         }),
       });
 
-      console.log('[LOGIN] SSO login response status:', response.status);
       const data = await response.json();
-      console.log('[LOGIN] SSO login response data:', data);
-
       if (!response.ok) {
-        console.error('[LOGIN] SSO login failed:', data.message);
         throw new Error(data.message || 'SSO login failed');
       }
 
-      // Use the loginWithSso function from AuthContext
-      console.log('[LOGIN] SSO successful, calling loginWithSso');
       await loginWithSso(data.token, data.user);
-      
-      // Redirect to appropriate dashboard
       const redirectPath = data.user.Role === 'admin' ? '/admin' : '/';
-      console.log('[LOGIN] Redirecting to:', redirectPath);
       navigate(redirectPath, { replace: true });
     } catch (err) {
-      console.error('[LOGIN] SSO callback error:', err);
       setError(err instanceof Error ? err.message : 'SSO login failed');
       setIsSsoLoading(false);
     }
@@ -128,29 +108,18 @@ export default function Login() {
 
   //#region PASSWORD LOGIN HANDLER
   const handlePasswordSubmit = async (e: FormEvent) => {
-    console.log('[LOGIN] Email:', email);
     e.preventDefault();
-    console.log('[LOGIN] Email:', email);
     setError('');
     setIsLoading(true);
 
     try {
-      console.log('[LOGIN] Calling login function from AuthContext');
       const user = await login(email, password);
-      console.log('[LOGIN] Login successful, user:', user);
-      
-      // Redirect to appropriate dashboard based on user role
       const redirectPath = user.Role === 'admin' ? '/admin' : '/';
-      console.log('[LOGIN] Redirecting to:', redirectPath);
       navigate(redirectPath);
     } catch (err) {
-      console.error('[LOGIN] Password login error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Login failed';
-      console.log('[LOGIN] Setting error message:', errorMessage);
-      setError(errorMessage);
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setIsLoading(false);
-      console.log('[LOGIN] Loading state set to false');
     }
   };
   //#endregion
@@ -233,10 +202,7 @@ export default function Login() {
                 autoComplete="email"
                 required
                 value={email}
-                onChange={(e) => {
-                  console.log('[LOGIN] Email changed:', e.target.value);
-                  setEmail(e.target.value);
-                }}
+                onChange={(e) => setEmail(e.target.value)}
                 className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 placeholder="Email address"
               />
@@ -252,10 +218,7 @@ export default function Login() {
                 autoComplete="current-password"
                 required
                 value={password}
-                onChange={(e) => {
-                  console.log('[LOGIN] Password changed, length:', e.target.value.length);
-                  setPassword(e.target.value);
-                }}
+                onChange={(e) => setPassword(e.target.value)}
                 className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 placeholder="Password"
               />

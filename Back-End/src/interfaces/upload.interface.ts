@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Upload Interface - Complete Upload System Types
 // =============================================================================
 
@@ -11,6 +11,8 @@ export type UploadStatus =
     | 'VALIDATION_IN_PROGRESS'
     | 'VALIDATION_FAILED'
     | 'VALIDATION_PASSED'
+    /** Terminal: validation passed and the definition has no delivery target */
+    | 'VALIDATED'
     | 'DELIVERY_QUEUED'
     | 'DELIVERY_IN_PROGRESS'
     | 'DELIVERED'
@@ -31,8 +33,9 @@ export type ValidationStatus =
  * Delivery type
  */
 export type DeliveryType = 
+    | 'FileCopy'
+    // Legacy values that may exist on historical delivery records
     | 'FabricLakehouse'
-    | 'SQLTable'
     | 'SharePoint';
 
 /**
@@ -256,7 +259,7 @@ export interface IUpdateUploadDto {
     DeliveryJobId?: string;
     DeliveredTo?: string;
     DeliveredAt?: Date | null;
-    ErrorMessage?: string;
+    ErrorMessage?: string | null;
     ValidationStartedAt?: Date | null;
     ValidationCompletedAt?: Date | null;
     DeliveryStartedAt?: Date | null;
@@ -319,7 +322,8 @@ export interface IUpdateValidationResultDto {
 export interface ICreateValidationRuleDetailDto {
     ValidationResultId: string;
     UploadId: string;
-    RuleId: string;
+    /** Null for built-in checks such as the file definition column schema */
+    RuleId: string | null;
     RuleName: string;
     RuleType: string;
     RuleSeverity: string;

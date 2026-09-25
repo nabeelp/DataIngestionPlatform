@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileText, Plus, Download } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +19,7 @@ interface Definition {
   columns: Column[];
   status: string;
   createdAt: string;
+  hasTemplate: boolean;
 }
 //#endregion
 
@@ -26,7 +28,9 @@ export default function Definitions() {
   const [loading, setLoading] = useState(true);
   const [selectedDef, setSelectedDef] = useState<Definition | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { user, token } = useAuth();
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   const isAdmin = user?.Role === 'admin';
 
@@ -41,9 +45,7 @@ export default function Definitions() {
       
       const baseUrl = apiConfig.getBaseUrl();
       const url = `${baseUrl}/definitions`;
-      
-      console.log(`Fetching definitions from: ${url}`);
-      
+
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -55,9 +57,7 @@ export default function Definitions() {
       }
 
       const response = await fetch(url, { headers });
-      
-      console.log(`Response status: ${response.status}`);
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to fetch definitions');
@@ -74,6 +74,7 @@ export default function Definitions() {
           columns: def.Columns || def.columns || [],
           status: def.Status || def.status,
           createdAt: def.CreatedAt || def.createdAt,
+          hasTemplate: Boolean(def.TemplateFilename || def.templateFilename),
         }));
         setDefinitions(mappedDefinitions);
         
@@ -113,8 +114,16 @@ export default function Definitions() {
   };
 
   const handleAddDefinition = () => {
-    // Placeholder: Add definition modal would open here
-    alert('Add definition feature - coming soon!');
+    navigate('/admin/file-definitions');
+  };
+
+  const handleDownloadTemplate = async (definitionId: string) => {
+    setDownloadError(null);
+    try {
+      await downloadTemplate(definitionId);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Failed to download template');
+    }
   };
 
   if (loading) {
@@ -176,6 +185,12 @@ export default function Definitions() {
         )}
       </div>
 
+      {downloadError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700" role="alert">
+          {downloadError}
+        </div>
+      )}
+
       {definitions.length === 0 ? (
         <div className="bg-white shadow rounded-lg p-8 text-center">
           <FileText size={48} className="mx-auto text-gray-300 mb-4" />
@@ -233,19 +248,22 @@ export default function Definitions() {
                     </span>
                   )}
                 </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Download template:</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      downloadTemplate(def.id);
-                    }}
-                    className="p-1 rounded hover:bg-gray-100 text-blue-600 hover:text-blue-800"
-                    title="Download Template"
-                  >
-                    <Download size={16} />
-                  </button>
-                </div>
+                {def.hasTemplate && (
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs text-gray-400">Download template:</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownloadTemplate(def.id);
+                      }}
+                      className="p-1 rounded hover:bg-gray-100 text-blue-600 hover:text-blue-800"
+                      title="Download Template"
+                      aria-label={`Download template for ${def.name}`}
+                    >
+                      <Download size={16} />
+                    </button>
+                  </div>
+                )}
                 </div>
               ))}
             </div>

@@ -1,58 +1,26 @@
-﻿// =============================================================================
-// Main Entry Point - Express Server Setup (WITH WEBSOCKET SUPPORT)
+// =============================================================================
+// Main Entry Point - Express API, Socket.IO, and upload workers
 // =============================================================================
 
-import express, { Express, Request, Response } from 'express';
+import express, { Express, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import dotenv from 'dotenv';
+import http from 'http';
+import crypto from 'crypto';
+import client from 'prom-client';
 import { appConfig } from './config/appConfig';
 import { logger } from './utils/logger';
 import indexRoutes from './routes/index';
 import { errorHandler } from './middleware/errorHandler';
-import client from 'prom-client';
-// ✅ NEW: WebSocket imports
-import http from 'http';
-import { Server } from 'socket.io';
+import { initSocket, closeSocket } from './websocket/socketServer';
 
-// Load environment variables
 dotenv.config();
 
-// Create Express app
 const app: Express = express();
-
-// =============================================================================
-// ✅ NEW: Create HTTP Server (REQUIRED for WebSockets)
-// =============================================================================
 const httpServer = http.createServer(app);
-
-// =============================================================================
-// ✅ NEW: Initialize Socket.IO
-// =============================================================================
-export const io = new Server(httpServer, {
-    cors: {
-        origin: appConfig.cors.origin || '*',
-        credentials: true,
-    },
-});
-
-// =============================================================================
-// ✅ WebSocket Connection Handling
-// =============================================================================
-io.on('connection', (socket) => {
-    console.log(`[WebSocket] Client connected: ${socket.id}`);
-
-    // Client subscribes to a specific upload
-    socket.on('subscribeToUpload', (uploadId: string) => {
-        console.log(`[WebSocket] Socket ${socket.id} subscribed to upload ${uploadId}`);
-        socket.join(uploadId);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`[WebSocket] Client disconnected: ${socket.id}`);
-    });
-});
+initSocket(httpServer);
 
 // =============================================================================
 // Middleware
@@ -62,61 +30,67 @@ app.use(cors({
     origin: appConfig.cors.origin,
     credentials: appConfig.cors.credentials,
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Debug logging middleware
-app.use((req, res, next) => {
-    console.log(`[REQUEST] ${req.method} ${req.path} from ${req.ip}`);
+app.use((req, _res, next) => {
+    logger.debug(`[REQUEST] ${req.method} ${req.path}`);
     next();
 });
 
-// Rate limiting
 const limiter = rateLimit({
     windowMs: appConfig.rateLimit.windowMs,
     max: appConfig.rateLimit.maxRequests,
     message: { success: false, message: 'Too many requests, please try again later' }
 });
-app.use(limiter);
+app.use('/api', limiter);
 
-// Routes
 app.use('/api/v1', indexRoutes);
 
 // =============================================================================
-// Prometheus metrics
+// Health and metrics
 // =============================================================================
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
-(global as any).register = register;
 
-// Health check
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Metrics endpoint
-app.get('/metrics', async (req: Request, res: Response) => {
+// /metrics requires METRICS_TOKEN (Bearer) when set; without it, metrics are only served in development.
+const authorizeMetrics = (req: Request, res: Response, next: NextFunction) => {
+    const expected = process.env.METRICS_TOKEN;
+    if (!expected) {
+        if (appConfig.nodeEnv === 'development') return next();
+        return res.status(404).end();
+    }
+    const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const matches = provided.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+    if (!matches) return res.status(401).end();
+    next();
+};
+
+app.get('/metrics', authorizeMetrics, async (_req: Request, res: Response) => {
     try {
         res.set('Content-Type', register.contentType);
         res.end(await register.metrics());
-    } catch (ex) {
-        res.status(500).end(register.contentType);
+    } catch {
+        res.status(500).end();
     }
 });
 
-// 404 handler
 app.use((req: Request, res: Response) => {
-    console.log(`[404] Route not found: ${req.method} ${req.path}`);
     res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// Error handler
 app.use(errorHandler);
 
 // =============================================================================
-// Start server
+// Start and stop
 // =============================================================================
 const PORT: number = parseInt(process.env.PORT || '3000', 10);
+let shuttingDown = false;
 
 const startServer = async () => {
     const missingConfig = [
@@ -125,6 +99,9 @@ const startServer = async () => {
     ].filter(Boolean);
     if (missingConfig.length) {
         throw new Error(`Missing required configuration: ${missingConfig.join(', ')}`);
+    }
+    if (appConfig.nodeEnv !== 'development' && process.env.DEV_BYPASS_AUTH === 'true') {
+        logger.warn('DEV_BYPASS_AUTH is ignored outside NODE_ENV=development');
     }
 
     const { cacheService } = await import('./services/Cache.service');
@@ -150,13 +127,41 @@ const startServer = async () => {
     }
     logger.info('Cache, queues, and upload workers initialized successfully');
 
-    // ✅ IMPORTANT: Use httpServer.listen (NOT app.listen)
     httpServer.listen(PORT, '0.0.0.0', () => {
-        logger.info(`Server running on port ${PORT}`);
-        logger.info(`Environment: ${appConfig.nodeEnv}`);
-        logger.info(`WebSocket server initialized`);
+        logger.info(`Server running on port ${PORT} (${appConfig.nodeEnv})`);
     });
 };
+
+const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`${signal} received; shutting down gracefully`);
+
+    const forceExit = setTimeout(() => {
+        logger.error('Graceful shutdown timed out; forcing exit');
+        process.exit(1);
+    }, 15000);
+    forceExit.unref();
+
+    try {
+        // Closing Socket.IO also closes the HTTP server, so new requests stop first.
+        await closeSocket();
+        const { closeAllQueues } = await import('./services/Queue.service');
+        await closeAllQueues();
+        const { cacheService } = await import('./services/Cache.service');
+        await cacheService.close();
+        const { closeConnection } = await import('./config/database');
+        await closeConnection();
+        logger.info('Shutdown complete');
+        process.exit(0);
+    } catch (error) {
+        logger.error('Error during shutdown', error);
+        process.exit(1);
+    }
+};
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 startServer().catch(error => {
     logger.error('Startup failed; upload processing is unavailable:', error);

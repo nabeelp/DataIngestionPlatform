@@ -25,7 +25,8 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import { apiConfig } from '../config/api';
+import { apiRequest } from '../services/http';
+import { useAuth } from '../context/AuthContext';
 //#endregion
 
 //#region INTERFACES
@@ -39,152 +40,54 @@ interface FormattedUpload {
   uploadedAt?: string;
 }
 
-interface TaskItem {
-  id: string;
-  title: string;
-  filename: string;
-  type: 'Validation' | 'Upload';
-  status: 'Completed' | 'Processing' | 'Failed' | 'Pending';
-  started: string;
-  duration: string;
+interface PeriodMetric {
+  current: number;
+  previous: number;
 }
-//#endregion
 
-//#region HARDCODED MOCK DATA (For layout preservation)
-const uploadActivityData = [
-  { date: 'May 23', uploads: 12 },
-  { date: 'May 24', uploads: 19 },
-  { date: 'May 25', uploads: 8 },
-  { date: 'May 26', uploads: 22 },
-  { date: 'May 27', uploads: 16 },
-  { date: 'May 28', uploads: 25 },
-  { date: 'May 29', uploads: 24 },
-];
-
-const topDefinitions = [
-  { name: 'Customer Master', uploads: 8, rate: 100, color: 'bg-emerald-500' },
-  { name: 'Daily Forex Rates', uploads: 6, rate: 83.3, color: 'bg-emerald-500' },
-  { name: 'Product Master', uploads: 4, rate: 100, color: 'bg-emerald-500' },
-  { name: 'Market Prices', uploads: 3, rate: 66.7, color: 'bg-amber-500' },
-  { name: 'Sales Transactions', uploads: 3, rate: 100, color: 'bg-emerald-500' },
-];
-
-const pieData = [
-  { name: 'Validation', value: 16, percentage: '66.7%', color: '#2563eb' },
-  { name: 'Delivery', value: 5, percentage: '20.8%', color: '#22c55e' },
-  { name: 'Upload', value: 3, percentage: '12.5%', color: '#eab308' },
-];
+interface DashboardData {
+  periodDays: number;
+  from: string;
+  to: string;
+  kpis: {
+    totalDefinitions: number;
+    activeDefinitions: number;
+    uploads: PeriodMetric;
+    failedUploads: PeriodMetric;
+    pendingUploads: number;
+    avgProcessingSeconds: PeriodMetric;
+  };
+  activity: { date: string; uploads: number; failed: number }[];
+  topDefinitions: { id: string; name: string; uploads: number; successRate: number | null }[];
+  outcomes: { successful: number; failed: number; inProgress: number };
+  recentTasks: {
+    id: string;
+    uploadId: string;
+    filename: string;
+    type: 'Validation' | 'Delivery';
+    status: 'Completed' | 'Processing' | 'Failed' | 'Pending';
+    startedAt: string | null;
+    durationSeconds: number | null;
+  }[];
+}
 //#endregion
 
 //#region API Functions
 const fetchRecentUploads = async (limit: number = 5): Promise<FormattedUpload[]> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  const response = await fetch(`${baseUrl}/uploads/recent?limit=${limit}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch recent uploads');
-  }
-  
-  const data = await response.json();
-  
-  if (data.success && data.uploads) {
-    return data.uploads.map((upload: any) => ({
-      id: upload.Id || upload.id,
-      filename: upload.OriginalFilename || upload.originalFilename,
-      status: mapStatusToDisplay(upload.Status || upload.status),
-      statusCode: upload.Status || upload.status,
-      info: formatFileSize(upload.FileSize || upload.fileSize || 0) + ' • ' + formatDateTime(upload.UploadedAt || upload.uploadedAt),
-      variant: getVariant(upload.Status || upload.status),
-      uploadedAt: upload.UploadedAt || upload.uploadedAt,
-    }));
-  }
-  
-  return [];
+  const data = await apiRequest<{ uploads?: any[] }>(`/uploads/recent?limit=${limit}`);
+  return (data.uploads || []).map((upload: any) => ({
+    id: upload.Id || upload.id,
+    filename: upload.OriginalFilename || upload.originalFilename,
+    status: mapStatusToDisplay(upload.Status || upload.status),
+    statusCode: upload.Status || upload.status,
+    info: formatFileSize(upload.FileSize || upload.fileSize || 0) + ' • ' + formatDateTime(upload.UploadedAt || upload.uploadedAt),
+    variant: getVariant(upload.Status || upload.status),
+    uploadedAt: upload.UploadedAt || upload.uploadedAt,
+  }));
 };
 
-const fetchDefinitionStats = async (): Promise<{ totalDefinitions: number; activeDefinitions: number }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  try {
-    const response = await fetch(`${baseUrl}/definitions/stats`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : '',
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch definition stats');
-    }
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      return {
-        totalDefinitions: data.totalDefinitions || 0,
-        activeDefinitions: data.activeDefinitions || 0,
-      };
-    }
-  } catch (error) {
-    console.error('Error fetching definition stats:', error);
-  }
-  
-  return { totalDefinitions: 0, activeDefinitions: 0 };
-};
-
-const fetchStats = async (): Promise<{ totalDefinitions: number; activeDefinitions: number; pendingUploads: number; failedUploads: number }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  try {
-    const response = await fetch(`${baseUrl}/uploads?pageSize=100`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : '',
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch uploads');
-    }
-    
-    const data = await response.json();
-    
-    if (data.success && data.uploads) {
-      const uploads = data.uploads;
-      const pendingUploads = uploads.filter((u: any) => {
-        const status = u.Status || u.status;
-        return status === 'UPLOADED' || status === 'VALIDATION_QUEUED' || status === 'VALIDATION_IN_PROGRESS' || status === 'DELIVERY_QUEUED';
-      }).length;
-      
-      const failedUploads = uploads.filter((u: any) => {
-        const status = u.Status || u.status;
-        return status === 'VALIDATION_FAILED' || status === 'DELIVERY_FAILED';
-      }).length;
-      
-      const definitionStats = await fetchDefinitionStats();
-      
-      return {
-        totalDefinitions: definitionStats.totalDefinitions,
-        activeDefinitions: definitionStats.activeDefinitions,
-        pendingUploads,
-        failedUploads,
-      };
-    }
-  } catch (error) {
-    console.error('Error fetching stats:', error);
-  }
-  
-  return { totalDefinitions: 0, activeDefinitions: 0, pendingUploads: 0, failedUploads: 0 };
-};
+const fetchDashboard = async (days: number): Promise<DashboardData> =>
+  (await apiRequest<{ dashboard: DashboardData }>(`/uploads/dashboard?days=${days}`)).dashboard;
 //#endregion
 
 //#region Utility Functions
@@ -195,6 +98,7 @@ const mapStatusToDisplay = (status: string): string => {
     'VALIDATION_IN_PROGRESS': 'Processing',
     'VALIDATION_FAILED': 'Failed',
     'VALIDATION_PASSED': 'Validation Passed',
+    'VALIDATED': 'Completed',
     'DELIVERY_QUEUED': 'Pending',
     'DELIVERY_IN_PROGRESS': 'Processing',
     'DELIVERED': 'Completed',
@@ -216,6 +120,54 @@ const formatFileSize = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
+const formatDuration = (seconds: number | null): string => {
+  if (seconds === null) return '-';
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes}m ${seconds % 60}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+};
+
+const percentChange = ({ current, previous }: PeriodMetric): number | null =>
+  previous === 0 ? null : Math.round(((current - previous) / previous) * 1000) / 10;
+
+const formatShortDate = (iso: string): string =>
+  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+const getGreeting = (): string => {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+};
+
+const exportActivityCsv = (dashboard: DashboardData) => {
+  const lines = ['date,uploads,failed', ...dashboard.activity.map(day => `${day.date},${day.uploads},${day.failed}`)];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `upload-activity-${dashboard.activity[0]?.date || 'period'}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * Trend badge. `higherIsBetter` controls colour; the arrow follows the direction of change.
+ */
+const Trend = ({ metric, higherIsBetter, days }: { metric: PeriodMetric; higherIsBetter: boolean; days: number }) => {
+  const change = percentChange(metric);
+  if (change === null) {
+    return <span className="text-[11px] text-slate-400">No data for previous {days} days</span>;
+  }
+  const good = change === 0 || (change > 0) === higherIsBetter;
+  const Icon = change >= 0 ? TrendingUp : TrendingDown;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${good ? 'text-emerald-600' : 'text-rose-600'}`}>
+      <Icon className="w-3 h-3" /> {change > 0 ? '+' : ''}{change}% <span className="text-slate-400 font-normal">vs previous {days} days</span>
+    </span>
+  );
+};
+
 const formatDateTime = (dateString: string): string => {
   if (!dateString) return '';
   const date = new Date(dateString);
@@ -230,77 +182,43 @@ const formatDateTime = (dateString: string): string => {
 //#endregion
 
 //#region MAIN DASHBOARD COMPONENT
+const PERIOD_OPTIONS = [7, 14, 30];
+const OUTCOME_COLORS = { successful: '#22c55e', failed: '#ef4444', inProgress: '#2563eb' };
+
 export default function Dashboard() {
   //#region STATE
-  const [stats, setStats] = useState({ totalDefinitions: 0, activeDefinitions: 0, pendingUploads: 0, failedUploads: 0 });
+  const { user } = useAuth();
+  const [periodDays, setPeriodDays] = useState(7);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [recentUploads, setRecentUploads] = useState<FormattedUpload[]>([]);
-  const [recentTasks, setRecentTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   //#endregion
 
   //#region EFFECTS
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const [uploadsData, statsData] = await Promise.all([
+      const [uploadsData, dashboardData] = await Promise.all([
         fetchRecentUploads(5),
-        fetchStats(),
+        fetchDashboard(periodDays),
       ]);
-      
       setRecentUploads(uploadsData);
-      setStats(statsData);
-      
-      // Transform incoming uploads to populate structural tasks schema matching image_6b5bc7.png
-      const tasks: TaskItem[] = uploadsData.flatMap((upload, idx) => {
-        const sequentialId = uploadsData.length - idx + 120; // Example placeholder counter
-        const timeFormatted = upload.uploadedAt ? formatDateTime(upload.uploadedAt) : 'May 29, 12:00 PM';
-        
-        const tasksArray: TaskItem[] = [];
-
-        // Generate dynamic Upload Task
-        if (upload.statusCode.includes('UPLOAD') || upload.statusCode.includes('DELIVERED') || upload.statusCode.includes('PASSED')) {
-          tasksArray.push({
-            id: `${upload.id}-upload`,
-            title: `Upload #${sequentialId}`,
-            filename: upload.filename,
-            type: 'Upload',
-            status: upload.statusCode === 'UPLOADED' ? 'Processing' : 'Completed',
-            started: timeFormatted,
-            duration: '32s' // Dynamic backend fallback placeholder
-          });
-        }
-
-        // Generate dynamic Validation Task
-        tasksArray.push({
-          id: `${upload.id}-validation`,
-          title: `Validation #${sequentialId + 1}`,
-          filename: upload.filename,
-          type: 'Validation',
-          status: upload.statusCode === 'VALIDATION_FAILED' 
-            ? 'Failed' 
-            : upload.statusCode === 'VALIDATION_IN_PROGRESS' ? 'Processing' : 'Completed',
-          started: timeFormatted,
-          duration: upload.statusCode === 'VALIDATION_FAILED' ? '12s' : '27s' 
-        });
-
-        return tasksArray;
-      });
-
-      // Keep up to 5 items to match card visualization length precisely
-      setRecentTasks(tasks.slice(0, 5));
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      setDashboard(dashboardData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [periodDays]);
 
   useEffect(() => {
     loadDashboardData();
   }, [loadDashboardData]);
   //#endregion
 
-  if (loading) {
+  if (loading && !dashboard) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
@@ -308,37 +226,76 @@ export default function Dashboard() {
     );
   }
 
+  if (!dashboard) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700" role="alert">
+        <p className="font-medium">Could not load your dashboard</p>
+        <p className="text-sm mt-1">{error}</p>
+        <button onClick={loadDashboardData} className="mt-3 px-4 py-2 bg-red-600 text-white rounded-md text-sm">Retry</button>
+      </div>
+    );
+  }
+
+  const { kpis } = dashboard;
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.username || user?.email || '';
+  const outcomeData = [
+    { name: 'Successful', value: dashboard.outcomes.successful, color: OUTCOME_COLORS.successful },
+    { name: 'Failed', value: dashboard.outcomes.failed, color: OUTCOME_COLORS.failed },
+    { name: 'In progress', value: dashboard.outcomes.inProgress, color: OUTCOME_COLORS.inProgress },
+  ];
+  const outcomeTotal = outcomeData.reduce((sum, item) => sum + item.value, 0);
+  const activityData = dashboard.activity.map(day => ({ ...day, label: formatShortDate(day.date) }));
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
       
       {/* --- Top Header Section --- */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Good morning, Chulumanco Poswa</h1>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">{getGreeting()}{displayName ? `, ${displayName}` : ''}</h1>
           <p className="text-xs text-slate-500 mt-0.5">Here's what's happening with your File Uploads.</p>
         </div>
         
         <div className="flex items-center gap-3 self-end sm:self-auto">
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm text-xs font-medium text-slate-700">
+          <label className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm text-xs font-medium text-slate-700">
             <Calendar className="w-4 h-4 text-slate-400" />
-            <span>May 23 - May 29, 2026</span>
-          </div>
-          <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-lg px-3 py-1.5 shadow-sm text-xs font-semibold">
+            <span className="sr-only">Period</span>
+            <select
+              value={periodDays}
+              onChange={(e) => setPeriodDays(Number(e.target.value))}
+              className="bg-transparent focus:outline-none"
+            >
+              {PERIOD_OPTIONS.map(days => (
+                <option key={days} value={days}>Last {days} days</option>
+              ))}
+            </select>
+            <span className="text-slate-400 hidden md:inline">
+              {formatShortDate(dashboard.from)} - {formatShortDate(dashboard.to)}
+            </span>
+          </label>
+          <button
+            onClick={() => exportActivityCsv(dashboard)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-lg px-3 py-1.5 shadow-sm text-xs font-semibold"
+          >
             <Download className="w-4 h-4" />
             <span>Export</span>
           </button>
         </div>
       </div>
 
+      {error && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800" role="status">
+          Showing the last loaded data: {error}
+        </div>
+      )}
+
       {/* --- KPI Cards Row --- */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex items-start justify-between">
           <div className="space-y-1.5">
-            <span className="text-xs font-medium text-slate-500 block">Total File Definitions</span>
-            <span className="text-2xl font-bold tracking-tight block">{stats.totalDefinitions}</span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-              <TrendingUp className="w-3 h-3" /> +26.3% <span className="text-slate-400 font-normal">vs last 7 days</span>
-            </span>
+            <span className="text-xs font-medium text-slate-500 block">File Definitions</span>
+            <span className="text-2xl font-bold tracking-tight block">{kpis.totalDefinitions}</span>
+            <span className="text-[11px] text-slate-400">{kpis.activeDefinitions} active</span>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
             <FileText className="w-5 h-5" />
@@ -347,11 +304,9 @@ export default function Dashboard() {
 
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex items-start justify-between">
           <div className="space-y-1.5">
-            <span className="text-xs font-medium text-slate-500 block">Active File Definitions</span>
-            <span className="text-2xl font-bold tracking-tight block">{stats.activeDefinitions}</span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-              <TrendingUp className="w-3 h-3" /> +20.0% <span className="text-slate-400 font-normal">vs last 7 days</span>
-            </span>
+            <span className="text-xs font-medium text-slate-500 block">Uploads</span>
+            <span className="text-2xl font-bold tracking-tight block">{kpis.uploads.current}</span>
+            <Trend metric={kpis.uploads} higherIsBetter days={dashboard.periodDays} />
           </div>
           <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
             <CheckCircle2 className="w-5 h-5" />
@@ -361,10 +316,8 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex items-start justify-between">
           <div className="space-y-1.5">
             <span className="text-xs font-medium text-slate-500 block">Pending Uploads</span>
-            <span className="text-2xl font-bold tracking-tight block">{stats.pendingUploads}</span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600">
-              <TrendingDown className="w-3 h-3" /> -33.3% <span className="text-slate-400 font-normal">vs last 7 days</span>
-            </span>
+            <span className="text-2xl font-bold tracking-tight block">{kpis.pendingUploads}</span>
+            <span className="text-[11px] text-slate-400">Queued or processing now</span>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
             <UploadCloud className="w-5 h-5" />
@@ -374,10 +327,8 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex items-start justify-between">
           <div className="space-y-1.5">
             <span className="text-xs font-medium text-slate-500 block">Failed Uploads</span>
-            <span className="text-2xl font-bold tracking-tight block">{stats.failedUploads}</span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600">
-              <TrendingUp className="w-3 h-3" /> +100% <span className="text-slate-400 font-normal">vs last 7 days</span>
-            </span>
+            <span className="text-2xl font-bold tracking-tight block">{kpis.failedUploads.current}</span>
+            <Trend metric={kpis.failedUploads} higherIsBetter={false} days={dashboard.periodDays} />
           </div>
           <div className="p-2 bg-rose-50 text-rose-600 rounded-lg">
             <AlertCircle className="w-5 h-5" />
@@ -387,10 +338,8 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex items-start justify-between">
           <div className="space-y-1.5">
             <span className="text-xs font-medium text-slate-500 block">Avg. Processing Time</span>
-            <span className="text-2xl font-bold tracking-tight block">23s</span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-              <TrendingDown className="w-3 h-3" /> -8.0% <span className="text-slate-400 font-normal">vs last 7 days</span>
-            </span>
+            <span className="text-2xl font-bold tracking-tight block">{kpis.avgProcessingSeconds.current ? formatDuration(kpis.avgProcessingSeconds.current) : '-'}</span>
+            <Trend metric={kpis.avgProcessingSeconds} higherIsBetter={false} days={dashboard.periodDays} />
           </div>
           <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
             <Clock className="w-5 h-5" />
@@ -404,13 +353,11 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm lg:col-span-4 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-slate-900">Upload Activity</h2>
-            <select className="text-xs font-medium border border-slate-200 rounded px-2 py-1 bg-slate-50 text-slate-600 focus:outline-none">
-              <option>Daily</option>
-            </select>
+            <span className="text-xs text-slate-400">Daily</span>
           </div>
           <div className="h-48 w-full text-[11px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={uploadActivityData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+              <AreaChart data={activityData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                 <defs>
                   <linearGradient id="uploadGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15}/>
@@ -418,34 +365,28 @@ export default function Dashboard() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} stroke="#94a3b8" />
-                <YAxis tickLine={false} axisLine={false} stroke="#94a3b8" domain={[0, 40]} tickCount={5} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} stroke="#94a3b8" />
+                <YAxis tickLine={false} axisLine={false} stroke="#94a3b8" allowDecimals={false} />
                 <Tooltip />
-                <Area 
-                  type="monotone" 
-                  dataKey="uploads" 
-                  stroke="#2563eb" 
-                  strokeWidth={2} 
-                  fillOpacity={1} 
-                  fill="url(#uploadGradient)"
-                />
+                <Area type="monotone" dataKey="uploads" name="Uploads" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#uploadGradient)" />
+                <Area type="monotone" dataKey="failed" name="Failed" stroke="#ef4444" strokeWidth={1.5} fillOpacity={0} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <div className="flex justify-center items-center gap-1.5 text-xs font-medium text-slate-600 mt-2">
-            <span className="w-3 h-0.5 bg-blue-600 inline-block rounded-full"></span>
-            <span>Uploads</span>
+          <div className="flex justify-center items-center gap-4 text-xs font-medium text-slate-600 mt-2">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-600 inline-block rounded-full"></span>Uploads</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-red-500 inline-block rounded-full"></span>Failed</span>
           </div>
         </div>
 
-        {/* --- REFACTORED RECENT TASKS PANEL (Matches image_6b5bc7.png) --- */}
+        {/* Recent Tasks */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm lg:col-span-8 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-bold text-slate-900">Recent Tasks</h2>
-            <button className="text-xs font-semibold text-blue-600 hover:underline">View all</button>
+            <Link to="/history" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
           </div>
           <div className="overflow-x-auto">
-            {recentTasks.length === 0 ? (
+            {dashboard.recentTasks.length === 0 ? (
               <div className="text-center py-12 text-slate-400 text-xs font-medium">No recent tasks found.</div>
             ) : (
               <table className="w-full text-left border-collapse">
@@ -459,39 +400,31 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm font-medium text-slate-700">
-                  {recentTasks.map((task) => (
+                  {dashboard.recentTasks.map((task) => (
                     <tr key={task.id} className="hover:bg-slate-50/40 transition-colors">
-                      {/* Left Block Task Identification with Icon */}
                       <td className="py-3 pl-1 flex items-center gap-3 max-w-[260px]">
                         <div className={`p-2 rounded-lg flex-shrink-0 ${
-                          task.type === 'Upload' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'
+                          task.type === 'Delivery' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'
                         }`}>
-                          {task.type === 'Upload' ? <UploadCloud className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                          {task.type === 'Delivery' ? <UploadCloud className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
                         </div>
                         <div className="truncate">
-                          <div className="text-slate-900 font-bold text-[13px] leading-tight">{task.title}</div>
-                          <div className="text-xs text-slate-400 truncate font-normal mt-0.5">{task.filename}</div>
+                          <Link to={`/history/${task.uploadId}`} className="text-slate-900 font-bold text-[13px] leading-tight hover:text-blue-600 truncate block">
+                            {task.filename}
+                          </Link>
                         </div>
                       </td>
-                      
-                      {/* Task Segment Type */}
                       <td className="py-3 text-[13px] text-slate-900 font-semibold">{task.type}</td>
-                      
-                      {/* Strict Visual Status Badge Formatting */}
                       <td className="py-3">
                         <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-slate-900">
                           {task.status === 'Completed' && <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-white" />}
                           {task.status === 'Failed' && <XCircle className="w-4 h-4 text-rose-500 fill-white" />}
-                          {task.status === 'Processing' && <Clock className="w-4 h-4 text-blue-500" />}
+                          {(task.status === 'Processing' || task.status === 'Pending') && <Clock className="w-4 h-4 text-blue-500" />}
                           {task.status}
                         </span>
                       </td>
-                      
-                      {/* Timestamps */}
-                      <td className="py-3 text-[13px] text-slate-600 font-medium whitespace-nowrap">{task.started}</td>
-                      
-                      {/* Calculated Process Execution Duration */}
-                      <td className="py-3 text-[13px] text-slate-900 font-semibold">{task.duration}</td>
+                      <td className="py-3 text-[13px] text-slate-600 font-medium whitespace-nowrap">{task.startedAt ? formatDateTime(task.startedAt) : '-'}</td>
+                      <td className="py-3 text-[13px] text-slate-900 font-semibold">{formatDuration(task.durationSeconds)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -510,7 +443,7 @@ export default function Dashboard() {
           </div>
           <div className="overflow-x-auto h-full">
             {recentUploads.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 text-xs font-medium">No operational execution logs found.</div>
+              <div className="text-center py-12 text-slate-400 text-xs font-medium">No uploads yet.</div>
             ) : (
               <table className="w-full text-left text-xs">
                 <thead>
@@ -545,47 +478,55 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-slate-900">Top Definitions</h2>
-            <button className="text-xs font-medium text-blue-600 hover:underline">View all</button>
+            <Link to="/definitions" className="text-xs font-medium text-blue-600 hover:underline">View all</Link>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-100">
-                  <th className="pb-2 font-medium">Definition</th>
-                  <th className="pb-2 font-medium">Uploads</th>
-                  <th className="pb-2 font-medium text-right">Success Rate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
-                {topDefinitions.map((def, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3 text-slate-900 font-semibold">{def.name}</td>
-                    <td className="py-3 text-slate-600">{def.uploads}</td>
-                    <td className="py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="text-slate-500 font-medium">{def.rate}%</span>
-                        <div className="w-16 bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                          <div className={`h-full ${def.color}`} style={{ width: `${def.rate}%` }}></div>
-                        </div>
-                      </div>
-                    </td>
+            {dashboard.topDefinitions.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs font-medium">No uploads in this period.</div>
+            ) : (
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-100">
+                    <th className="pb-2 font-medium">Definition</th>
+                    <th className="pb-2 font-medium">Uploads</th>
+                    <th className="pb-2 font-medium text-right">Success Rate</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
+                  {dashboard.topDefinitions.map((def) => (
+                    <tr key={def.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-3 text-slate-900 font-semibold">{def.name}</td>
+                      <td className="py-3 text-slate-600">{def.uploads}</td>
+                      <td className="py-3 text-right">
+                        {def.successRate === null ? (
+                          <span className="text-slate-400">In progress</span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-slate-500 font-medium">{def.successRate}%</span>
+                            <div className="w-16 bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div className={`h-full ${def.successRate >= 90 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${def.successRate}%` }}></div>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
         <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm flex flex-col justify-between">
           <div className="mb-2">
-            <h2 className="text-sm font-bold text-slate-900">Uploads by Type</h2>
+            <h2 className="text-sm font-bold text-slate-900">Uploads by Outcome</h2>
           </div>
           <div className="flex items-center justify-between gap-4 h-full">
             <div className="w-1/2 h-36 relative flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={pieData}
+                    data={outcomeTotal > 0 ? outcomeData : [{ name: 'None', value: 1, color: '#e2e8f0' }]}
                     cx="50%"
                     cy="50%"
                     innerRadius={38}
@@ -593,25 +534,27 @@ export default function Dashboard() {
                     paddingAngle={3}
                     dataKey="value"
                   >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    {(outcomeTotal > 0 ? outcomeData : [{ name: 'None', value: 1, color: '#e2e8f0' }]).map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute flex flex-col items-center justify-center">
-                <span className="text-xl font-extrabold text-slate-900 leading-none">24</span>
+                <span className="text-xl font-extrabold text-slate-900 leading-none">{outcomeTotal}</span>
                 <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">Total</span>
               </div>
             </div>
 
             <div className="w-1/2 space-y-2.5 text-xs font-semibold text-slate-700">
-              {pieData.map((item, idx) => (
-                <div key={idx} className="flex items-start gap-2">
+              {outcomeData.map((item) => (
+                <div key={item.name} className="flex items-start gap-2">
                   <span className="w-2.5 h-2.5 rounded-full mt-0.5 flex-shrink-0" style={{ backgroundColor: item.color }}></span>
                   <div>
                     <div className="text-slate-900 font-bold">{item.name}</div>
-                    <div className="text-[11px] text-slate-400 font-medium">{item.value} ({item.percentage})</div>
+                    <div className="text-[11px] text-slate-400 font-medium">
+                      {item.value} ({outcomeTotal > 0 ? `${Math.round((item.value / outcomeTotal) * 1000) / 10}%` : '0%'})
+                    </div>
                   </div>
                 </div>
               ))}

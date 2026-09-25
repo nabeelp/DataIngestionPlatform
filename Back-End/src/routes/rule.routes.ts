@@ -6,6 +6,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate } from '../middleware/authMiddleware';
 import * as RuleController from '../controllers/rule.controller';
+import { SUPPORTED_RULE_TYPES } from '../services/validation/ValidationEngine';
 
 const router = Router();
 
@@ -13,7 +14,6 @@ const router = Router();
 const validateRequest = (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        console.log('[RULE_ROUTES] Validation errors:', errors.array());
         return res.status(400).json({ errors: errors.array() });
     }
     next();
@@ -53,10 +53,10 @@ router.post(
         body('FileDefinitionId').isUUID(),
         body('Name').isLength({ min: 1, max: 200 }).trim(),
         body('Description').optional().isLength({ max: 1000 }),
-        body('RuleType').optional().isIn(['Custom SQL', 'Schema Validation', 'Enum Check', 'Regex Pattern']),
+        body('RuleType').isIn([...SUPPORTED_RULE_TYPES]),
         body('Severity').optional().isIn(['Error', 'Warning']),
         body('ExecutionOrder').optional().isInt({ min: 1 }),
-        body('SqlQuery').isLength({ min: 1 }),
+        body('SqlQuery').isString().isLength({ min: 1, max: 4000 }),
         body('IsEnabled').optional().isBoolean(),
     ],
     validateRequest,
@@ -74,10 +74,10 @@ router.put(
     [
         body('Name').optional().isLength({ min: 1, max: 200 }).trim(),
         body('Description').optional().isLength({ max: 1000 }),
-        body('RuleType').optional().isIn(['Custom SQL', 'Schema Validation', 'Enum Check', 'Regex Pattern']),
+        body('RuleType').optional().isIn([...SUPPORTED_RULE_TYPES]),
         body('Severity').optional().isIn(['Error', 'Warning']),
         body('ExecutionOrder').optional().isInt({ min: 1 }),
-        body('SqlQuery').optional().isLength({ min: 1 }),
+        body('SqlQuery').optional().isString().isLength({ min: 1, max: 4000 }),
         body('IsEnabled').optional().isBoolean(),
     ],
     validateRequest,

@@ -1,11 +1,15 @@
-﻿// =============================================================================
+// =============================================================================
 // Rule Interface - Defines types for Validation Rules
 // =============================================================================
 
 /**
- * Rule type options
+ * Rule type options. Expressions are stored in the SqlQuery column for backward compatibility:
+ * - Schema Validation / Required Values: "ColumnA, ColumnB"
+ * - Type Check: "Column: integer|decimal|datetime|boolean|string"
+ * - Enum Check: "Column: ValueA, ValueB"
+ * - Range Check: "Column: min..max" (either bound may be omitted)
  */
-export type RuleType = 'Custom SQL' | 'Schema Validation' | 'Enum Check' | 'Regex Pattern';
+export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check';
 
 /**
  * Severity options for rules
@@ -37,7 +41,7 @@ export interface ICreateRuleDto {
     FileDefinitionId: string;
     Name: string;
     Description?: string;
-    RuleType?: RuleType;
+    RuleType: RuleType;
     Severity?: RuleSeverity;
     ExecutionOrder?: number;
     SqlQuery: string;

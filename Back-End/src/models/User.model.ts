@@ -1,10 +1,11 @@
-﻿// =============================================================================
+// =============================================================================
 // User Model - Database operations for Users table
 // =============================================================================
 
 import { getConnection } from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import type { IUser, ICreateUserDto, UserRole, SsoProvider } from '../interfaces/user.interface';
+import { logger } from '../utils/logger';
 
 export class User {
     private static readonly TABLE_NAME = 'Users';
@@ -29,8 +30,8 @@ export class User {
         const result = await pool.request()
             .input('Email', email)
             .query(`SELECT * FROM ${this.TABLE_NAME} WHERE Email = @Email`);
-        console.log('finding user by email');
-        console.log('[DB] Query result - rows:', result.recordset.length);
+        logger.debug('finding user by email');
+        logger.debug('[DB] Query result - rows:', result.recordset.length);
         return result.recordset[0] || null;
     }
 
@@ -198,6 +199,23 @@ export class User {
     }
 
     /**
+     * Bind an SSO identity to an account and enable SSO sign-in for it.
+     */
+    static async linkSso(id: string, ssoProvider: SsoProvider, ssoSubjectId: string): Promise<void> {
+        const pool = await getConnection();
+        await pool.request()
+            .input('Id', id)
+            .input('SsoProvider', ssoProvider)
+            .input('SsoSubjectId', ssoSubjectId)
+            .input('UpdatedAt', new Date())
+            .query(`
+                UPDATE ${this.TABLE_NAME}
+                SET SsoProvider = @SsoProvider, SsoSubjectId = @SsoSubjectId, IsSsoAuthEnabled = 1, UpdatedAt = @UpdatedAt
+                WHERE Id = @Id
+            `);
+    }
+
+    /**
      * Find or create user from SSO
      */
     static async findOrCreateFromSso(
@@ -211,15 +229,14 @@ export class User {
         
         if (!user) {
             // Check if user exists by email and link SSO
-            user = await this.findByEmail(email);
+            user = email ? await this.findByEmail(email) : null;
             if (user) {
-                // Link SSO to existing account
-                await this.update(user.Id, {
-                    SsoProvider: ssoProvider,
-                    SsoSubjectId: ssoSubjectId,
-                    IsSsoAuthEnabled: true
-                });
-                user = await this.findById(user.Id)!;
+                // Link SSO to an existing account only if it is not already bound to another identity.
+                if (user.SsoSubjectId && user.SsoSubjectId !== ssoSubjectId) {
+                    throw new Error('This account is linked to a different SSO identity');
+                }
+                await this.linkSso(user.Id, ssoProvider, ssoSubjectId);
+                user = await this.findById(user.Id);
             } else {
                 // Create new user
                 user = await this.create({

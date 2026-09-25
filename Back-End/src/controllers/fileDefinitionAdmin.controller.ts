@@ -5,6 +5,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { FileDefinitionService } from '../services/FileDefinition.service';
+import { TemplateStorage, getTemplateDisplayName } from '../services/TemplateStorage.service';
+import { logger } from '../utils/logger';
 import type { IFileDefinitionUser } from '../interfaces/fileDefinition.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 
@@ -37,7 +39,7 @@ export const getFileDefinitionUsers = async (req: AuthRequest, res: Response, ne
             total: users.length
         });
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error getting definition users:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error getting definition users:', error);
         next(error);
     }
 };
@@ -79,7 +81,7 @@ export const addUsersToFileDefinition = async (req: AuthRequest, res: Response, 
             message: `Assigned ${userIds.length} users to file definition`
         });
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error adding users:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error adding users:', error);
         next(error);
     }
 };
@@ -111,7 +113,7 @@ export const removeUserFromFileDefinition = async (req: AuthRequest, res: Respon
             message: 'User removed from file definition'
         });
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error removing user:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error removing user:', error);
         next(error);
     }
 };
@@ -129,7 +131,7 @@ export const getAllAvailableUsers = async (req: AuthRequest, res: Response, next
             users
         });
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error getting available users:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error getting available users:', error);
         next(error);
     }
 };
@@ -158,16 +160,28 @@ export const uploadTemplate = async (req: AuthRequest, res: Response, next: Next
             });
         }
 
-        const templateFilename = req.file.filename;
-        await FileDefinitionService.setTemplateFilename(definitionId, templateFilename);
+        const previousTemplate = await FileDefinitionService.getTemplateBlobName(definitionId);
+        const templateFilename = await TemplateStorage.save(req.file.buffer, req.file.originalname);
+        try {
+            await FileDefinitionService.setTemplateFilename(definitionId, templateFilename);
+        } catch (error) {
+            await TemplateStorage.delete(templateFilename).catch(() => undefined);
+            throw error;
+        }
+
+        if (previousTemplate && previousTemplate !== templateFilename) {
+            await TemplateStorage.delete(previousTemplate).catch(err =>
+                logger.warn(`[FILEDEF_ADMIN_CTRL] Could not delete previous template ${previousTemplate}`, err)
+            );
+        }
 
         res.json({
             success: true,
-            templateFilename,
+            templateFilename: getTemplateDisplayName(templateFilename),
             message: 'Template uploaded successfully'
         });
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error uploading template:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error uploading template:', error);
         next(error);
     }
 };
@@ -199,7 +213,7 @@ export const exportFileDefinition = async (req: AuthRequest, res: Response, next
 
         res.json(exportData);
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error exporting definition:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error exporting definition:', error);
         next(error);
     }
 };
@@ -226,7 +240,7 @@ export const getFileDefinitionUserCounts = async (req: AuthRequest, res: Respons
             counts
         });
     } catch (error) {
-        console.error('[FILEDEF_ADMIN_CTRL] Error getting user counts:', error);
+        logger.error('[FILEDEF_ADMIN_CTRL] Error getting user counts:', error);
         next(error);
     }
 };
