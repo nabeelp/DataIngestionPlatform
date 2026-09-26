@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { apiConfig } from '../config/api';
+import { apiRequest } from './http';
 
 const getBaseUrl = () => apiConfig.getBaseUrl();
 
@@ -328,7 +329,55 @@ export interface FileDefinitionAdmin {
   updatedAt: string;
   templateFilename?: string | null;
   deliveryFolder?: string | null;
+  activeVersion?: { id: string; versionNumber: number; activatedAt: string } | null;
+  hasUnpublishedChanges?: boolean;
 }
+
+export interface DefinitionVersionRule {
+  id: string;
+  name: string;
+  description: string;
+  ruleType: string;
+  severity: string;
+  executionOrder: number;
+  expression: string;
+}
+
+export interface DefinitionVersion {
+  id: string;
+  versionNumber: number;
+  status: 'Active' | 'Superseded';
+  columns: FileDefinitionColumn[];
+  rules: DefinitionVersionRule[];
+  changeNote: string | null;
+  createdByName: string | null;
+  activatedAt: string;
+  supersededAt: string | null;
+}
+
+export interface ContractChanges {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+export interface DefinitionVersionHistory {
+  activeVersionNumber: number | null;
+  hasUnpublishedChanges: boolean;
+  changes: { columns: ContractChanges; rules: ContractChanges };
+  versions: DefinitionVersion[];
+}
+
+export const getFileDefinitionVersions = (definitionId: string): Promise<DefinitionVersionHistory> =>
+  apiRequest<DefinitionVersionHistory>(`/admin/file-definitions/${encodeURIComponent(definitionId)}/versions`);
+
+export const publishFileDefinitionVersion = async (definitionId: string, changeNote?: string): Promise<DefinitionVersion> => {
+  const data = await apiRequest<{ version: DefinitionVersion }>(
+    `/admin/file-definitions/${encodeURIComponent(definitionId)}/versions`,
+    { method: 'POST', body: { changeNote: changeNote?.trim() || null } }
+  );
+  return data.version;
+};
 
 export const getFileDefinitionsAdmin = async (): Promise<{
   definitions: FileDefinitionAdmin[];

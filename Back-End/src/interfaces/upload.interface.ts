@@ -73,6 +73,8 @@ export type SheetStatus =
 export interface IUpload {
     Id: string;
     FileDefinitionId: string;
+    /** Definition version the upload is validated against; null for uploads created before versioning */
+    FileDefinitionVersionId?: string | null;
     UploadedBy: string;
     OriginalFilename: string;
     StoredFilename: string;
@@ -230,6 +232,7 @@ export interface IErrorRow {
  */
 export interface ICreateUploadDto {
     FileDefinitionId: string;
+    FileDefinitionVersionId?: string | null;
     OriginalFilename: string;
     StoredFilename: string;
     TempLocalPath?: string;
@@ -249,6 +252,7 @@ export interface ICreateUploadDto {
  */
 export interface IUpdateUploadDto {
     Status?: UploadStatus;
+    FileDefinitionVersionId?: string;
     TempLocalPath?: string | null;
     RetryCount?: number;
     RowCountNo?: number;
@@ -397,6 +401,8 @@ export interface IUploadResponse {
 export interface IUploadDetailResponse {
     success: boolean;
     upload: IUpload;
+    /** Definition version the upload was validated against; null for uploads created before versioning */
+    definitionVersion: { id: string; versionNumber: number; activatedAt: Date } | null;
     sheets: IUploadSheet[];
     validationResult: IValidationResult | null;
     ruleDetails: IValidationRuleDetail[];

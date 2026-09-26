@@ -327,6 +327,27 @@ router.get(
     FileDefinitionAdminController.exportFileDefinition
 );
 
+/**
+ * GET /api/admin/file-definitions/:id/versions
+ * Version history plus the unpublished (draft) changes
+ */
+router.get(
+    '/file-definitions/:id/versions',
+    FileDefinitionAdminController.getFileDefinitionVersions
+);
+
+/**
+ * POST /api/admin/file-definitions/:id/versions
+ * Publish the current draft as the new active version
+ * Body: { changeNote?: string }
+ */
+router.post(
+    '/file-definitions/:id/versions',
+    [body('changeNote').optional({ values: 'null' }).isString().isLength({ max: 500 })],
+    validateRequest,
+    FileDefinitionAdminController.publishFileDefinitionVersion
+);
+
 
 // ============================================================================
 

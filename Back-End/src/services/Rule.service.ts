@@ -9,6 +9,7 @@ import type {
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
 import { SUPPORTED_RULE_TYPES, parseRuleExpression } from './validation/ValidationEngine';
+import { DefinitionVersionService } from './DefinitionVersion.service';
 
 /**
  * Raised when a rule's type or expression is invalid (maps to HTTP 400).
@@ -49,6 +50,42 @@ export async function getRulesByFileDefinitionId(
     }
 
     return await Rule.findByFileDefinitionIdWithCreator(fileDefinitionId);
+}
+
+/**
+ * Rules of the active version (with access control). Falls back to the enabled rules for a
+ * definition that has never been versioned.
+ */
+export async function getPublishedRules(
+    fileDefinitionId: string,
+    userId: string
+): Promise<{ rules: (IRule & { CreatorName?: string | null })[]; versionNumber: number | null }> {
+    const hasAccess = await Rule.hasAccessToFileDefinition(fileDefinitionId, userId);
+    if (!hasAccess) {
+        throw new Error('Access denied to this file definition');
+    }
+
+    const { activeVersion } = await DefinitionVersionService.getDraftState(fileDefinitionId);
+    if (!activeVersion) {
+        return { rules: await Rule.findEnabledByFileDefinitionId(fileDefinitionId), versionNumber: null };
+    }
+
+    const rules = activeVersion.Rules.map(rule => ({
+        Id: rule.Id,
+        FileDefinitionId: fileDefinitionId,
+        Name: rule.Name,
+        Description: rule.Description,
+        RuleType: rule.RuleType as IRule['RuleType'],
+        Severity: rule.Severity as IRule['Severity'],
+        ExecutionOrder: rule.ExecutionOrder,
+        SqlQuery: rule.SqlQuery,
+        IsEnabled: true,
+        CreatedBy: activeVersion.CreatedBy,
+        CreatorName: activeVersion.CreatedByName,
+        CreatedAt: activeVersion.ActivatedAt,
+        UpdatedAt: activeVersion.ActivatedAt,
+    }));
+    return { rules, versionNumber: activeVersion.VersionNumber };
 }
 
 /**

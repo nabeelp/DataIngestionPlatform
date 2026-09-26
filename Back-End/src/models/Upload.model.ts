@@ -169,6 +169,7 @@ export class Upload {
         await pool.request()
             .input('Id', id)
             .input('FileDefinitionId', dto.FileDefinitionId)
+            .input('FileDefinitionVersionId', dto.FileDefinitionVersionId || null)
             .input('UploadedBy', userId)
             .input('OriginalFilename', dto.OriginalFilename)
             .input('StoredFilename', dto.StoredFilename)
@@ -185,9 +186,9 @@ export class Upload {
             .input('UploadedAt', now)
             .query(`
                 INSERT INTO ${this.TABLE_NAME} 
-(Id, FileDefinitionId, UploadedBy, OriginalFilename, StoredFilename, TempLocalPath, AzureBlobUrl, FileSize, FileType, CompressedFileSize, CompressedBlobUrl, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
+(Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, TempLocalPath, AzureBlobUrl, FileSize, FileType, CompressedFileSize, CompressedBlobUrl, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
                 VALUES 
-                (@Id, @FileDefinitionId, @UploadedBy, @OriginalFilename, @StoredFilename, @TempLocalPath, @AzureBlobUrl, @FileSize, @FileType, @CompressedFileSize, @CompressedBlobUrl, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
+                (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @TempLocalPath, @AzureBlobUrl, @FileSize, @FileType, @CompressedFileSize, @CompressedBlobUrl, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
             `);
 
 
@@ -207,6 +208,10 @@ export class Upload {
         if (updates.TempLocalPath !== undefined) {
             setClauses.push('TempLocalPath = @TempLocalPath');
             request.input('TempLocalPath', updates.TempLocalPath);
+        }
+        if (updates.FileDefinitionVersionId !== undefined) {
+            setClauses.push('FileDefinitionVersionId = @FileDefinitionVersionId');
+            request.input('FileDefinitionVersionId', updates.FileDefinitionVersionId);
         }
         if (updates.RetryCount !== undefined) {
             setClauses.push('RetryCount = @RetryCount');

@@ -1,0 +1,223 @@
+// =============================================================================
+// Definition Version Service - draft, publish and resolve file definition versions
+// The live FileDefinitions/Rules rows are the draft. Publishing snapshots them as a new active version;
+// uploads are pinned to the version active when they arrive, so later edits never change their outcome.
+// =============================================================================
+
+import type { ConnectionPool, Transaction } from 'mssql';
+import { getConnection } from '../config/database';
+import { FileDefinitionVersion } from '../models/FileDefinitionVersion.model';
+import { logger } from '../utils/logger';
+import {
+    ContractValidationError,
+    assertPublishable,
+    buildContractSnapshot,
+    diffContracts,
+    type ContractDiff,
+    type ContractSnapshot,
+} from './validation/DefinitionContract';
+import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+
+export class DefinitionVersionError extends Error {
+    constructor(message: string, readonly statusCode: 400 | 404 | 409) {
+        super(message);
+        this.name = 'DefinitionVersionError';
+    }
+}
+
+export interface VersionSummary {
+    id: string;
+    versionNumber: number;
+    activatedAt: Date;
+}
+
+export interface DraftState {
+    activeVersion: IFileDefinitionVersion | null;
+    draft: ContractSnapshot;
+    diff: ContractDiff;
+}
+
+export interface DefinitionVersionState {
+    activeVersion: VersionSummary | null;
+    hasUnpublishedChanges: boolean;
+}
+
+export interface ValidationContract extends ContractSnapshot {
+    version: IFileDefinitionVersion;
+}
+
+export const toVersionSummary = (version: IFileDefinitionVersion | null): VersionSummary | null =>
+    version ? { id: version.Id, versionNumber: version.VersionNumber, activatedAt: version.ActivatedAt } : null;
+
+const contractOf = (version: IFileDefinitionVersion | null): ContractSnapshot | null =>
+    version ? { columns: version.Columns, rules: version.Rules } : null;
+
+const MAX_CHANGE_NOTE_LENGTH = 500;
+
+async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<ContractSnapshot | null> {
+    const definition = await db.request()
+        .input('Id', fileDefinitionId)
+        .query(`SELECT Id, Columns FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''} WHERE Id = @Id`);
+    if (!definition.recordset[0]) return null;
+
+    const rules = await db.request()
+        .input('FileDefinitionId', fileDefinitionId)
+        .query(`SELECT Id, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
+
+    let columns: unknown = definition.recordset[0].Columns;
+    if (typeof columns === 'string') {
+        try {
+            columns = JSON.parse(columns);
+        } catch {
+            columns = [];
+        }
+    }
+    return buildContractSnapshot(columns, rules.recordset);
+}
+
+export class DefinitionVersionService {
+    /**
+     * Compare the definition's current (draft) configuration with its active version.
+     */
+    static async getDraftState(fileDefinitionId: string): Promise<DraftState> {
+        const pool = await getConnection();
+        const draft = await readDraft(pool, fileDefinitionId);
+        if (!draft) throw new DefinitionVersionError('File definition not found', 404);
+
+        const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
+        return { activeVersion, draft, diff: diffContracts(contractOf(activeVersion), draft) };
+    }
+
+    /**
+     * All versions of a definition, newest first.
+     */
+    static async listVersions(fileDefinitionId: string): Promise<IFileDefinitionVersion[]> {
+        return FileDefinitionVersion.findByDefinition(await getConnection(), fileDefinitionId);
+    }
+
+    static async findVersion(versionId: string): Promise<IFileDefinitionVersion | null> {
+        return FileDefinitionVersion.findById(await getConnection(), versionId);
+    }
+
+    /**
+     * Publish the draft as the new active version. Throws DefinitionVersionError when the definition does not
+     * exist (404), the draft is invalid (400) or there is nothing to publish (409).
+     */
+    static async publish(fileDefinitionId: string, userId: string | null, changeNote?: string | null): Promise<IFileDefinitionVersion> {
+        return this.publishDraft(fileDefinitionId, userId, changeNote ?? null, { validate: true, onlyIfUnpublished: false });
+    }
+
+    /**
+     * Return the active version, publishing the current configuration as the first version if the definition
+     * has never been versioned (for example when it was created by a seed script).
+     */
+    static async ensureActiveVersion(fileDefinitionId: string, userId: string | null): Promise<IFileDefinitionVersion> {
+        const active = await FileDefinitionVersion.findActive(await getConnection(), fileDefinitionId);
+        if (active) return active;
+        // The initial version records the configuration exactly as it validated before versioning existed.
+        return this.publishDraft(fileDefinitionId, userId, 'Initial version', { validate: false, onlyIfUnpublished: true });
+    }
+
+    /**
+     * Version state for each definition, for list views.
+     */
+    static async getVersionStates(definitions: { Id: string; Columns: unknown }[]): Promise<Map<string, DefinitionVersionState>> {
+        const pool = await getConnection();
+        const [activeVersions, rules] = await Promise.all([
+            FileDefinitionVersion.findAllActive(pool),
+            pool.request().query(`SELECT Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled FROM Rules`),
+        ]);
+
+        const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));
+        const rulesByDefinition = new Map<string, any[]>();
+        for (const rule of rules.recordset) {
+            const key = String(rule.FileDefinitionId).toLowerCase();
+            rulesByDefinition.set(key, [...(rulesByDefinition.get(key) || []), rule]);
+        }
+
+        const states = new Map<string, DefinitionVersionState>();
+        for (const definition of definitions) {
+            const key = String(definition.Id).toLowerCase();
+            const active = activeByDefinition.get(key) || null;
+            const draft = buildContractSnapshot(definition.Columns, rulesByDefinition.get(key) || []);
+            states.set(definition.Id, {
+                activeVersion: toVersionSummary(active),
+                hasUnpublishedChanges: diffContracts(contractOf(active), draft).hasChanges,
+            });
+        }
+        return states;
+    }
+
+    /**
+     * Present definitions as uploaders see them: with the columns of the active version rather than the draft.
+     */
+    static async withPublishedColumns<T extends { Id: string; Columns: unknown }>(definitions: T[]): Promise<(T & { ActiveVersion: VersionSummary | null })[]> {
+        if (definitions.length === 0) return [];
+        const activeVersions = await FileDefinitionVersion.findAllActive(await getConnection());
+        const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));
+        return definitions.map(definition => {
+            const active = activeByDefinition.get(String(definition.Id).toLowerCase());
+            return active
+                ? { ...definition, Columns: active.Columns, ActiveVersion: toVersionSummary(active) }
+                : { ...definition, ActiveVersion: null };
+        });
+    }
+
+    /**
+     * The columns and rules an upload must be validated against: its pinned version, or the active version
+     * for an unpinned upload. Unpublished draft edits never apply.
+     */
+    static async loadValidationContract(upload: { FileDefinitionId: string; FileDefinitionVersionId?: string | null }): Promise<ValidationContract> {
+        const version = upload.FileDefinitionVersionId
+            ? await FileDefinitionVersion.findById(await getConnection(), upload.FileDefinitionVersionId)
+            : await this.ensureActiveVersion(upload.FileDefinitionId, null);
+        if (!version) throw new Error(`File definition version ${upload.FileDefinitionVersionId} not found`);
+        return { version, columns: version.Columns, rules: version.Rules };
+    }
+
+    private static async publishDraft(
+        fileDefinitionId: string,
+        userId: string | null,
+        changeNote: string | null,
+        options: { validate: boolean; onlyIfUnpublished: boolean },
+    ): Promise<IFileDefinitionVersion> {
+        const note = changeNote?.trim().slice(0, MAX_CHANGE_NOTE_LENGTH) || null;
+        const pool = await getConnection();
+        const tx = pool.transaction();
+        await tx.begin();
+
+        let versionId: string;
+        try {
+            // Locking the definition row serialises publishes (and version numbers) per definition.
+            const draft = await readDraft(tx, fileDefinitionId, true);
+            if (!draft) throw new DefinitionVersionError('File definition not found', 404);
+
+            const active = await FileDefinitionVersion.findActive(tx, fileDefinitionId);
+            if (active && options.onlyIfUnpublished) {
+                await tx.commit();
+                return active;
+            }
+            if (active && !diffContracts(contractOf(active), draft).hasChanges) {
+                throw new DefinitionVersionError(`There are no changes to publish; version ${active.VersionNumber} is already active`, 409);
+            }
+            if (options.validate) {
+                try {
+                    assertPublishable(draft);
+                } catch (error) {
+                    if (error instanceof ContractValidationError) throw new DefinitionVersionError(error.message, 400);
+                    throw error;
+                }
+            }
+
+            versionId = await FileDefinitionVersion.activate(tx, fileDefinitionId, draft, userId, note);
+            await tx.commit();
+        } catch (error) {
+            await tx.rollback().catch(rollbackError => logger.warn('[DEF_VERSION] Rollback failed', rollbackError));
+            throw error;
+        }
+
+        const version = (await FileDefinitionVersion.findById(pool, versionId))!;
+        logger.info(`[DEF_VERSION] Definition ${fileDefinitionId} version ${version.VersionNumber} activated by ${userId ?? 'system'}`);
+        return version;
+    }
+}

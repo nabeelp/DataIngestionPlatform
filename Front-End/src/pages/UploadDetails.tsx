@@ -36,6 +36,7 @@ interface UploadDetail {
   uploaded: string;
   validated: string | null;
   deliveredTo: string;
+  definitionVersion: number | null;
   sheets: SheetSummary[];
   rules: RuleResult[];
 }
@@ -112,6 +113,7 @@ const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
       ? formatDate(upload.ValidationCompletedAt || upload.validationCompletedAt) 
       : null,
     deliveredTo: upload.DeliveredTo || upload.deliveredTo || '',
+    definitionVersion: data.definitionVersion?.versionNumber ?? null,
     sheets: mappedSheets,
     rules: mappedRules,
   };
@@ -455,11 +457,12 @@ const UploadDetails = () => {
           
           <p className="text-xs text-gray-500 mb-6 font-medium">Validation Failed</p>
 
-          <div className="grid grid-cols-4 gap-8">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
             <InfoItem label="File Size" value={upload.fileSize} />
             <InfoItem label="Row Count" value={upload.rowCount.toLocaleString()} />
             <InfoItem label="Uploaded" value={upload.uploaded} />
             <InfoItem label="Validated" value={upload.validated || '-'} />
+            <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
           </div>
         </section>
 
@@ -526,11 +529,12 @@ const UploadDetails = () => {
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-8">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
             <InfoItem label="File Size" value={upload.fileSize} />
             <InfoItem label="Row Count" value={upload.rowCount.toLocaleString()} />
             <InfoItem label="Uploaded" value={upload.uploaded} />
             <InfoItem label="Validated" value={upload.validated || '-'} />
+            <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
           </div>
         </section>
       </div>
@@ -571,11 +575,12 @@ const UploadDetails = () => {
         
         <p className="text-xs text-gray-500 mb-6 font-medium">Delivered {sheetCount} sheet(s)</p>
 
-        <div className="grid grid-cols-4 gap-8">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
           <InfoItem label="File Size" value={upload.fileSize} />
           <InfoItem label="Row Count" value={upload.rowCount.toLocaleString()} />
           <InfoItem label="Uploaded" value={upload.uploaded} />
           <InfoItem label="Validated" value={upload.validated || '-'} />
+          <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
         </div>
 
         <div className="mt-8 pt-6 border-t border-gray-50">

@@ -5,9 +5,12 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { FileDefinitionService } from '../services/FileDefinition.service';
+import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { TemplateStorage, getTemplateDisplayName } from '../services/TemplateStorage.service';
+import { logAction } from '../models/AuditLog.model';
+import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
 import { logger } from '../utils/logger';
-import type { IFileDefinitionUser } from '../interfaces/fileDefinition.interface';
+import type { IFileDefinitionUser, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 
 // Extend Request to include user
@@ -241,6 +244,91 @@ export const getFileDefinitionUserCounts = async (req: AuthRequest, res: Respons
         });
     } catch (error) {
         logger.error('[FILEDEF_ADMIN_CTRL] Error getting user counts:', error);
+        next(error);
+    }
+};
+
+const mapVersion = (version: IFileDefinitionVersion) => ({
+    id: version.Id,
+    versionNumber: version.VersionNumber,
+    status: version.Status,
+    columns: version.Columns,
+    rules: version.Rules.map(rule => ({
+        id: rule.Id,
+        name: rule.Name,
+        description: rule.Description,
+        ruleType: rule.RuleType,
+        severity: rule.Severity,
+        executionOrder: rule.ExecutionOrder,
+        expression: rule.SqlQuery,
+    })),
+    changeNote: version.ChangeNote,
+    createdByName: version.CreatedByName,
+    activatedAt: version.ActivatedAt,
+    supersededAt: version.SupersededAt,
+});
+
+const handleVersionError = (error: unknown, res: Response): boolean => {
+    if (error instanceof DefinitionVersionError) {
+        res.status(error.statusCode).json({ success: false, message: error.message });
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Version history and unpublished changes (admin only)
+ * GET /api/admin/file-definitions/:id/versions
+ */
+export const getFileDefinitionVersions = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId = req.params.id as string;
+        const [state, versions] = await Promise.all([
+            DefinitionVersionService.getDraftState(definitionId),
+            DefinitionVersionService.listVersions(definitionId),
+        ]);
+
+        res.json({
+            success: true,
+            activeVersionNumber: state.activeVersion?.VersionNumber ?? null,
+            hasUnpublishedChanges: state.diff.hasChanges,
+            changes: { columns: state.diff.columns, rules: state.diff.rules },
+            versions: versions.map(mapVersion),
+        });
+    } catch (error) {
+        if (handleVersionError(error, res)) return;
+        logger.error('[FILEDEF_ADMIN_CTRL] Error getting definition versions:', error);
+        next(error);
+    }
+};
+
+/**
+ * Publish the draft as a new active version (admin only)
+ * POST /api/admin/file-definitions/:id/versions
+ */
+export const publishFileDefinitionVersion = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId = req.params.id as string;
+        const version = await DefinitionVersionService.publish(definitionId, req.user?.userId ?? null, req.body?.changeNote);
+
+        await logAction(
+            req.user?.userId || null,
+            AUDIT_ACTIONS.DEFINITION_VERSION_PUBLISHED,
+            ENTITY_TYPES.FILE_DEFINITION,
+            definitionId,
+            { versionNumber: version.VersionNumber, changeNote: version.ChangeNote },
+            req.ip || undefined,
+            req.headers['user-agent']
+        );
+
+        res.status(201).json({
+            success: true,
+            version: mapVersion(version),
+            message: `Version ${version.VersionNumber} is now active`
+        });
+    } catch (error) {
+        if (handleVersionError(error, res)) return;
+        logger.error('[FILEDEF_ADMIN_CTRL] Error publishing definition version:', error);
         next(error);
     }
 };

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 
 //#region INTERFACES & TYPES
 interface Rule {
@@ -63,6 +64,7 @@ export default function ValidationRules() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('Never');
+  const [publishedVersion, setPublishedVersion] = useState<number | null>(null);
 
   // Search & Filter UI State
   const [searchTerm, setSearchTerm] = useState('');
@@ -193,6 +195,7 @@ export default function ValidationRules() {
           creatorName: rule.CreatorName || rule.creatorName
         }));
         setRules(mappedRules);
+        setPublishedVersion(data.published ? data.versionNumber ?? null : null);
         setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       }
     } catch (err) {
@@ -400,6 +403,21 @@ export default function ValidationRules() {
           )}
 
           {/* Upload Definition & Dynamic Aggregations Row */}
+          {selectedDefinitionId && (
+            <div role="note" className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-blue-900 text-sm">
+              {canManageRules ? (
+                <>
+                  Rule changes are saved as a draft. Uploads keep using the active version until you publish a new version from{' '}
+                  <Link to="/admin/file-definitions" className="font-semibold underline">File Definitions → Versions</Link>.
+                </>
+              ) : publishedVersion ? (
+                `Showing the rules of published version v${publishedVersion}, which new uploads are validated against.`
+              ) : (
+                'Showing the rules currently applied to new uploads.'
+              )}
+            </div>
+          )}
+
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-center justify-between gap-6">
             <div className="w-1/4">
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Upload Definition</label>

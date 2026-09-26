@@ -19,6 +19,7 @@ import type { IUpload, UploadStatus } from '../interfaces/upload.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
+import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
 import { COLUMN_TYPES } from '../services/validation/ValidationEngine';
@@ -525,7 +526,12 @@ export const getProcessingFiles = async (req: AuthRequest, res: Response, next: 
 export const getFileDefinitions = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const definitions = await FileDefinitionService.getAllDefinitions();
-        const camelCaseDefinitions = definitions.map((def: any) => mapFileDefinitionToCamelCase(def));
+        const versionStates = await DefinitionVersionService.getVersionStates(definitions);
+        const camelCaseDefinitions = definitions.map((def: any) => ({
+            ...mapFileDefinitionToCamelCase(def),
+            activeVersion: versionStates.get(def.Id)?.activeVersion ?? null,
+            hasUnpublishedChanges: versionStates.get(def.Id)?.hasUnpublishedChanges ?? true,
+        }));
 
         res.json({
             success: true,

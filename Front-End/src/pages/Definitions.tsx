@@ -20,6 +20,8 @@ interface Definition {
   status: string;
   createdAt: string;
   hasTemplate: boolean;
+  versionNumber: number | null;
+  versionActivatedAt: string | null;
 }
 //#endregion
 
@@ -75,6 +77,8 @@ export default function Definitions() {
           status: def.Status || def.status,
           createdAt: def.CreatedAt || def.createdAt,
           hasTemplate: Boolean(def.TemplateFilename || def.templateFilename),
+          versionNumber: def.ActiveVersion?.versionNumber ?? null,
+          versionActivatedAt: def.ActiveVersion?.activatedAt ?? null,
         }));
         setDefinitions(mappedDefinitions);
         
@@ -226,7 +230,10 @@ export default function Definitions() {
                       <FileText size={18} className="text-blue-600" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-medium text-gray-900 truncate">{def.name}</h3>
+                      <h3 className="text-sm font-medium text-gray-900 truncate">
+                        {def.name}
+                        {def.versionNumber && <span className="ml-2 text-[10px] font-semibold text-gray-500">v{def.versionNumber}</span>}
+                      </h3>
                       <p className="text-xs text-gray-500 truncate">{def.description}</p>
                     </div>
                   </div>
@@ -303,6 +310,12 @@ export default function Definitions() {
                     ))}
                   </div>
                   <div className="mt-4 pt-4 border-t border-gray-200">
+                    {selectedDef.versionNumber && (
+                      <p className="text-xs text-gray-500 mb-1">
+                        Version v{selectedDef.versionNumber}
+                        {selectedDef.versionActivatedAt ? `, active since ${formatDate(selectedDef.versionActivatedAt)}` : ''}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-500">Created: {formatDate(selectedDef.createdAt)}</p>
                   </div>
                 </div>

@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { FileDefinition } from '../models/FileDefinition.model';
+import { DefinitionVersionService } from './DefinitionVersion.service';
 import { getConnection } from '../config/database';
 import type { 
     IFileDefinition, 
@@ -159,6 +160,7 @@ export class FileDefinitionService {
             }
 
             const definition = await FileDefinition.create(dto, createdByUserId);
+            await DefinitionVersionService.ensureActiveVersion(definition.Id, createdByUserId);
             logger.info(`[FILEDEF_SVC] Created definition ${definition.Id}: ${definition.Name}`);
             return definition;
         } catch (error) {

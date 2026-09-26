@@ -16,8 +16,9 @@ import {
   IFileDefinitionUser
 } from '../../services/adminApi';
 
-import { Plus, Edit, Trash2, X, Check, Users } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Check, Users, History } from 'lucide-react';
 import { Download, FileText, Upload } from 'lucide-react';
+import DefinitionVersionsModal from './DefinitionVersionsModal';
 
 const INITIAL_COLUMNS: FileDefinitionColumn[] = [
   { name: 'Column1', type: 'string', required: true }
@@ -51,6 +52,10 @@ export default function FileDefinitions() {
   const [uploading, setUploading] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [currentTemplateFilename, setCurrentTemplateFilename] = useState<string | null>(null);
+  const [versionsFor, setVersionsFor] = useState<FileDefinitionAdmin | null>(null);
+  const [notice, setNotice] = useState<{ text: string; definition?: FileDefinitionAdmin } | null>(null);
+
+  const editingDefinition = editingId ? definitions.find(def => def.id === editingId) : undefined;
 
   useEffect(() => {
     fetchDefinitions();
@@ -74,17 +79,29 @@ export default function FileDefinitions() {
     fetchUserCounts();
   }, [definitions]);
 
-  const fetchDefinitions = async () => {
+  const fetchDefinitions = async (): Promise<FileDefinitionAdmin[]> => {
     try {
       setLoading(true);
       setError(null);
       const data = await getFileDefinitionsAdmin();
       setDefinitions(data.definitions);
+      return data.definitions;
     } catch (err) {
       console.error('Failed to fetch file definitions:', err);
       setError('Failed to load file definitions');
+      return [];
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Refresh without the page spinner so an open modal stays mounted.
+  const refreshVersionStates = async () => {
+    try {
+      const data = await getFileDefinitionsAdmin();
+      setDefinitions(data.definitions);
+    } catch (err) {
+      console.error('Failed to refresh file definitions:', err);
     }
   };
 
@@ -101,6 +118,8 @@ export default function FileDefinitions() {
     };
 
     let savedId: string | null = null;
+    const wasEditing = Boolean(editingId);
+    let succeeded = false;
     try {
       setUploading(true);
       setError(null);
@@ -122,6 +141,7 @@ export default function FileDefinitions() {
         }
         await uploadTemplate(savedId, templateFile);
       }
+      succeeded = true;
       closeModal();
     } catch (err) {
       console.error('Failed to upload template:', err);
@@ -130,7 +150,20 @@ export default function FileDefinitions() {
       setError(`Definition saved, but the template upload failed: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setUploading(false);
-      await fetchDefinitions();
+      const refreshed = await fetchDefinitions();
+      const current = refreshed.find(def => def.id === savedId);
+      if (succeeded && current) {
+        if (!wasEditing) {
+          setNotice({ text: `"${current.name}" was created and published as version ${current.activeVersion?.versionNumber ?? 1}.` });
+        } else if (current.hasUnpublishedChanges) {
+          setNotice({
+            text: `"${current.name}" has unpublished changes. Uploads keep using v${current.activeVersion?.versionNumber ?? '-'} until you publish a new version.`,
+            definition: current,
+          });
+        } else {
+          setNotice({ text: `"${current.name}" was saved.` });
+        }
+      }
     }
   };
 
@@ -342,6 +375,25 @@ export default function FileDefinitions() {
         </div>
       )}
 
+      {notice && (
+        <div role="status" className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-sm flex flex-wrap items-center justify-between gap-2">
+          <span>{notice.text}</span>
+          <div className="flex items-center gap-3">
+            {notice.definition && (
+              <button
+                onClick={() => { setVersionsFor(notice.definition!); setNotice(null); }}
+                className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-xs font-semibold"
+              >
+                Review &amp; publish
+              </button>
+            )}
+            <button onClick={() => setNotice(null)} className="text-blue-700 hover:text-blue-900" aria-label="Dismiss">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {definitions.length === 0 ? (
         <div className="bg-white shadow rounded-lg p-8 text-center text-gray-500">
           No file definitions found. Click "Add Definition" to create one.
@@ -355,6 +407,7 @@ export default function FileDefinitions() {
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Columns</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Users</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
@@ -370,7 +423,7 @@ export default function FileDefinitions() {
                           <div className="text-sm text-gray-500 truncate max-w-xs">{def.description}</div>
                         )}
                       </td>
-                      <td className="px-4 sm:px-6 py-4 text-sm text-gray-500">
+                      <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap text-gray-500">
                         {def.columns?.length || 0} columns
                       </td>
                       <td className="px-4 sm:px-6 py-4">
@@ -382,7 +435,22 @@ export default function FileDefinitions() {
                           {def.status}
                         </span>
                       </td>
-                      <td className="px-4 sm:px-6 py-4 text-sm">
+                      <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap">
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="font-medium text-gray-900">
+                            {def.activeVersion ? `v${def.activeVersion.versionNumber}` : 'Not published'}
+                          </span>
+                          {def.hasUnpublishedChanges && def.activeVersion && (
+                            <span
+                              title="Has unpublished changes"
+                              className="px-2 text-xs leading-5 font-semibold rounded-full bg-amber-100 text-amber-800"
+                            >
+                              Unpublished
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                             {userCount} users
@@ -396,13 +464,21 @@ export default function FileDefinitions() {
                           </button>
                         </div>
                       </td>
-                      <td className="px-4 sm:px-6 py-4 text-sm">
+                      <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap">
                         <button
                           onClick={() => handleEdit(def)}
                           className="text-blue-600 hover:text-blue-900 mr-3"
                           title="Edit"
                         >
                           <Edit size={18} />
+                        </button>
+                        <button
+                          onClick={() => setVersionsFor(def)}
+                          className="text-purple-600 hover:text-purple-900 mr-3"
+                          title="Versions"
+                          aria-label={`Versions for ${def.name}`}
+                        >
+                          <History size={18} />
                         </button>
                         <button
                           onClick={() => handleDownload(def.id)}
@@ -443,6 +519,12 @@ export default function FileDefinitions() {
             </div>
             
             <form onSubmit={handleSubmit} className="p-4">
+              {editingDefinition?.activeVersion && (
+                <p className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-900">
+                  Column changes are saved as a draft. Uploads keep using v{editingDefinition.activeVersion.versionNumber} until
+                  you publish a new version from Versions. Name, status, delivery folder and template apply immediately.
+                </p>
+              )}
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700" role="alert">
                   {error}
@@ -725,6 +807,18 @@ export default function FileDefinitions() {
             </div>
           </div>
         </div>
+      )}
+
+      {versionsFor && (
+        <DefinitionVersionsModal
+          definitionId={versionsFor.id}
+          definitionName={versionsFor.name}
+          onClose={() => setVersionsFor(null)}
+          onPublished={version => {
+            setNotice({ text: `"${versionsFor.name}" version ${version.versionNumber} is now active. New uploads are validated against it.` });
+            void refreshVersionStates();
+          }}
+        />
       )}
     </div>
   );

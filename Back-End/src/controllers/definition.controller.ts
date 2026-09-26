@@ -5,6 +5,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { FileDefinitionService } from '../services/FileDefinition.service';
+import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { TemplateStorage, getTemplateContentType, getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { logger } from '../utils/logger';
 import type { 
@@ -37,7 +38,7 @@ export const getDefinitions = async (req: AuthRequest, res: Response, next: Next
             });
         }
 
-        const definitions = await FileDefinition.findForUser(userId);
+        const definitions = await DefinitionVersionService.withPublishedColumns(await FileDefinition.findForUser(userId));
         
         logger.debug('[DEFINITION_CONTROLLER] Found definitions:', definitions.length);
 
@@ -77,7 +78,8 @@ export const getDefinitionById = async (req: AuthRequest, res: Response, next: N
             });
         }
 
-        const definition = await FileDefinition.findById(id);
+        const found = await FileDefinition.findById(id);
+        const [definition] = found ? await DefinitionVersionService.withPublishedColumns([found]) : [null];
 
         if (!definition) {
             return res.status(404).json({ 
@@ -137,7 +139,7 @@ export const createDefinition = async (req: AuthRequest, res: Response, next: Ne
             AllowedUserIds
         };
 
-        const definition = await FileDefinition.create(dto, userId);
+        const definition = await FileDefinitionService.createDefinition(dto, userId);
 
         res.status(201).json({
             success: true,

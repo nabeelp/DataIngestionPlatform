@@ -2,6 +2,8 @@
 // File Definition Interface - Defines types for File Definitions
 // =============================================================================
 
+import type { ContractSnapshot } from '../services/validation/DefinitionContract';
+
 /**
  * Column definition for a file definition
  */
@@ -70,6 +72,23 @@ export interface IUpdateFileDefinitionDto {
  */
 export interface IAddUsersToDefinitionDto {
     UserIds: string[];
+}
+
+/**
+ * Immutable snapshot of a definition's columns and enabled rules.
+ */
+export interface IFileDefinitionVersion {
+    Id: string;
+    FileDefinitionId: string;
+    VersionNumber: number;
+    Status: 'Active' | 'Superseded';
+    Columns: ContractSnapshot['columns'];
+    Rules: ContractSnapshot['rules'];
+    ChangeNote: string | null;
+    CreatedBy: string | null;
+    CreatedByName: string | null;
+    ActivatedAt: Date;
+    SupersededAt: Date | null;
 }
 
 /**

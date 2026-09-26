@@ -38,12 +38,18 @@ export const getRules = async (req: AuthRequest, res: Response, next: NextFuncti
             });
         }
 
-        const rules = await RuleService.getRulesByFileDefinitionId(fileDefinitionId, userId);
+        // Admins edit the draft rules; everyone else sees the rules of the active version that uploads are validated against.
+        const published = req.user?.role !== 'admin';
+        const { rules, versionNumber } = published
+            ? await RuleService.getPublishedRules(fileDefinitionId, userId)
+            : { rules: await RuleService.getRulesByFileDefinitionId(fileDefinitionId, userId), versionNumber: null };
 
         res.json({
             success: true,
             rules,
-            total: rules.length
+            total: rules.length,
+            published,
+            versionNumber
         });
     } catch (error) {
         logger.error('[RULE_CONTROLLER] Error getting rules:', error);

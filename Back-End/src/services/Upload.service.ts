@@ -10,7 +10,6 @@ import { ValidationResult } from '../models/ValidationResult.model';
 import { ValidationRuleDetail } from '../models/ValidationRuleDetail.model';
 import { DeliveryRecord } from '../models/DeliveryRecord.model';
 import { FileDefinition } from '../models/FileDefinition.model';
-import { Rule } from '../models/Rule.model';
 import { addValidationJob, addDeliveryJob, QUEUE_NAMES } from './Queue.service';
 import { azureStorage } from './AzureStorage.service';
 import { appConfig } from '../config/appConfig';
@@ -20,6 +19,7 @@ import { logger } from '../utils/logger';
 import { emitUploadEvent } from '../websocket/socketServer';
 import { DEFINITION_SCHEMA_RULE_TYPE } from './validation/ValidationEngine';
 import { getDeliveryTargets, resolveDeliveryDestination } from './DeliveryTargets.service';
+import { DefinitionVersionService, toVersionSummary } from './DefinitionVersion.service';
 import type { 
     IUpload, 
     IUploadSheet,
@@ -41,9 +41,11 @@ export class UploadService {
         dto: ICreateUploadDto,
         userId: string
     ): Promise<IUpload> {
-        const upload = await Upload.create(dto, userId);
+        // Pin the upload to the version active now, so later definition changes cannot alter its outcome.
+        const version = await DefinitionVersionService.ensureActiveVersion(dto.FileDefinitionId, userId);
+        const upload = await Upload.create({ ...dto, FileDefinitionVersionId: version.Id }, userId);
         
-        logger.info(`[SERVICE-CREATE] UploadId: ${upload.Id}, FileDef: ${dto.FileDefinitionId}, User: ${userId}, Filename: ${dto.OriginalFilename}`);
+        logger.info(`[SERVICE-CREATE] UploadId: ${upload.Id}, FileDef: ${dto.FileDefinitionId} v${version.VersionNumber}, User: ${userId}, Filename: ${dto.OriginalFilename}`);
         
         // Invalidate cache
         await cacheService.invalidateUploadProgress(upload.Id);
@@ -77,12 +79,17 @@ export class UploadService {
             throw new Error('File definition not found');
         }
 
-        logger.info(`[SERVICE-STARTVAL] UploadId: ${uploadId}, FileDef: ${fileDefinition.Name || fileDefinition.Id} (${upload.FileDefinitionId}), Size: ${upload.FileSize}B, RowCount: ${upload.RowCountNo}`);
+        // Columns and rules come from the version the upload is pinned to (retries included).
+        const contract = await DefinitionVersionService.loadValidationContract(upload);
+        if (!upload.FileDefinitionVersionId) {
+            // Uploads from before versioning are pinned on their first (re)validation.
+            await Upload.update(uploadId, { FileDefinitionVersionId: contract.version.Id });
+        }
+        const versionLabel = `v${contract.version.VersionNumber}`;
+        logger.info(`[SERVICE-STARTVAL] UploadId: ${uploadId}, FileDef: ${fileDefinition.Name || fileDefinition.Id} (${upload.FileDefinitionId}) ${versionLabel}, Size: ${upload.FileSize}B, RowCount: ${upload.RowCountNo}`);
 
-        // Get enabled rules for this definition
-        const rules = await Rule.findEnabledByFileDefinitionId(upload.FileDefinitionId);
-        const definitionColumns = Array.isArray(fileDefinition.Columns) ? fileDefinition.Columns : [];
-        const checkDefinitionSchema = definitionColumns.length > 0;
+        const rules = contract.rules;
+        const checkDefinitionSchema = contract.columns.length > 0;
         const totalChecks = rules.length + (checkDefinitionSchema ? 1 : 0);
         
         // Create validation result
@@ -451,17 +458,21 @@ export class UploadService {
     static async getUploadDetails(uploadId: string): Promise<IUploadDetailResponse> {
         const upload = await Upload.findById(uploadId);
         if (!upload) {
-            return { success: false, upload: null as any, sheets: [], validationResult: null, ruleDetails: [], deliveryRecords: [] };
+            return { success: false, upload: null as any, definitionVersion: null, sheets: [], validationResult: null, ruleDetails: [], deliveryRecords: [] };
         }
 
         const sheets = await UploadSheet.findByUploadId(uploadId);
         const validationResult = await ValidationResult.findByUploadId(uploadId);
         const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
         const deliveryRecords = await DeliveryRecord.findByUploadId(uploadId);
+        const definitionVersion = upload.FileDefinitionVersionId
+            ? toVersionSummary(await DefinitionVersionService.findVersion(upload.FileDefinitionVersionId))
+            : null;
 
         return {
             success: true,
             upload,
+            definitionVersion,
             sheets,
             validationResult,
             ruleDetails,

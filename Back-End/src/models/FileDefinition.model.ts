@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { getConnection } from '../config/database';
+import { FileDefinitionVersion } from './FileDefinitionVersion.model';
 import { v4 as uuidv4 } from 'uuid';
 import type { 
     IFileDefinition, 
@@ -231,6 +232,8 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         await pool.request()
             .input('Id', id)
             .query(`DELETE FROM ${this.TABLE_NAME} WHERE Id = @Id`);
+
+        await FileDefinitionVersion.deleteUnreferenced(pool, id);
     }
 
     /**

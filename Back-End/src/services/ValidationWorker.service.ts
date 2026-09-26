@@ -14,21 +14,18 @@ import { Upload } from '../models/Upload.model';
 import { UploadSheet } from '../models/UploadSheet.model';
 import { ValidationResult } from '../models/ValidationResult.model';
 import { ValidationRuleDetail } from '../models/ValidationRuleDetail.model';
-import { Rule } from '../models/Rule.model';
-import { FileDefinition } from '../models/FileDefinition.model';
 import { logger } from '../utils/logger';
 import type { IValidationJobData } from '../interfaces/upload.interface';
-import type { IRule as IRuleType } from '../interfaces/rule.interface';
 import {
     DEFINITION_SCHEMA_RULE_TYPE,
     SUPPORTED_RULE_TYPES,
     createDefinitionSchemaEvaluator,
     createRuleEvaluator,
-    type DefinitionColumn,
     type RowEvaluator,
 } from './validation/ValidationEngine';
 import { readRecords } from './validation/FileRecordReader';
 import { createValidationWorker } from './Queue.service';
+import { DefinitionVersionService } from './DefinitionVersion.service';
 
 // =============================================================================
 // Storage Resolver
@@ -83,19 +80,6 @@ interface ActiveCheck {
     elapsedNs: bigint;
 }
 
-const parseDefinitionColumns = (columns: unknown): DefinitionColumn[] => {
-    if (Array.isArray(columns)) return columns as DefinitionColumn[];
-    if (typeof columns === 'string' && columns.trim()) {
-        try {
-            const parsed = JSON.parse(columns);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    }
-    return [];
-};
-
 const timed = (check: ActiveCheck, fn: () => void): void => {
     const start = process.hrtime.bigint();
     try {
@@ -109,7 +93,7 @@ const timed = (check: ActiveCheck, fn: () => void): void => {
 // MAIN WORKER
 // =============================================================================
 export async function processValidationJob(job: Job<IValidationJobData>): Promise<void> {
-    const { uploadId, fileDefinitionId } = job.data;
+    const { uploadId } = job.data;
 
     let tempFilePath: string | null = null;
     let upload: any = null;
@@ -137,8 +121,7 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
             throw new Error(`Validation result not found for upload ${uploadId}`);
         }
 
-        const fileDefinition = await FileDefinition.findById(fileDefinitionId);
-        const rules: IRuleType[] = await Rule.findEnabledByFileDefinitionId(fileDefinitionId);
+        const contract = await DefinitionVersionService.loadValidationContract(upload);
         const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
 
         // Build one evaluator per rule detail; the file is then read once for all of them.
@@ -147,11 +130,11 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
             let evaluator: RowEvaluator | null = null;
 
             if (ruleDetail.RuleType === DEFINITION_SCHEMA_RULE_TYPE) {
-                evaluator = createDefinitionSchemaEvaluator(parseDefinitionColumns(fileDefinition?.Columns));
+                evaluator = createDefinitionSchemaEvaluator(contract.columns);
             } else {
-                const rule = rules.find(r => String(r.Id).toLowerCase() === String(ruleDetail.RuleId).toLowerCase());
+                const rule = contract.rules.find(r => String(r.Id).toLowerCase() === String(ruleDetail.RuleId).toLowerCase());
                 if (!rule) {
-                    logger.warn(`[VAL-WORKER] Rule ${ruleDetail.RuleId} is no longer enabled; skipping for upload ${uploadId}`);
+                    logger.warn(`[VAL-WORKER] Rule ${ruleDetail.RuleId} is not part of the validation contract; skipping for upload ${uploadId}`);
                 } else if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
                     logger.warn(`[VAL-WORKER] Rule "${rule.Name}" has unsupported type "${rule.RuleType}"; skipping`);
                 } else {
