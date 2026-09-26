@@ -50,29 +50,31 @@ export const toVersionSummary = (version: IFileDefinitionVersion | null): Versio
     version ? { id: version.Id, versionNumber: version.VersionNumber, activatedAt: version.ActivatedAt } : null;
 
 const contractOf = (version: IFileDefinitionVersion | null): ContractSnapshot | null =>
-    version ? { columns: version.Columns, rules: version.Rules } : null;
+    version ? { columns: version.Columns, tables: version.Tables, rules: version.Rules } : null;
 
 const MAX_CHANGE_NOTE_LENGTH = 500;
+
+const parseJson = (value: unknown): unknown => {
+    if (typeof value !== 'string') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return [];
+    }
+};
 
 async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<ContractSnapshot | null> {
     const definition = await db.request()
         .input('Id', fileDefinitionId)
-        .query(`SELECT Id, Columns FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''} WHERE Id = @Id`);
+        .query(`SELECT Id, Columns, Tables FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''} WHERE Id = @Id`);
     if (!definition.recordset[0]) return null;
 
     const rules = await db.request()
         .input('FileDefinitionId', fileDefinitionId)
-        .query(`SELECT Id, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
+        .query(`SELECT Id, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
 
-    let columns: unknown = definition.recordset[0].Columns;
-    if (typeof columns === 'string') {
-        try {
-            columns = JSON.parse(columns);
-        } catch {
-            columns = [];
-        }
-    }
-    return buildContractSnapshot(columns, rules.recordset);
+    const row = definition.recordset[0];
+    return buildContractSnapshot(parseJson(row.Columns), rules.recordset, parseJson(row.Tables));
 }
 
 export class DefinitionVersionService {
@@ -121,11 +123,11 @@ export class DefinitionVersionService {
     /**
      * Version state for each definition, for list views.
      */
-    static async getVersionStates(definitions: { Id: string; Columns: unknown }[]): Promise<Map<string, DefinitionVersionState>> {
+    static async getVersionStates(definitions: { Id: string; Columns: unknown; Tables?: unknown }[]): Promise<Map<string, DefinitionVersionState>> {
         const pool = await getConnection();
         const [activeVersions, rules] = await Promise.all([
             FileDefinitionVersion.findAllActive(pool),
-            pool.request().query(`SELECT Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled FROM Rules`),
+            pool.request().query(`SELECT Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName FROM Rules`),
         ]);
 
         const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));
@@ -139,7 +141,7 @@ export class DefinitionVersionService {
         for (const definition of definitions) {
             const key = String(definition.Id).toLowerCase();
             const active = activeByDefinition.get(key) || null;
-            const draft = buildContractSnapshot(definition.Columns, rulesByDefinition.get(key) || []);
+            const draft = buildContractSnapshot(definition.Columns, rulesByDefinition.get(key) || [], definition.Tables);
             states.set(definition.Id, {
                 activeVersion: toVersionSummary(active),
                 hasUnpublishedChanges: diffContracts(contractOf(active), draft).hasChanges,
@@ -149,7 +151,8 @@ export class DefinitionVersionService {
     }
 
     /**
-     * Present definitions as uploaders see them: with the columns of the active version rather than the draft.
+     * Present definitions as uploaders see them: with the columns and sheet tables of the active version rather
+     * than the draft.
      */
     static async withPublishedColumns<T extends { Id: string; Columns: unknown }>(definitions: T[]): Promise<(T & { ActiveVersion: VersionSummary | null })[]> {
         if (definitions.length === 0) return [];
@@ -158,13 +161,13 @@ export class DefinitionVersionService {
         return definitions.map(definition => {
             const active = activeByDefinition.get(String(definition.Id).toLowerCase());
             return active
-                ? { ...definition, Columns: active.Columns, ActiveVersion: toVersionSummary(active) }
+                ? { ...definition, Columns: active.Columns, Tables: active.Tables, ActiveVersion: toVersionSummary(active) }
                 : { ...definition, ActiveVersion: null };
         });
     }
 
     /**
-     * The columns and rules an upload must be validated against: its pinned version, or the active version
+     * The tables and rules an upload must be validated against: its pinned version, or the active version
      * for an unpinned upload. Unpublished draft edits never apply.
      */
     static async loadValidationContract(upload: { FileDefinitionId: string; FileDefinitionVersionId?: string | null }): Promise<ValidationContract> {
@@ -172,7 +175,7 @@ export class DefinitionVersionService {
             ? await FileDefinitionVersion.findById(await getConnection(), upload.FileDefinitionVersionId)
             : await this.ensureActiveVersion(upload.FileDefinitionId, null);
         if (!version) throw new Error(`File definition version ${upload.FileDefinitionVersionId} not found`);
-        return { version, columns: version.Columns, rules: version.Rules };
+        return { version, columns: version.Columns, tables: version.Tables, rules: version.Rules };
     }
 
     private static async publishDraft(

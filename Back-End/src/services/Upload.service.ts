@@ -18,6 +18,7 @@ import { cacheService } from './Cache.service';
 import { logger } from '../utils/logger';
 import { emitUploadEvent } from '../websocket/socketServer';
 import { DEFINITION_SCHEMA_RULE_TYPE } from './validation/ValidationEngine';
+import { schemaCheckName, validationTables } from './validation/DefinitionContract';
 import { getDeliveryTargets, resolveDeliveryDestination } from './DeliveryTargets.service';
 import { DefinitionVersionService, toVersionSummary } from './DefinitionVersion.service';
 import type { 
@@ -89,8 +90,9 @@ export class UploadService {
         logger.info(`[SERVICE-STARTVAL] UploadId: ${uploadId}, FileDef: ${fileDefinition.Name || fileDefinition.Id} (${upload.FileDefinitionId}) ${versionLabel}, Size: ${upload.FileSize}B, RowCount: ${upload.RowCountNo}`);
 
         const rules = contract.rules;
-        const checkDefinitionSchema = contract.columns.length > 0;
-        const totalChecks = rules.length + (checkDefinitionSchema ? 1 : 0);
+        // One columns check per table: the single table, or each sheet table of a workbook definition.
+        const schemaTables = validationTables(contract).filter(table => table.columns.length > 0);
+        const totalChecks = rules.length + schemaTables.length;
         
         // Create validation result
         const validationResult = await ValidationResult.create({
@@ -98,16 +100,16 @@ export class UploadService {
             TotalRules: totalChecks
         });
 
-        // The file definition's columns are always enforced as the first check.
-        if (checkDefinitionSchema) {
+        // The file definition's columns are always enforced first.
+        for (const [index, table] of schemaTables.entries()) {
             await ValidationRuleDetail.create({
                 ValidationResultId: validationResult.Id,
                 UploadId: uploadId,
                 RuleId: null,
-                RuleName: 'File definition columns',
+                RuleName: schemaCheckName(table.sheet),
                 RuleType: DEFINITION_SCHEMA_RULE_TYPE,
                 RuleSeverity: 'Error',
-                ExecutionOrder: -1
+                ExecutionOrder: index - schemaTables.length
             });
         }
 
@@ -117,7 +119,7 @@ export class UploadService {
                 ValidationResultId: validationResult.Id,
                 UploadId: uploadId,
                 RuleId: rule.Id,
-                RuleName: rule.Name,
+                RuleName: (rule.Table ? `${rule.Name} (${rule.Table})` : rule.Name).slice(0, 255),
                 RuleType: rule.RuleType,
                 RuleSeverity: rule.Severity,
                 ExecutionOrder: rule.ExecutionOrder

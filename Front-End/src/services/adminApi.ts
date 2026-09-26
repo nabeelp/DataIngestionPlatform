@@ -319,11 +319,20 @@ export interface FileDefinitionColumn {
   required: boolean;
 }
 
+/** A table for one workbook sheet (definitions with one table per sheet). */
+export interface FileDefinitionTable {
+  sheet: string;
+  columns: FileDefinitionColumn[];
+}
+
 export interface FileDefinitionAdmin {
   id: string;
   name: string;
   description: string;
+  /** Single-table columns; empty when the definition has sheet tables. */
   columns: FileDefinitionColumn[];
+  /** One table per workbook sheet; empty for single-table definitions. */
+  tables?: FileDefinitionTable[];
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -341,6 +350,8 @@ export interface DefinitionVersionRule {
   severity: string;
   executionOrder: number;
   expression: string;
+  /** Sheet table the rule applies to; null for single-table definitions. */
+  table?: string | null;
 }
 
 export interface DefinitionVersion {
@@ -348,6 +359,7 @@ export interface DefinitionVersion {
   versionNumber: number;
   status: 'Active' | 'Superseded';
   columns: FileDefinitionColumn[];
+  tables?: FileDefinitionTable[];
   rules: DefinitionVersionRule[];
   changeNote: string | null;
   createdByName: string | null;
@@ -374,6 +386,8 @@ export interface InitialRule {
   ruleType: string;
   expression: string;
   severity: 'Error' | 'Warning';
+  /** Sheet table the rule applies to (sheet-table definitions only). */
+  table?: string | null;
 }
 
 export interface ExampleColumn extends FileDefinitionColumn {
@@ -451,6 +465,7 @@ export const createFileDefinitionAdmin = async (defData: {
   name: string;
   description?: string;
   columns: FileDefinitionColumn[];
+  tables?: FileDefinitionTable[];
   status?: string;
   deliveryFolder?: string | null;
   rules?: InitialRule[];
@@ -472,6 +487,7 @@ export const updateFileDefinitionAdmin = async (
     name?: string;
     description?: string;
     columns?: FileDefinitionColumn[];
+    tables?: FileDefinitionTable[];
     status?: string;
     deliveryFolder?: string | null;
   }

@@ -14,13 +14,24 @@ export interface IColumn {
 }
 
 /**
+ * A table for one workbook sheet (definitions with one table per sheet).
+ */
+export interface ITable {
+    sheet: string;
+    columns: IColumn[];
+}
+
+/**
  * File Definition entity interface
  */
 export interface IFileDefinition {
     Id: string;
     Name: string;
     Description: string;
+    /** Single-table columns; empty when the definition has sheet tables. */
     Columns: IColumn[];
+    /** One table per workbook sheet; empty (or absent) for single-table definitions. */
+    Tables?: ITable[];
     Status: 'Active' | 'Inactive';
     CreatedAt: Date;
     UpdatedAt: Date;
@@ -49,6 +60,7 @@ export interface ICreateFileDefinitionDto {
     Name: string;
     Description: string;
     Columns: IColumn[];
+    Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
     TemplateFilename?: string;
     DeliveryFolder?: string | null;
@@ -62,6 +74,7 @@ export interface IUpdateFileDefinitionDto {
     Name?: string;
     Description?: string;
     Columns?: IColumn[];
+    Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
     TemplateFilename?: string;
     DeliveryFolder?: string | null;
@@ -83,6 +96,7 @@ export interface IFileDefinitionVersion {
     VersionNumber: number;
     Status: 'Active' | 'Superseded';
     Columns: ContractSnapshot['columns'];
+    Tables: ContractSnapshot['tables'];
     Rules: ContractSnapshot['rules'];
     ChangeNote: string | null;
     CreatedBy: string | null;

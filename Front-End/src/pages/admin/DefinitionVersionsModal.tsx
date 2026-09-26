@@ -42,18 +42,27 @@ function ChangeList({ label, changes }: { label: string; changes: ContractChange
 }
 
 function VersionDetails({ version }: { version: DefinitionVersion }) {
+  const tables = version.tables && version.tables.length > 0
+    ? version.tables
+    : [{ sheet: null as string | null, columns: version.columns }];
   return (
     <div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm">
-      <div>
-        <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Columns</p>
-        <ul className="space-y-1">
-          {version.columns.map(column => (
-            <li key={column.name}>
-              <span className="font-medium">{column.name}</span>{' '}
-              <span className="text-gray-500">{column.type}{column.required ? ', required' : ''}</span>
-            </li>
-          ))}
-        </ul>
+      <div className="space-y-2">
+        {tables.map(table => (
+          <div key={table.sheet ?? ''}>
+            <p className="text-xs font-semibold uppercase text-gray-500 mb-1">
+              {table.sheet === null ? 'Columns' : `Sheet "${table.sheet}"`}
+            </p>
+            <ul className="space-y-1">
+              {table.columns.map(column => (
+                <li key={column.name}>
+                  <span className="font-medium">{column.name}</span>{' '}
+                  <span className="text-gray-500">{column.type}{column.required ? ', required' : ''}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
       <div>
         <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Rules</p>
@@ -64,6 +73,7 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
             {version.rules.map(rule => (
               <li key={rule.id}>
                 <span className="font-medium">{rule.name}</span>{' '}
+                {rule.table && <span className="text-xs text-gray-500">[{rule.table}] </span>}
                 <span className="text-gray-500">{rule.ruleType} ({rule.severity}): <code>{rule.expression}</code></span>
               </li>
             ))}
@@ -197,7 +207,9 @@ export default function DefinitionVersionsModal({ definitionId, definitionName, 
                                 {version.status}
                               </span>
                               <span className="text-xs text-gray-500">
-                                {plural(version.columns.length, 'column')} · {plural(version.rules.length, 'rule')}
+                                {version.tables && version.tables.length > 0
+                                  ? `${plural(version.tables.length, 'sheet')} · ${plural(version.tables.reduce((sum, t) => sum + t.columns.length, 0), 'column')}`
+                                  : plural(version.columns.length, 'column')} · {plural(version.rules.length, 'rule')}
                               </span>
                             </div>
                             <p className="text-xs text-gray-500 mt-1">

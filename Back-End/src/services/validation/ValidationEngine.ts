@@ -202,6 +202,42 @@ class IssueCollector {
 const withSheet = (issue: ValidationIssue, sheet?: string): ValidationIssue =>
     sheet ? { sheet, ...issue } : issue;
 
+/** Whether two sheet names refer to the same sheet: case-insensitive, ignoring surrounding spaces. */
+export const sameSheet = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Restrict an evaluator to the workbook sheet named `sheet`: other sheets are not passed on. When `reportMissing`
+ * is set, a file without that sheet (including a CSV file, which has no sheets) fails with an issue.
+ */
+export function scopeToSheet(inner: RowEvaluator, sheet: string, options: { reportMissing: boolean }): RowEvaluator {
+    let found = false;
+    let sawCsv = false;
+    return {
+        onHeaders(headers, currentSheet) {
+            if (currentSheet === undefined) sawCsv = true;
+            if (currentSheet !== undefined && sameSheet(currentSheet, sheet)) {
+                found = true;
+                inner.onHeaders(headers, currentSheet);
+            }
+        },
+        onRow(row, rowNumber, currentSheet) {
+            if (currentSheet !== undefined && sameSheet(currentSheet, sheet)) inner.onRow(row, rowNumber, currentSheet);
+        },
+        result() {
+            const result = inner.result();
+            if (found || !options.reportMissing) return result;
+            const error = sawCsv
+                ? `Sheet "${sheet}" is required, but CSV files have no sheets; upload an Excel workbook`
+                : `Required sheet "${sheet}" not found`;
+            return {
+                passed: false,
+                errorCount: result.errorCount + 1,
+                errors: [{ sheet, error }, ...result.errors].slice(0, MAX_SAMPLE_ERRORS),
+            };
+        },
+    };
+}
+
 /**
  * Evaluator enforcing a file definition's columns: required headers, required values, and types.
  */

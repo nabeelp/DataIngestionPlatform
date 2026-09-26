@@ -21,13 +21,14 @@ const parseJson = (value: unknown): any[] => {
 };
 
 export function mapVersionRow(row: any): IFileDefinitionVersion {
-    const contract = buildContractSnapshot(parseJson(row.Columns), parseJson(row.Rules));
+    const contract = buildContractSnapshot(parseJson(row.Columns), parseJson(row.Rules), parseJson(row.Tables));
     return {
         Id: row.Id,
         FileDefinitionId: row.FileDefinitionId,
         VersionNumber: row.VersionNumber,
         Status: row.Status,
         Columns: contract.columns,
+        Tables: contract.tables,
         Rules: contract.rules,
         ChangeNote: row.ChangeNote ?? null,
         CreatedBy: row.CreatedBy ?? null,
@@ -98,14 +99,15 @@ export class FileDefinitionVersion {
             .input('Id', id)
             .input('VersionNumber', next.recordset[0].VersionNumber)
             .input('Columns', JSON.stringify(contract.columns))
+            .input('Tables', contract.tables.length > 0 ? JSON.stringify(contract.tables) : null)
             .input('Rules', JSON.stringify(contract.rules))
             .input('ChangeNote', changeNote)
             .input('CreatedBy', createdBy)
             .query(`
                 INSERT INTO FileDefinitionVersions
-                    (Id, FileDefinitionId, VersionNumber, Status, Columns, Rules, ChangeNote, CreatedBy, ActivatedAt)
+                    (Id, FileDefinitionId, VersionNumber, Status, Columns, Tables, Rules, ChangeNote, CreatedBy, ActivatedAt)
                 VALUES
-                    (@Id, @FileDefinitionId, @VersionNumber, 'Active', @Columns, @Rules, @ChangeNote, @CreatedBy, @Now)
+                    (@Id, @FileDefinitionId, @VersionNumber, 'Active', @Columns, @Tables, @Rules, @ChangeNote, @CreatedBy, @Now)
             `);
 
         return id;

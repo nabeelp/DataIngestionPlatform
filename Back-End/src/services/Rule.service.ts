@@ -79,6 +79,7 @@ export async function getPublishedRules(
         Severity: rule.Severity as IRule['Severity'],
         ExecutionOrder: rule.ExecutionOrder,
         SqlQuery: rule.SqlQuery,
+        TableName: rule.Table,
         IsEnabled: true,
         CreatedBy: activeVersion.CreatedBy,
         CreatorName: activeVersion.CreatedByName,

@@ -16,7 +16,10 @@ interface Definition {
   id: string;
   name: string;
   description: string;
+  /** All columns (across sheet tables) for the summary chips. */
   columns: Column[];
+  /** The tables uploads are validated against: one per sheet, or a single table (sheet null). */
+  tables: { sheet: string | null; columns: Column[] }[];
   status: string;
   createdAt: string;
   hasTemplate: boolean;
@@ -69,17 +72,23 @@ export default function Definitions() {
       
       if (data.success && data.definitions) {
         // Map API response to frontend format (camelCase to match existing UI)
-        const mappedDefinitions = data.definitions.map((def: any) => ({
-          id: def.Id || def.id,
-          name: def.Name || def.name,
-          description: def.Description || def.description,
-          columns: def.Columns || def.columns || [],
-          status: def.Status || def.status,
-          createdAt: def.CreatedAt || def.createdAt,
-          hasTemplate: Boolean(def.TemplateFilename || def.templateFilename),
-          versionNumber: def.ActiveVersion?.versionNumber ?? null,
-          versionActivatedAt: def.ActiveVersion?.activatedAt ?? null,
-        }));
+        const mappedDefinitions = data.definitions.map((def: any) => {
+          const sheetTables: { sheet: string; columns: Column[] }[] = def.Tables || def.tables || [];
+          const singleColumns: Column[] = def.Columns || def.columns || [];
+          const tables = sheetTables.length > 0 ? sheetTables : [{ sheet: null, columns: singleColumns }];
+          return {
+            id: def.Id || def.id,
+            name: def.Name || def.name,
+            description: def.Description || def.description,
+            columns: tables.flatMap(table => table.columns),
+            tables,
+            status: def.Status || def.status,
+            createdAt: def.CreatedAt || def.createdAt,
+            hasTemplate: Boolean(def.TemplateFilename || def.templateFilename),
+            versionNumber: def.ActiveVersion?.versionNumber ?? null,
+            versionActivatedAt: def.ActiveVersion?.activatedAt ?? null,
+          };
+        });
         setDefinitions(mappedDefinitions);
         
         // Select first definition if available
@@ -293,9 +302,13 @@ export default function Definitions() {
                   </div>
                 </div>
                 <div className="p-4">
-                  <h3 className="text-sm font-medium text-gray-900 mb-3">Columns</h3>
+                  {selectedDef.tables.map((table, tableIdx) => (
+                  <div key={table.sheet ?? tableIdx} className={tableIdx > 0 ? 'mt-4' : ''}>
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">
+                    {table.sheet === null ? 'Columns' : `Sheet "${table.sheet}"`}
+                  </h3>
                   <div className="space-y-2">
-                    {selectedDef.columns.map((col, idx) => (
+                    {table.columns.map((col, idx) => (
                       <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-sm font-medium text-gray-900 truncate">{col.name}</span>
@@ -309,6 +322,13 @@ export default function Definitions() {
                       </div>
                     ))}
                   </div>
+                  </div>
+                  ))}
+                  {selectedDef.tables.some(table => table.sheet !== null) && (
+                    <p className="mt-3 text-xs text-gray-500">
+                      Upload an Excel workbook containing each sheet above. Sheet names are matched ignoring case; other sheets are not validated.
+                    </p>
+                  )}
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     {selectedDef.versionNumber && (
                       <p className="text-xs text-gray-500 mb-1">

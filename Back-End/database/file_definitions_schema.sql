@@ -37,3 +37,11 @@ BEGIN
     ALTER TABLE dbo.FileDefinitions ADD DeliveryFolder NVARCHAR(500) NULL;
 END;
 GO
+
+-- One table per workbook sheet: JSON array of {sheet, columns: [{name, type, required}]}.
+-- NULL (or empty) means a single table: Columns apply to CSV files and to every sheet of a workbook.
+IF COL_LENGTH('dbo.FileDefinitions', 'Tables') IS NULL
+BEGIN
+    ALTER TABLE dbo.FileDefinitions ADD Tables NVARCHAR(MAX) NULL;
+END;
+GO

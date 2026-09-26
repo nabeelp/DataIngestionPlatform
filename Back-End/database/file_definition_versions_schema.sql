@@ -1,6 +1,6 @@
 -- =============================================================================
 -- File Definition Versions
--- A version is an immutable snapshot of a definition's columns and enabled rules.
+-- A version is an immutable snapshot of a definition's columns (or sheet tables) and enabled rules.
 -- Exactly one version per definition is Active; uploads are pinned to the version active when they arrive.
 -- Run after upload_system_tables.sql (and after any sample/seed scripts). Idempotent: re-running it
 -- only publishes an initial version for definitions that have none.
@@ -46,6 +46,13 @@ BEGIN
 END;
 GO
 
+-- Sheet tables of the version (JSON array of {sheet, columns}); NULL for single-table versions.
+IF COL_LENGTH('dbo.FileDefinitionVersions', 'Tables') IS NULL
+BEGIN
+    ALTER TABLE dbo.FileDefinitionVersions ADD Tables NVARCHAR(MAX) NULL;
+END;
+GO
+
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Uploads_FileDefinitionVersionId')
 BEGIN
     CREATE INDEX IX_Uploads_FileDefinitionVersionId ON dbo.Uploads(FileDefinitionVersionId);
@@ -53,13 +60,14 @@ END;
 GO
 
 -- Publish version 1 from the current configuration for definitions that have never been versioned.
-INSERT INTO FileDefinitionVersions (Id, FileDefinitionId, VersionNumber, Status, Columns, Rules, ChangeNote, CreatedBy, ActivatedAt)
+INSERT INTO FileDefinitionVersions (Id, FileDefinitionId, VersionNumber, Status, Columns, Tables, Rules, ChangeNote, CreatedBy, ActivatedAt)
 SELECT
     LOWER(CONVERT(NVARCHAR(36), NEWID())),
     fd.Id,
     1,
     'Active',
     fd.Columns,
+    fd.Tables,
     ISNULL((
         SELECT
             LOWER(CONVERT(NVARCHAR(36), r.Id)) AS Id,
@@ -68,7 +76,8 @@ SELECT
             r.RuleType,
             r.Severity,
             r.ExecutionOrder,
-            r.SqlQuery
+            r.SqlQuery,
+            r.TableName AS [Table]
         FROM Rules r
         WHERE r.FileDefinitionId = fd.Id AND r.IsEnabled = 1
         ORDER BY r.ExecutionOrder, r.Id

@@ -121,10 +121,10 @@ describe('analyzeExampleFile (XLSX)', () => {
         expect(analysis.sheets[0].columns[1].sampleValues[0]).toMatch(/^2024-01-0\d/);
         expect(analysis.sheets[0].suggestedRules.map(r => r.expression)).toEqual(['Region: North, South']);
         expect(analysis.sheets[2].warnings).toContain('No header row was found.');
-        expect(analysis.warnings.join('\n')).toMatch(/validated sheet by sheet/);
+        expect(analysis.warnings).toEqual([]);
     });
 
-    it('does not warn about differing sheets when every sheet has the same columns', async () => {
+    it('does not warn about sheets with different columns, which become separate tables', async () => {
         const buffer = workbook({ Jan: [['Id'], [1]], Feb: [['Id'], [2]] });
         expect((await analyzeExampleFile(write('same.xlsx', buffer), 'xlsx')).warnings).toEqual([]);
     });

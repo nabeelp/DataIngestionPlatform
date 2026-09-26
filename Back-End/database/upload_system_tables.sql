@@ -125,6 +125,9 @@ BEGIN
 END;
 IF COL_LENGTH('dbo.Rules', 'CreatedBy') IS NULL
     ALTER TABLE dbo.Rules ADD CreatedBy NVARCHAR(36) NULL;
+-- Sheet table a rule applies to, for definitions with one table per workbook sheet. NULL for single-table definitions.
+IF COL_LENGTH('dbo.Rules', 'TableName') IS NULL
+    ALTER TABLE dbo.Rules ADD TableName NVARCHAR(255) NULL;
 GO
 
 -- Custom SQL and Regex Pattern rules are no longer supported. Disable any existing ones so they

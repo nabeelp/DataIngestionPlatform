@@ -7,6 +7,7 @@ import {
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
+import { getFileDefinitionsAdmin } from '../services/adminApi';
 
 //#region INTERFACES & TYPES
 interface Rule {
@@ -19,6 +20,7 @@ interface Rule {
   severity: string;
   sqlQuery: string;
   isEnabled: boolean;
+  tableName: string | null;
   createdBy?: string | null;
   creatorName?: string;
 }
@@ -26,6 +28,8 @@ interface Rule {
 interface Definition {
   id: string;
   name: string;
+  /** Sheet tables rules can target (empty for single-table definitions). */
+  sheets: string[];
 }
 
 interface FormState {
@@ -36,6 +40,7 @@ interface FormState {
   severity: string;
   sqlQuery: string;
   isEnabled: boolean;
+  tableName: string;
 }
 //#endregion
 
@@ -83,9 +88,12 @@ export default function ValidationRules() {
     ruleType: DEFAULT_RULE_TYPE,
     severity: 'Error',
     sqlQuery: '',
-    isEnabled: true
+    isEnabled: true,
+    tableName: ''
   });
   //#endregion
+
+  const selectedSheets = definitions.find(def => def.id === selectedDefinitionId)?.sheets ?? [];
 
   //#region LIFECYCLE EFFECTS
   // Initialization: Fetch definitions
@@ -112,7 +120,8 @@ export default function ValidationRules() {
         ruleType: editingRule.ruleType || DEFAULT_RULE_TYPE,
         severity: editingRule.severity || 'Error',
         sqlQuery: editingRule.sqlQuery || '',
-        isEnabled: editingRule.isEnabled !== false
+        isEnabled: editingRule.isEnabled !== false,
+        tableName: editingRule.tableName || ''
       });
     } else {
       setFormData({
@@ -122,7 +131,8 @@ export default function ValidationRules() {
         ruleType: DEFAULT_RULE_TYPE,
         severity: 'Error',
         sqlQuery: '',
-        isEnabled: true
+        isEnabled: true,
+        tableName: ''
       });
     }
   }, [editingRule, isDrawerOpen]);
@@ -144,10 +154,23 @@ export default function ValidationRules() {
 
       const data = await response.json();
       if (data.success && data.definitions) {
-        const defs = data.definitions.map((def: any) => ({
-          id: def.Id || def.id,
-          name: def.Name || def.name
-        }));
+        // Admins edit draft rules, so they target the draft's sheet tables; others see the published ones.
+        const draftSheets = new Map<string, string[]>();
+        if (canManageRules) {
+          const admin = await getFileDefinitionsAdmin().catch(() => null);
+          for (const def of admin?.definitions ?? []) {
+            draftSheets.set(String(def.id).toLowerCase(), (def.tables ?? []).map(table => table.sheet));
+          }
+        }
+        const defs = data.definitions.map((def: any) => {
+          const id = def.Id || def.id;
+          const publishedSheets = (def.Tables || def.tables || []).map((table: { sheet: string }) => table.sheet);
+          return {
+            id,
+            name: def.Name || def.name,
+            sheets: draftSheets.get(String(id).toLowerCase()) ?? publishedSheets,
+          };
+        });
         setDefinitions(defs);
         if (defs.length > 0 && !selectedDefinitionId) {
           setSelectedDefinitionId(defs[0].id);
@@ -191,6 +214,7 @@ export default function ValidationRules() {
           severity: rule.Severity || rule.severity,
           sqlQuery: rule.SqlQuery || rule.sqlQuery,
           isEnabled: rule.IsEnabled !== undefined ? rule.IsEnabled : rule.isEnabled,
+          tableName: rule.TableName ?? rule.tableName ?? null,
           createdBy: rule.CreatedBy || rule.createdBy,
           creatorName: rule.CreatorName || rule.creatorName
         }));
@@ -228,7 +252,8 @@ export default function ValidationRules() {
           Severity: formData.severity,
           ExecutionOrder: parseInt(formData.executionOrder) || 1,
           SqlQuery: formData.sqlQuery,
-          IsEnabled: formData.isEnabled
+          IsEnabled: formData.isEnabled,
+          TableName: selectedSheets.length > 0 ? formData.tableName || null : null
         })
       });
 
@@ -308,7 +333,8 @@ export default function ValidationRules() {
       ruleType: rule.ruleType || DEFAULT_RULE_TYPE,
       severity: rule.severity || 'Error',
       sqlQuery: rule.sqlQuery || '',
-      isEnabled: rule.isEnabled
+      isEnabled: rule.isEnabled,
+      tableName: rule.tableName || ''
     });
     setIsDrawerOpen(true);
     setActiveMenuId(null);
@@ -543,6 +569,11 @@ export default function ValidationRules() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-semibold text-slate-900">{rule.name}</h3>
+                            {rule.tableName && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200" title="Sheet table">
+                                Sheet: {rule.tableName}
+                              </span>
+                            )}
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
                               rule.severity?.toUpperCase() === 'ERROR' 
                                 ? 'bg-red-50 text-red-600 border-red-100' 
@@ -719,6 +750,29 @@ export default function ValidationRules() {
                     />
                   </div>
                 </div>
+
+                {/* Field: Sheet table (definitions with one table per workbook sheet) */}
+                {selectedSheets.length > 0 && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="ruleTable" className="text-xs font-bold text-slate-600">Sheet Table <span className="text-red-500">*</span></label>
+                    <p className="text-[11px] text-slate-500">The rule checks rows of this workbook sheet only.</p>
+                    <select
+                      id="ruleTable"
+                      required
+                      value={formData.tableName}
+                      onChange={(e) => setFormData({ ...formData, tableName: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 font-medium shadow-xs"
+                    >
+                      <option value="">Choose a sheet...</option>
+                      {formData.tableName && !selectedSheets.some(sheet => sheet.toLowerCase() === formData.tableName.toLowerCase()) && (
+                        <option value={formData.tableName}>{formData.tableName} (no longer defined)</option>
+                      )}
+                      {selectedSheets.map(sheet => (
+                        <option key={sheet} value={sheet}>{sheet}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* Field: Strategy / Rule Type Option Selection */}
                 <div className="space-y-1.5">

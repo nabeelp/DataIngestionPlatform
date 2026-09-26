@@ -3,6 +3,7 @@ import {
     createRuleEvaluator,
     matchesType,
     parseRuleExpression,
+    scopeToSheet,
     MAX_SAMPLE_ERRORS,
     type RowEvaluator,
 } from '../src/services/validation/ValidationEngine';
@@ -12,6 +13,50 @@ const run = (evaluator: RowEvaluator, headers: string[], rows: Record<string, un
     rows.forEach((row, index) => evaluator.onRow(row, index + 2));
     return evaluator.result();
 };
+
+const runSheets = (evaluator: RowEvaluator, sheets: Record<string, { headers: string[]; rows: Record<string, unknown>[] }>) => {
+    for (const [sheet, { headers, rows }] of Object.entries(sheets)) {
+        evaluator.onHeaders(headers, sheet);
+        rows.forEach((row, index) => evaluator.onRow(row, index + 2, sheet));
+    }
+    return evaluator.result();
+};
+
+describe('scopeToSheet', () => {
+    const amountColumns = [{ name: 'Amount', type: 'decimal', required: true }];
+
+    it('only evaluates the named sheet, matching its name case-insensitively', () => {
+        const result = runSheets(scopeToSheet(createDefinitionSchemaEvaluator(amountColumns), 'Orders', { reportMissing: true }), {
+            ' orders ': { headers: ['Amount'], rows: [{ Amount: '1.5' }] },
+            Notes: { headers: ['Text'], rows: [{ Text: 'not an amount' }] },
+        });
+        expect(result).toEqual({ passed: true, errorCount: 0, errors: [] });
+    });
+
+    it('reports issues with the sheet name', () => {
+        const result = runSheets(scopeToSheet(createDefinitionSchemaEvaluator(amountColumns), 'Orders', { reportMissing: true }), {
+            Orders: { headers: ['Amount'], rows: [{ Amount: 'x' }] },
+        });
+        expect(result.errors).toEqual([{ sheet: 'Orders', row: 2, column: 'Amount', value: 'x', error: 'Value is not a valid decimal' }]);
+    });
+
+    it('fails when the sheet is missing, or the file is a CSV', () => {
+        const missing = runSheets(scopeToSheet(createDefinitionSchemaEvaluator(amountColumns), 'Orders', { reportMissing: true }), {
+            Notes: { headers: ['Text'], rows: [] },
+        });
+        expect(missing).toEqual({ passed: false, errorCount: 1, errors: [{ sheet: 'Orders', error: 'Required sheet "Orders" not found' }] });
+
+        const csv = run(scopeToSheet(createDefinitionSchemaEvaluator(amountColumns), 'Orders', { reportMissing: true }), ['Amount'], [{ Amount: '1' }]);
+        expect(csv.errors[0].error).toContain('CSV files have no sheets');
+    });
+
+    it('lets rules pass silently when their sheet is missing (the columns check reports it)', () => {
+        const result = runSheets(scopeToSheet(createRuleEvaluator('Enum Check', 'Status: Open'), 'Orders', { reportMissing: false }), {
+            Refunds: { headers: ['Status'], rows: [{ Status: 'Other' }] },
+        });
+        expect(result.passed).toBe(true);
+    });
+});
 
 describe('matchesType', () => {
     it.each([

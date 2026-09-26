@@ -110,14 +110,15 @@ export class Rule {
             .input('ExecutionOrder', dto.ExecutionOrder || 1)
             .input('SqlQuery', dto.SqlQuery)
             .input('IsEnabled', dto.IsEnabled !== undefined ? dto.IsEnabled : 1)
+            .input('TableName', dto.TableName ?? null)
             .input('CreatedBy', createdByUserId)
             .input('CreatedAt', now)
             .input('UpdatedAt', now)
             .query(`
                 INSERT INTO ${this.TABLE_NAME} 
-                (Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, CreatedBy, CreatedAt, UpdatedAt)
+                (Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, CreatedBy, CreatedAt, UpdatedAt)
                 VALUES 
-                (@Id, @FileDefinitionId, @Name, @Description, @RuleType, @Severity, @ExecutionOrder, @SqlQuery, @IsEnabled, @CreatedBy, @CreatedAt, @UpdatedAt)
+                (@Id, @FileDefinitionId, @Name, @Description, @RuleType, @Severity, @ExecutionOrder, @SqlQuery, @IsEnabled, @TableName, @CreatedBy, @CreatedAt, @UpdatedAt)
             `);
 
         return (await this.findById(id))!;
@@ -162,6 +163,10 @@ export class Rule {
         if (updates.IsEnabled !== undefined) {
             setClauses.push('IsEnabled = @IsEnabled');
             request.input('IsEnabled', updates.IsEnabled);
+        }
+        if (updates.TableName !== undefined) {
+            setClauses.push('TableName = @TableName');
+            request.input('TableName', updates.TableName);
         }
 
         await request.query(`

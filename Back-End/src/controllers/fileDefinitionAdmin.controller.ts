@@ -256,6 +256,7 @@ const mapVersion = (version: IFileDefinitionVersion) => ({
     versionNumber: version.VersionNumber,
     status: version.Status,
     columns: version.Columns,
+    tables: version.Tables,
     rules: version.Rules.map(rule => ({
         id: rule.Id,
         name: rule.Name,
@@ -264,6 +265,7 @@ const mapVersion = (version: IFileDefinitionVersion) => ({
         severity: rule.Severity,
         executionOrder: rule.ExecutionOrder,
         expression: rule.SqlQuery,
+        table: rule.Table,
     })),
     changeNote: version.ChangeNote,
     createdByName: version.CreatedByName,

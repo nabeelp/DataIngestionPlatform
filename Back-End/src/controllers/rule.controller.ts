@@ -16,6 +16,10 @@ export interface AuthRequest extends Request {
     user?: IJwtPayload;
 }
 
+// A blank table name means the rule applies to a single-table definition.
+const normalizeTableName = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim() ? value.trim() : null;
+
 /**
  * Get all rules for a specific file definition
  */
@@ -137,7 +141,8 @@ export const createRule = async (req: AuthRequest, res: Response, next: NextFunc
             Severity, 
             ExecutionOrder, 
             SqlQuery, 
-            IsEnabled 
+            IsEnabled,
+            TableName
         } = req.body;
 
         // Validate required fields
@@ -156,7 +161,8 @@ export const createRule = async (req: AuthRequest, res: Response, next: NextFunc
             Severity,
             ExecutionOrder,
             SqlQuery,
-            IsEnabled
+            IsEnabled,
+            TableName: normalizeTableName(TableName)
         };
 
         const rule = await RuleService.createRule(dto, userId);
@@ -213,7 +219,8 @@ export const updateRule = async (req: AuthRequest, res: Response, next: NextFunc
             Severity, 
             ExecutionOrder, 
             SqlQuery, 
-            IsEnabled 
+            IsEnabled,
+            TableName
         } = req.body;
 
         const updates: IUpdateRuleDto = {};
@@ -225,6 +232,7 @@ export const updateRule = async (req: AuthRequest, res: Response, next: NextFunc
         if (ExecutionOrder !== undefined) updates.ExecutionOrder = ExecutionOrder;
         if (SqlQuery !== undefined) updates.SqlQuery = SqlQuery;
         if (IsEnabled !== undefined) updates.IsEnabled = IsEnabled;
+        if (TableName !== undefined) updates.TableName = normalizeTableName(TableName);
 
         const rule = await RuleService.updateRule(ruleId, updates, userId);
 

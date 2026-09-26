@@ -14,6 +14,21 @@ import type {
 } from '../interfaces/fileDefinition.interface';
 import { logger } from '../utils/logger';
 
+// Columns and Tables are stored as JSON; a definition without sheet tables has Tables = [].
+const parseJsonColumns = (row: any): any => {
+    if (row.Columns && typeof row.Columns === 'string') {
+        row.Columns = JSON.parse(row.Columns);
+    }
+    if (typeof row.Tables === 'string' && row.Tables.trim()) {
+        row.Tables = JSON.parse(row.Tables);
+    }
+    if (!Array.isArray(row.Tables)) row.Tables = [];
+    return row;
+};
+
+const tablesJson = (tables: unknown): string | null =>
+    Array.isArray(tables) && tables.length > 0 ? JSON.stringify(tables) : null;
+
 export class FileDefinition {
     private static readonly TABLE_NAME = 'FileDefinitions';
     private static readonly USER_ACCESS_TABLE = 'FileDefinitionUserAccess';
@@ -31,11 +46,7 @@ export class FileDefinition {
             return null;
         }
 
-        const definition = result.recordset[0];
-        // Parse Columns JSON if it's a string
-        if (definition.Columns && typeof definition.Columns === 'string') {
-            definition.Columns = JSON.parse(definition.Columns);
-        }
+        const definition = parseJsonColumns(result.recordset[0]);
 
         // Get allowed users
         definition.AllowedUsers = await this.getAllowedUsers(id);
@@ -51,12 +62,7 @@ export class FileDefinition {
         const result = await pool.request()
             .query(`SELECT * FROM ${this.TABLE_NAME} ORDER BY CreatedAt DESC`);
         
-        return result.recordset.map((row: any) => {
-            if (row.Columns && typeof row.Columns === 'string') {
-                row.Columns = JSON.parse(row.Columns);
-            }
-            return row;
-        });
+        return result.recordset.map(parseJsonColumns);
     }
 
     /**
@@ -96,12 +102,7 @@ export class FileDefinition {
 
         logger.debug('[FILEDEFINITION_MODEL] Access query result count:', result.recordset.length);
 
-        return result.recordset.map((row: any) => {
-            if (row.Columns && typeof row.Columns === 'string') {
-                row.Columns = JSON.parse(row.Columns);
-            }
-            return row;
-        });
+        return result.recordset.map(parseJsonColumns);
     }
 
     /**
@@ -137,11 +138,12 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
             .input('Name', dto.Name)
             .input('Description', dto.Description || '')
             .input('Columns', columnsJson)
+            .input('Tables', tablesJson(dto.Tables))
             .input('Status', dto.Status || 'Active')
             .input('CreatedAt', now)
             .input('UpdatedAt', now);
 
-        const columnsList = ['Id', 'Name', 'Description', 'Columns', 'Status', 'CreatedAt', 'UpdatedAt'];
+        const columnsList = ['Id', 'Name', 'Description', 'Columns', 'Tables', 'Status', 'CreatedAt', 'UpdatedAt'];
         if (dto.TemplateFilename) {
             request.input('TemplateFilename', dto.TemplateFilename);
             columnsList.push('TemplateFilename');
@@ -194,6 +196,10 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         if (updates.Columns !== undefined) {
             setClauses.push('Columns = @Columns');
             request.input('Columns', JSON.stringify(updates.Columns));
+        }
+        if (updates.Tables !== undefined) {
+            setClauses.push('Tables = @Tables');
+            request.input('Tables', tablesJson(updates.Tables));
         }
         if (updates.Status !== undefined) {
             setClauses.push('Status = @Status');

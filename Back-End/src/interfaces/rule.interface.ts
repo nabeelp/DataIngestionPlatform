@@ -29,6 +29,8 @@ export interface IRule {
     ExecutionOrder: number;
     SqlQuery: string;
     IsEnabled: boolean;
+    /** Sheet table the rule applies to (definitions with one table per sheet); null otherwise. */
+    TableName?: string | null;
     CreatedBy: string | null;
     CreatedAt: Date;
     UpdatedAt: Date;
@@ -46,6 +48,7 @@ export interface ICreateRuleDto {
     ExecutionOrder?: number;
     SqlQuery: string;
     IsEnabled?: boolean;
+    TableName?: string | null;
 }
 
 /**
@@ -59,6 +62,7 @@ export interface IUpdateRuleDto {
     ExecutionOrder?: number;
     SqlQuery?: string;
     IsEnabled?: boolean;
+    TableName?: string | null;
 }
 
 /**

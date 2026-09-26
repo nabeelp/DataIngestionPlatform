@@ -32,9 +32,22 @@ Rule failures with severity `Warning` do not fail the upload. Up to 100 sample i
 
 Only admins can create, edit, enable/disable or delete rules. Standard users can view the rules for the file definitions they have access to.
 
+## Tables and workbook sheets
+
+A definition has one of two layouts (Admin → File Definitions → **Layout**):
+
+- **One table** (the default, and every definition created before this option existed): the columns apply to a CSV file and to **every** sheet of an Excel workbook.
+- **One table per workbook sheet**: each table has a **sheet name** (up to 31 characters, without `[ ] : * ? / \`) and its own columns. An uploaded workbook's sheets are matched to tables by name, ignoring case and surrounding spaces:
+  - Each table is checked as its own **Sheet "Name" columns** check. A missing sheet fails that check.
+  - Sheets without a table are ignored and not validated.
+  - CSV (and TSV/TXT) files have no sheets, so they are rejected when uploaded.
+  - Every rule names the **sheet table** it applies to (Rules → Sheet Table), and only checks that sheet's rows. Publishing is refused when a rule has no table, its table does not exist, or it refers to a column that is not in that table.
+
+The layout, the sheet tables and each rule's table are part of the versioned contract, so switching layout or renaming a sheet is a draft change until published.
+
 ## Definition versions
 
-A definition's **columns and enabled rules** form its versioned contract. Everything else (name, description, status, delivery folder and template) applies immediately and is not versioned.
+A definition's **tables (columns) and enabled rules** form its versioned contract. Everything else (name, description, status, delivery folder and template) applies immediately and is not versioned.
 
 - Creating a definition publishes **version 1**.
 - Later column and rule edits are saved as a **draft**. Admin → File Definitions labels such definitions **Unpublished changes**. Open **Versions** to review the added, changed and removed columns and rules, add an optional change note, and publish. Publishing supersedes the previous version; each definition has exactly one active version. Publishing is refused when nothing has changed or an enabled rule is invalid, and each publish is recorded in the audit log.
@@ -47,11 +60,11 @@ A definition's **columns and enabled rules** form its versioned contract. Everyt
 In Admin → File Definitions, **Start from an example file** proposes a definition from an example **CSV** or **XLSX** file (up to 10 MB). The example is read the same way uploads are validated, so the proposal matches what validation will see:
 
 - **Header row**: the first non-empty row (the first record for CSV). Title rows above the headers become the header, so the panel warns when many header cells are blank.
-- **Sheets**: XLSX workbooks list each sheet with its column and row counts; choose the sheet to build the definition from. CSV files are a single table and have no sheets. Uploaded workbooks are validated sheet by sheet, so every sheet of an upload must have the chosen columns; the panel warns when the example's sheets differ.
+- **Sheets**: an XLSX workbook with **more than one populated sheet** is proposed as **one table per sheet**. Choose which sheets to include (all populated sheets are included by default) and preview each sheet's columns. A workbook with a single populated sheet, or a CSV file (which has no sheets), is proposed as one table.
 - **Columns**: name, the most specific type every value matches (`integer`, `decimal`, `datetime`, `boolean`, otherwise `string`), and **required** when every analyzed row has a value. Up to 1,000 data rows per sheet are analyzed. Fill counts and sample values are shown for review.
-- **Suggested rules** (new definitions only): an `Enum Check` for text columns with 2–10 repeating values. Selected suggestions are created with the definition and published in version 1. They allow only the values seen in the example, so review them carefully.
+- **Suggested rules** (new definitions only): an `Enum Check` for text columns with 2–10 repeating values, scoped to its sheet's table. Selected suggestions from included sheets are created with the definition and published in version 1. They allow only the values seen in the example, so review them carefully.
 
-**Use these columns** replaces the form's columns. You can then edit them before saving; nothing is saved until you click **Create** or **Update**. When editing an existing definition, applied columns are saved as a draft like any other column edit. The example file is deleted as soon as it has been analyzed and is never stored.
+**Use these columns** (or **Use N sheet tables**) replaces the form's layout and columns. You can then edit them, including switching layout, before saving; nothing is saved until you click **Create** or **Update**. When editing an existing definition, applied columns are saved as a draft like any other column edit. The example file is deleted as soon as it has been analyzed and is never stored.
 
 `Custom SQL` and `Regex Pattern` rules are no longer supported. `upload_system_tables.sql` disables existing rules of those types, and on older databases it also disables rules without a `SqlQuery`. Review these rules on the Rules page and recreate them with a supported type before re-enabling them.
 

@@ -13,6 +13,7 @@ import {
   uploadTemplate,
   FileDefinitionAdmin,
   FileDefinitionColumn,
+  FileDefinitionTable,
   IFileDefinitionUser,
   InitialRule
 } from '../../services/adminApi';
@@ -21,11 +22,34 @@ import { Plus, Edit, Trash2, X, Check, Users, History } from 'lucide-react';
 import { Download, FileText, Upload } from 'lucide-react';
 import DefinitionVersionsModal from './DefinitionVersionsModal';
 import ExampleFileAssistant from './ExampleFileAssistant';
-import { rulesForColumns, type ColumnHint, type ExampleProposal } from './exampleProposal';
+import ColumnsEditor from './ColumnsEditor';
+import { rulesForLayout, type ColumnHint, type DefinitionLayout, type ExampleProposal } from './exampleProposal';
 
 const INITIAL_COLUMNS: FileDefinitionColumn[] = [
   { name: 'Column1', type: 'string', required: true }
 ];
+
+interface DefinitionForm {
+  name: string;
+  description: string;
+  layout: DefinitionLayout;
+  columns: FileDefinitionColumn[];
+  tables: FileDefinitionTable[];
+  status: string;
+  deliveryFolder: string;
+}
+
+const EMPTY_FORM: DefinitionForm = {
+  name: '',
+  description: '',
+  layout: 'single',
+  columns: INITIAL_COLUMNS,
+  tables: [],
+  status: 'Active',
+  deliveryFolder: ''
+};
+
+const pendingRuleKey = (rule: InitialRule) => `${rule.table ?? ''}\u0000${rule.name}`;
 
 export default function FileDefinitions() {
   const [definitions, setDefinitions] = useState<FileDefinitionAdmin[]>([]);
@@ -33,13 +57,7 @@ export default function FileDefinitions() {
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    columns: INITIAL_COLUMNS,
-    status: 'Active',
-    deliveryFolder: ''
-  });
+  const [formData, setFormData] = useState<DefinitionForm>(EMPTY_FORM);
 
   // User management state
   const [showUserModal, setShowUserModal] = useState(false);
@@ -117,11 +135,12 @@ export default function FileDefinitions() {
     const payload = {
       name: formData.name,
       description: formData.description,
-      columns: formData.columns,
+      columns: formData.layout === 'single' ? formData.columns : [],
+      tables: formData.layout === 'sheets' ? formData.tables : [],
       status: formData.status,
       deliveryFolder: formData.deliveryFolder.trim() || null
     };
-    const initialRules = editingId ? [] : rulesForColumns(pendingRules, formData.columns).kept;
+    const initialRules = editingId ? [] : rulesForLayout(pendingRules, formData).kept;
 
     let savedId: string | null = null;
     const wasEditing = Boolean(editingId);
@@ -175,11 +194,14 @@ export default function FileDefinitions() {
   };
 
   const handleEdit = (def: FileDefinitionAdmin) => {
+    const tables = def.tables ?? [];
     setEditingId(def.id);
     setFormData({
       name: def.name,
       description: def.description || '',
-      columns: def.columns,
+      layout: tables.length > 0 ? 'sheets' : 'single',
+      columns: def.columns.length > 0 ? def.columns : INITIAL_COLUMNS,
+      tables,
       status: def.status,
       deliveryFolder: def.deliveryFolder || ''
     });
@@ -194,10 +216,31 @@ export default function FileDefinitions() {
     setFormData(prev => ({
       ...prev,
       name: prev.name.trim() ? prev.name : proposal.suggestedName,
-      columns: proposal.columns,
+      layout: proposal.layout,
+      columns: proposal.layout === 'single' ? proposal.columns : prev.columns,
+      tables: proposal.layout === 'sheets' ? proposal.tables : prev.tables,
     }));
     setExampleHints(proposal.hints);
     setPendingRules(proposal.rules);
+  };
+
+  // Switching layout keeps the other layout's columns in the form (only the chosen layout is saved);
+  // the first switch seeds the new layout from the current columns.
+  const switchLayout = (layout: DefinitionLayout) => {
+    setFormData(prev => {
+      if (layout === prev.layout) return prev;
+      if (layout === 'sheets') {
+        return { ...prev, layout, tables: prev.tables.length > 0 ? prev.tables : [{ sheet: 'Sheet1', columns: prev.columns }] };
+      }
+      return { ...prev, layout, columns: prev.columns.length > 0 ? prev.columns : (prev.tables[0]?.columns ?? INITIAL_COLUMNS) };
+    });
+  };
+
+  const updateTable = (index: number, changes: Partial<FileDefinitionTable>) => {
+    setFormData(prev => ({
+      ...prev,
+      tables: prev.tables.map((table, i) => (i === index ? { ...table, ...changes } : table)),
+    }));
   };
 
   const handleDelete = async (id: string) => {
@@ -220,37 +263,8 @@ export default function FileDefinitions() {
     setCurrentTemplateFilename(null);
     setExampleHints({});
     setPendingRules([]);
-    setFormData({
-      name: '',
-      description: '',
-      columns: INITIAL_COLUMNS,
-      status: 'Active',
-      deliveryFolder: ''
-    });
+    setFormData(EMPTY_FORM);
     setError(null);
-  };
-
-  const addColumn = () => {
-    setFormData(prev => ({
-      ...prev,
-      columns: [...prev.columns, { name: '', type: 'string', required: false }]
-    }));
-  };
-
-  const removeColumn = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      columns: prev.columns.filter((_, i) => i !== index)
-    }));
-  };
-
-  const updateColumn = (index: number, field: keyof FileDefinitionColumn, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      columns: prev.columns.map((col, i) => 
-        i === index ? { ...col, [field]: value } : col
-      )
-    }));
   };
 
   const handleManageUsers = async (defId: string) => {
@@ -445,7 +459,9 @@ export default function FileDefinitions() {
                         )}
                       </td>
                       <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap text-gray-500">
-                        {def.columns?.length || 0} columns
+                        {def.tables && def.tables.length > 0
+                          ? `${def.tables.length} sheet${def.tables.length === 1 ? '' : 's'}, ${def.tables.reduce((sum, t) => sum + t.columns.length, 0)} columns`
+                          : `${def.columns?.length || 0} columns`}
                       </td>
                       <td className="px-4 sm:px-6 py-4">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -591,89 +607,99 @@ export default function FileDefinitions() {
                 </select>
               </div>
 
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Columns *
+              <fieldset className="mb-4">
+                <legend className="block text-sm font-medium text-gray-700 mb-2">Layout</legend>
+                <div className="flex flex-col gap-1 text-sm text-gray-700">
+                  <label className="flex items-start gap-2">
+                    <input type="radio" name="layout" checked={formData.layout === 'single'} onChange={() => switchLayout('single')} className="mt-1" />
+                    <span>One table <span className="text-gray-500">— applies to CSV files and to every sheet of a workbook</span></span>
                   </label>
+                  <label className="flex items-start gap-2">
+                    <input type="radio" name="layout" checked={formData.layout === 'sheets'} onChange={() => switchLayout('sheets')} className="mt-1" />
+                    <span>One table per workbook sheet <span className="text-gray-500">— each named sheet has its own columns (Excel only)</span></span>
+                  </label>
+                </div>
+              </fieldset>
+
+              {formData.layout === 'single' ? (
+                <div className="mb-4">
+                  <ColumnsEditor
+                    columns={formData.columns}
+                    onChange={columns => setFormData(prev => ({ ...prev, columns }))}
+                    hints={exampleHints}
+                    sheet={null}
+                  />
+                </div>
+              ) : (
+                <div className="mb-4 space-y-3">
+                  <p className="text-xs text-gray-500">
+                    Uploaded workbooks must contain each sheet below (matched by name, ignoring case). Other sheets are not validated, and CSV files are rejected.
+                  </p>
+                  {formData.tables.map((table, tableIndex) => (
+                    <section key={tableIndex} aria-label={`Sheet table ${tableIndex + 1}`} className="border border-gray-200 rounded-md p-3 bg-gray-50/50">
+                      <div className="flex items-center gap-2 mb-3">
+                        <label className="text-sm font-medium text-gray-700 whitespace-nowrap" htmlFor={`sheet-name-${tableIndex}`}>Sheet name *</label>
+                        <input
+                          id={`sheet-name-${tableIndex}`}
+                          type="text"
+                          value={table.sheet}
+                          maxLength={31}
+                          onChange={(e) => updateTable(tableIndex, { sheet: e.target.value })}
+                          className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          required
+                        />
+                        {formData.tables.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, tables: prev.tables.filter((_, i) => i !== tableIndex) }))}
+                            className="text-red-600 hover:text-red-700 text-sm flex items-center gap-1"
+                            aria-label={`Remove sheet table ${table.sheet || tableIndex + 1}`}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                      <ColumnsEditor
+                        columns={table.columns}
+                        onChange={columns => updateTable(tableIndex, { columns })}
+                        hints={exampleHints}
+                        sheet={table.sheet}
+                      />
+                    </section>
+                  ))}
                   <button
                     type="button"
-                    onClick={addColumn}
+                    onClick={() => setFormData(prev => ({
+                      ...prev,
+                      tables: [...prev.tables, { sheet: `Sheet${prev.tables.length + 1}`, columns: [{ name: '', type: 'string', required: false }] }],
+                    }))}
                     className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
                   >
-                    <Plus size={16} /> Add Column
+                    <Plus size={16} /> Add Sheet Table
                   </button>
                 </div>
-                
-                {formData.columns.map((col, index) => (
-                  <div key={index} className="mb-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={col.name}
-                      onChange={(e) => updateColumn(index, 'name', e.target.value)}
-                      placeholder="Column name"
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      required
-                    />
-                    <select
-                      value={col.type}
-                      onChange={(e) => updateColumn(index, 'type', e.target.value)}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="string">String</option>
-                      <option value="integer">Integer</option>
-                      <option value="decimal">Decimal</option>
-                      <option value="datetime">DateTime</option>
-                      <option value="boolean">Boolean</option>
-                    </select>
-                    <label className="flex items-center gap-1 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={col.required}
-                        onChange={(e) => updateColumn(index, 'required', e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      Required
-                    </label>
-                    {formData.columns.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeColumn(index)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <X size={18} />
-                      </button>
-                    )}
-                  </div>
-                  {exampleHints[col.name] && (
-                    <p className="mt-0.5 ml-1 text-xs text-gray-500">
-                      Example: {exampleHints[col.name].filledRows}/{exampleHints[col.name].rowsAnalyzed} rows filled
-                      {exampleHints[col.name].sampleValues.length > 0 && ` · e.g. ${exampleHints[col.name].sampleValues.join(', ')}`}
-                    </p>
-                  )}
-                  </div>
-                ))}
-              </div>
+              )}
 
               {!editingId && pendingRules.length > 0 && (
                 <div className="mb-4">
                   <p className="block text-sm font-medium text-gray-700 mb-2">Rules published with version 1</p>
                   <ul className="space-y-1">
                     {pendingRules.map(rule => {
-                      const skipped = rulesForColumns([rule], formData.columns).skipped.length > 0;
+                      const skipped = rulesForLayout([rule], formData).skipped.length > 0;
+                      const key = pendingRuleKey(rule);
                       return (
-                        <li key={rule.name} className="flex items-center justify-between gap-2 text-sm bg-gray-50 border border-gray-200 rounded-md px-3 py-1.5">
+                        <li key={key} className="flex items-center justify-between gap-2 text-sm bg-gray-50 border border-gray-200 rounded-md px-3 py-1.5">
                           <span className={skipped ? 'text-gray-400 line-through' : 'text-gray-800'}>
+                            {rule.table && <span className="text-xs text-gray-500 mr-1">{rule.table} ›</span>}
                             {rule.name} <code className="text-xs bg-white px-1 rounded">{rule.expression}</code>
                           </span>
                           <span className="flex items-center gap-2">
-                            {skipped && <span className="text-xs text-amber-700">Column removed; will be skipped</span>}
+                            {skipped && <span className="text-xs text-amber-700">Sheet or column removed; will be skipped</span>}
                             <button
                               type="button"
-                              onClick={() => setPendingRules(prev => prev.filter(r => r.name !== rule.name))}
+                              onClick={() => setPendingRules(prev => prev.filter(r => pendingRuleKey(r) !== key))}
                               className="text-red-600 hover:text-red-700"
-                              aria-label={`Remove rule ${rule.name}`}
+                              aria-label={`Remove rule ${rule.name}${rule.table ? ` for ${rule.table}` : ''}`}
                             >
                               <X size={16} />
                             </button>

@@ -6,6 +6,7 @@ import { Request, Response } from 'express';
 import { UploadService } from '../services/Upload.service';
 import { Upload } from '../models/Upload.model';
 import { FileDefinition } from '../models/FileDefinition.model';
+import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { sanitizeFilename } from '../services/TemplateStorage.service';
 import { sharePointStorage } from '../services/SharePointStorage.service';
 import { desktopStorage } from '../services/DesktopStorage.service';
@@ -16,6 +17,8 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '../utils/logger';
+
+const EXCEL_FILE_TYPES = ['xlsx', 'xls'];
 
 const getStorageService = () => {
     switch (appConfig.storage.provider) {
@@ -183,6 +186,17 @@ export class UploadController {
 
             const fileSize = req.file.size;
             const fileType = path.extname(req.file.originalname).toLowerCase().slice(1);
+
+            // Definitions with one table per sheet can only validate workbooks.
+            const activeVersion = await DefinitionVersionService.ensureActiveVersion(definitionId, userId);
+            if (activeVersion.Tables.length > 0 && !EXCEL_FILE_TYPES.includes(fileType)) {
+                const sheets = activeVersion.Tables.map(table => `"${table.sheet}"`).join(', ');
+                res.status(400).json({
+                    success: false,
+                    message: `This definition expects an Excel workbook (.xlsx or .xls) with the sheets ${sheets}`
+                });
+                return;
+            }
             logger.info(`[UPLOAD-START] User: ${userId}, File: ${req.file.originalname}, Size: ${fileSize}B, Type: ${fileType}, DefId: ${definitionId}`);
 
             // Generate unique IDs

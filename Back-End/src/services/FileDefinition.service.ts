@@ -161,8 +161,9 @@ export class FileDefinitionService {
         try {
             logger.info(`[FILEDEF_SVC] Creating definition "${dto.Name}" by user ${createdByUserId}`);
             
-            // Validate columns
-            if (!dto.Columns || !Array.isArray(dto.Columns) || dto.Columns.length === 0) {
+            // Validate columns: a single table needs columns; sheet tables carry their own.
+            const hasTables = Array.isArray(dto.Tables) && dto.Tables.length > 0;
+            if (!hasTables && (!dto.Columns || !Array.isArray(dto.Columns) || dto.Columns.length === 0)) {
                 throw new Error('Columns array is required and must not be empty');
             }
 
@@ -195,8 +196,9 @@ export class FileDefinitionService {
         try {
             logger.info(`[FILEDEF_SVC] Updating definition ${id}`);
 
-            // Validate columns if provided
-            if (updates.Columns && (!Array.isArray(updates.Columns) || updates.Columns.length === 0)) {
+            // Validate columns if provided (sheet tables replace single-table columns)
+            const hasTables = Array.isArray(updates.Tables) && updates.Tables.length > 0;
+            if (updates.Columns && (!Array.isArray(updates.Columns) || (updates.Columns.length === 0 && !hasTables))) {
                 throw new Error('Columns must be a non-empty array');
             }
 
@@ -361,6 +363,7 @@ export class FileDefinitionService {
                 name: definition.Name,
                 description: definition.Description || '',
                 columns: Array.isArray(definition.Columns) ? definition.Columns : JSON.parse(definition.Columns || '[]'),
+                tables: definition.Tables ?? [],
                 status: definition.Status || 'Active',
                 templateFilename: definition.TemplateFilename || null,
                 createdAt: definition.CreatedAt,

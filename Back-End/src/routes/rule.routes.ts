@@ -59,6 +59,7 @@ router.post(
         body('ExecutionOrder').optional().isInt({ min: 1 }),
         body('SqlQuery').isString().isLength({ min: 1, max: 4000 }),
         body('IsEnabled').optional().isBoolean(),
+        body('TableName').optional({ values: 'null' }).isString().isLength({ max: 255 }),
     ],
     validateRequest,
     RuleController.createRule
@@ -81,6 +82,7 @@ router.put(
         body('ExecutionOrder').optional().isInt({ min: 1 }),
         body('SqlQuery').optional().isString().isLength({ min: 1, max: 4000 }),
         body('IsEnabled').optional().isBoolean(),
+        body('TableName').optional({ values: 'null' }).isString().isLength({ max: 255 }),
     ],
     validateRequest,
     RuleController.updateRule

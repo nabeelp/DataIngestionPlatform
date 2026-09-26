@@ -21,8 +21,10 @@ import {
     SUPPORTED_RULE_TYPES,
     createDefinitionSchemaEvaluator,
     createRuleEvaluator,
+    scopeToSheet,
     type RowEvaluator,
 } from './validation/ValidationEngine';
+import { schemaCheckName, validationTables } from './validation/DefinitionContract';
 import { readRecords } from './validation/FileRecordReader';
 import { createValidationWorker } from './Queue.service';
 import { DefinitionVersionService } from './DefinitionVersion.service';
@@ -123,14 +125,22 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
 
         const contract = await DefinitionVersionService.loadValidationContract(upload);
         const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
+        const tables = validationTables(contract);
 
         // Build one evaluator per rule detail; the file is then read once for all of them.
+        // Sheet tables (and their rules) only see rows of their own sheet; a missing sheet fails its columns check.
         const checks: ActiveCheck[] = [];
         for (const ruleDetail of ruleDetails) {
             let evaluator: RowEvaluator | null = null;
 
             if (ruleDetail.RuleType === DEFINITION_SCHEMA_RULE_TYPE) {
-                evaluator = createDefinitionSchemaEvaluator(contract.columns);
+                const table = tables.find(t => schemaCheckName(t.sheet) === ruleDetail.RuleName);
+                if (!table) {
+                    logger.warn(`[VAL-WORKER] Columns check "${ruleDetail.RuleName}" does not match a table of the validation contract; skipping for upload ${uploadId}`);
+                } else {
+                    const schema = createDefinitionSchemaEvaluator(table.columns);
+                    evaluator = table.sheet === null ? schema : scopeToSheet(schema, table.sheet, { reportMissing: true });
+                }
             } else {
                 const rule = contract.rules.find(r => String(r.Id).toLowerCase() === String(ruleDetail.RuleId).toLowerCase());
                 if (!rule) {
@@ -138,7 +148,8 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
                 } else if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
                     logger.warn(`[VAL-WORKER] Rule "${rule.Name}" has unsupported type "${rule.RuleType}"; skipping`);
                 } else {
-                    evaluator = createRuleEvaluator(rule.RuleType, rule.SqlQuery);
+                    const ruleEvaluator = createRuleEvaluator(rule.RuleType, rule.SqlQuery);
+                    evaluator = rule.Table ? scopeToSheet(ruleEvaluator, rule.Table, { reportMissing: false }) : ruleEvaluator;
                 }
             }
 

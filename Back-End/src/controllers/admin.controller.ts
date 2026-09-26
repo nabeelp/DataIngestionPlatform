@@ -22,7 +22,9 @@ import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
-import { COLUMN_TYPES, parseRuleExpression } from '../services/validation/ValidationEngine';
+import { COLUMN_TYPES, parseRuleExpression, sameSheet } from '../services/validation/ValidationEngine';
+import { MAX_SHEET_NAME_LENGTH, ruleColumns } from '../services/validation/DefinitionContract';
+import type { IColumn, ITable } from '../interfaces/fileDefinition.interface';
 import { assertValidRule } from '../services/Rule.service';
 import type { ICreateRuleDto, RuleSeverity, RuleType } from '../interfaces/rule.interface';
 import { logger } from '../utils/logger';
@@ -551,21 +553,22 @@ export const getFileDefinitions = async (req: AuthRequest, res: Response, next: 
  */
 export const createFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { name, description, columns, status, deliveryFolder, rules } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder, rules } = req.body;
 
-        if (!name || !columns || !Array.isArray(columns)) {
+        if (!name) {
             return res.status(400).json({
                 success: false,
-                message: 'Name and Columns are required'
+                message: 'Name is required'
             });
         }
 
         let normalizedDeliveryFolder: string | null;
+        let layout: DefinitionLayout;
         let initialRules: InitialRule[];
         try {
-            validateDefinitionColumns(columns);
+            layout = validateDefinitionLayout(columns, tables);
             normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
-            initialRules = validateInitialRules(rules, columns);
+            initialRules = validateInitialRules(rules, layout);
         } catch (validationError) {
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
@@ -573,7 +576,8 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
         const dto = {
             Name: name,
             Description: description || '',
-            Columns: columns,
+            Columns: layout.columns,
+            Tables: layout.tables,
             Status: status || 'Active',
             DeliveryFolder: normalizedDeliveryFolder
         };
@@ -586,7 +590,7 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             AUDIT_ACTIONS.DEFINITION_CREATED,
             ENTITY_TYPES.FILE_DEFINITION,
             definition.Id,
-            { name, description, initialRules: initialRules.length },
+            { name, description, sheetTables: layout.tables.length, initialRules: initialRules.length },
             req.ip || undefined,
             req.headers['user-agent']
         );
@@ -609,18 +613,25 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
 export const updateFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
-        const { name, description, columns, status, deliveryFolder } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder } = req.body;
 
         const updates: any = {};
         try {
-            if (columns !== undefined) validateDefinitionColumns(columns);
+            // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
+            if (tables !== undefined) {
+                const layout = validateDefinitionLayout(columns, tables);
+                updates.Columns = layout.columns;
+                updates.Tables = layout.tables;
+            } else if (columns !== undefined) {
+                validateDefinitionColumns(columns);
+                updates.Columns = columns;
+            }
             if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
         } catch (validationError) {
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
         if (name !== undefined) updates.Name = name;
         if (description !== undefined) updates.Description = description;
-        if (columns !== undefined) updates.Columns = columns;
         if (status !== undefined) updates.Status = status;
 
         const definition = await FileDefinitionService.updateDefinition(id, updates);
@@ -709,6 +720,7 @@ interface MappedFileDefinition {
     name: string;
     description: string;
     columns: any[];
+    tables: ITable[];
     status: string;
     createdAt: string;
     updatedAt: string;
@@ -720,20 +732,56 @@ interface MappedFileDefinition {
 /**
  * Validate file definition columns: non-empty unique names and supported types.
  */
-function validateDefinitionColumns(columns: unknown): void {
+function validateDefinitionColumns(columns: unknown, context = ''): void {
+    const where = context ? ` in ${context}` : '';
     if (!Array.isArray(columns) || columns.length === 0) {
-        throw new Error('At least one column is required');
+        throw new Error(`At least one column is required${where}`);
     }
     const seen = new Set<string>();
     for (const column of columns) {
         const name = typeof column?.name === 'string' ? column.name.trim() : '';
-        if (!name) throw new Error('Every column needs a name');
-        if (seen.has(name)) throw new Error(`Duplicate column name "${name}"`);
+        if (!name) throw new Error(`Every column needs a name${where}`);
+        if (seen.has(name)) throw new Error(`Duplicate column name "${name}"${where}`);
         seen.add(name);
         if (!(COLUMN_TYPES as readonly string[]).includes(column.type)) {
-            throw new Error(`Column "${name}" has unsupported type "${column.type}". Use: ${COLUMN_TYPES.join(', ')}`);
+            throw new Error(`Column "${name}"${where} has unsupported type "${column.type}". Use: ${COLUMN_TYPES.join(', ')}`);
         }
     }
+}
+
+interface DefinitionLayout {
+    columns: IColumn[];
+    tables: ITable[];
+}
+
+const MAX_SHEET_TABLES = 50;
+// Characters Excel does not allow in sheet names.
+const INVALID_SHEET_NAME = /[[\]:*?/\\]/;
+
+/**
+ * Validate a definition's layout: either single-table `columns`, or (when `tables` is non-empty) one table per
+ * workbook sheet with a unique sheet name and its own columns.
+ */
+function validateDefinitionLayout(columns: unknown, tables: unknown): DefinitionLayout {
+    if (tables === undefined || tables === null || (Array.isArray(tables) && tables.length === 0)) {
+        validateDefinitionColumns(columns);
+        return { columns: columns as IColumn[], tables: [] };
+    }
+    if (!Array.isArray(tables)) throw new Error('Tables must be an array');
+    if (tables.length > MAX_SHEET_TABLES) throw new Error(`At most ${MAX_SHEET_TABLES} sheet tables are supported`);
+
+    const seen = new Set<string>();
+    const normalized = tables.map((table, index) => {
+        const sheet = typeof table?.sheet === 'string' ? table.sheet.trim() : '';
+        if (!sheet) throw new Error(`Sheet table ${index + 1} needs a sheet name`);
+        if (sheet.length > MAX_SHEET_NAME_LENGTH) throw new Error(`Sheet name "${sheet}" is longer than ${MAX_SHEET_NAME_LENGTH} characters`);
+        if (INVALID_SHEET_NAME.test(sheet)) throw new Error(`Sheet name "${sheet}" cannot contain [ ] : * ? / \\`);
+        if (seen.has(sheet.toLowerCase())) throw new Error(`Sheet "${sheet}" is defined more than once`);
+        seen.add(sheet.toLowerCase());
+        validateDefinitionColumns(table.columns, `sheet "${sheet}"`);
+        return { sheet, columns: table.columns as IColumn[] };
+    });
+    return { columns: [], tables: normalized };
 }
 
 type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
@@ -742,14 +790,14 @@ const MAX_INITIAL_RULES = 50;
 
 /**
  * Validate the optional rules created together with a new definition (for example accepted suggestions from
- * an example file): supported type, valid expression, and every referenced column defined.
+ * an example file): supported type, valid expression, the sheet table (for sheet-table definitions), and every
+ * referenced column defined in that table.
  */
-function validateInitialRules(rules: unknown, columns: { name: string }[]): InitialRule[] {
+function validateInitialRules(rules: unknown, layout: DefinitionLayout): InitialRule[] {
     if (rules === undefined || rules === null) return [];
     if (!Array.isArray(rules)) throw new Error('Rules must be an array');
     if (rules.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
 
-    const columnNames = new Set(columns.map(column => column.name.trim()));
     return rules.map((rule, index) => {
         const name = typeof rule?.name === 'string' ? rule.name.trim() : '';
         if (!name || name.length > 255) throw new Error(`Rule ${index + 1} needs a name of at most 255 characters`);
@@ -762,10 +810,23 @@ function validateInitialRules(rules: unknown, columns: { name: string }[]): Init
         } catch (error) {
             throw new Error(`Rule "${name}": ${(error as Error).message}`);
         }
-        const parsed = parseRuleExpression(rule.ruleType, expression);
-        const referenced = 'columns' in parsed ? parsed.columns : [parsed.column];
-        const missing = referenced.find(column => !columnNames.has(column));
-        if (missing) throw new Error(`Rule "${name}" refers to column "${missing}", which is not in the definition`);
+
+        const tableName = typeof rule.table === 'string' && rule.table.trim() ? rule.table.trim() : null;
+        let columns: IColumn[] = layout.columns;
+        let where = 'the definition';
+        if (layout.tables.length > 0) {
+            const table = tableName ? layout.tables.find(t => sameSheet(t.sheet, tableName)) : undefined;
+            if (!tableName) throw new Error(`Rule "${name}" must name the sheet table it applies to`);
+            if (!table) throw new Error(`Rule "${name}" is for sheet "${tableName}", which is not defined`);
+            columns = table.columns;
+            where = `sheet "${table.sheet}"`;
+        } else if (tableName) {
+            throw new Error(`Rule "${name}" is for sheet "${tableName}", but this definition has a single table`);
+        }
+
+        const columnNames = new Set(columns.map(column => column.name.trim()));
+        const missing = ruleColumns(parseRuleExpression(rule.ruleType, expression)).find(column => !columnNames.has(column));
+        if (missing) throw new Error(`Rule "${name}" refers to column "${missing}", which is not in ${where}`);
 
         return {
             Name: name,
@@ -773,6 +834,7 @@ function validateInitialRules(rules: unknown, columns: { name: string }[]): Init
             RuleType: rule.ruleType as RuleType,
             Severity: severity as RuleSeverity,
             SqlQuery: expression,
+            TableName: tableName,
         };
     });
 }
@@ -783,6 +845,7 @@ function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
         name: def.Name,
         description: def.Description || '',
         columns: def.Columns || [],
+        tables: Array.isArray(def.Tables) ? def.Tables : [],
         status: def.Status || 'Active',
         createdAt: def.CreatedAt,
         updatedAt: def.UpdatedAt,

@@ -1,4 +1,4 @@
-import { assertPublishable, buildContractSnapshot, diffContracts } from '../src/services/validation/DefinitionContract';
+import { assertPublishable, buildContractSnapshot, diffContracts, schemaCheckName, validationTables } from '../src/services/validation/DefinitionContract';
 
 const columns = [
     { name: 'CustomerId', type: 'string', required: true },
@@ -75,5 +75,73 @@ describe('definition contract snapshots', () => {
         expect(() => assertPublishable(buildContractSnapshot(columns, [rule({ RuleType: 'Custom SQL' })])))
             .toThrow('Rule "Amount range" is invalid: Unsupported rule type: Custom SQL');
         expect(() => assertPublishable(buildContractSnapshot(columns, [rule()]))).not.toThrow();
+    });
+});
+
+describe('sheet table contracts', () => {
+    const tables = [
+        { sheet: ' Orders ', columns },
+        { sheet: 'Refunds', columns: [{ name: 'Reason', type: 'string', required: true }] },
+    ];
+
+    it('uses sheet tables instead of single-table columns and records each rule\'s table', () => {
+        const snapshot = buildContractSnapshot(columns, [rule({ TableName: ' Orders ' })], tables);
+
+        expect(snapshot.columns).toEqual([]);
+        expect(snapshot.tables.map(t => t.sheet)).toEqual(['Orders', 'Refunds']);
+        expect(snapshot.rules[0].Table).toBe('Orders');
+        expect(validationTables(snapshot).map(t => t.sheet)).toEqual(['Orders', 'Refunds']);
+        expect(validationTables(buildContractSnapshot(columns, []))).toEqual([{ sheet: null, columns }]);
+    });
+
+    it('reads the rule table from published snapshots too', () => {
+        const published = buildContractSnapshot([], [{ ...rule(), Table: 'Orders' }], tables);
+        expect(published.rules[0].Table).toBe('Orders');
+    });
+
+    it('labels sheet table changes with the sheet name', () => {
+        const active = buildContractSnapshot([], [rule({ TableName: 'Orders' })], tables);
+        const draft = buildContractSnapshot([], [rule({ TableName: 'orders' })], [
+            { sheet: 'Orders', columns: [columns[0], { name: 'Amount', type: 'integer', required: false }] },
+            { sheet: 'Credits', columns: [{ name: 'Code', type: 'string', required: true }] },
+        ]);
+
+        const diff = diffContracts(active, draft);
+
+        expect(diff.columns).toEqual({
+            added: ['Sheet "Credits"', 'Credits › Code'],
+            removed: ['Sheet "Refunds"', 'Refunds › Reason'],
+            changed: ['Orders › Amount'],
+        });
+        // Sheet names match case-insensitively, so re-casing a rule's table is not a change.
+        expect(diff.rules.changed).toEqual([]);
+    });
+
+    it('reports switching from a single table to sheet tables', () => {
+        const diff = diffContracts(buildContractSnapshot(columns, []), buildContractSnapshot([], [], tables));
+        expect(diff.columns.removed).toEqual(['CustomerId', 'Amount']);
+        expect(diff.columns.added).toContain('Sheet "Orders"');
+    });
+
+    it.each([
+        ['a rule without a table', [rule()], tables, 'must name the sheet table'],
+        ['a rule for an unknown sheet', [rule({ TableName: 'Credits' })], tables, 'sheet "Credits", which is not defined'],
+        ['a rule column missing from its sheet', [rule({ TableName: 'Refunds' })], tables, 'column "Amount", which is not in sheet "Refunds"'],
+        ['duplicate sheets', [], [...tables, { sheet: 'orders', columns }], 'Sheet "orders" is defined more than once'],
+        ['a sheet without columns', [], [{ sheet: 'Empty', columns: [] }], 'Sheet "Empty" needs at least one column'],
+        ['a long sheet name', [], [{ sheet: 'x'.repeat(32), columns }], 'longer than 31 characters'],
+    ])('refuses to publish %s', (_label, rules, sheetTables, message) => {
+        expect(() => assertPublishable(buildContractSnapshot([], rules, sheetTables))).toThrow(message);
+    });
+
+    it('refuses a sheet rule on a single-table definition and accepts a valid sheet contract', () => {
+        expect(() => assertPublishable(buildContractSnapshot(columns, [rule({ TableName: 'Orders' })])))
+            .toThrow('this definition has a single table');
+        expect(() => assertPublishable(buildContractSnapshot([], [rule({ TableName: 'ORDERS' })], tables))).not.toThrow();
+    });
+
+    it('names columns checks per table', () => {
+        expect(schemaCheckName(null)).toBe('File definition columns');
+        expect(schemaCheckName('Orders')).toBe('Sheet "Orders" columns');
     });
 });

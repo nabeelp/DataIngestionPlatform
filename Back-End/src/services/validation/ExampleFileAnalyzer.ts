@@ -274,12 +274,6 @@ export async function analyzeExampleFile(filePath: string, fileType: string): Pr
             warnings.push(`Only the first ${MAX_EXAMPLE_SHEETS} of ${sheets.length} sheets are shown.`);
             sheets = sheets.slice(0, MAX_EXAMPLE_SHEETS);
         }
-        const layouts = new Set(
-            sheets.filter(sheet => sheet.columns.length > 0).map(sheet => sheet.columns.map(c => c.name).join('\u0000'))
-        );
-        if (layouts.size > 1) {
-            warnings.push('Sheets have different columns. Uploaded workbooks are validated sheet by sheet, so every sheet must match the columns you choose.');
-        }
     }
 
     if (sheets.every(sheet => sheet.columns.length === 0)) {
