@@ -22,7 +22,9 @@ import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
-import { COLUMN_TYPES } from '../services/validation/ValidationEngine';
+import { COLUMN_TYPES, parseRuleExpression } from '../services/validation/ValidationEngine';
+import { assertValidRule } from '../services/Rule.service';
+import type { ICreateRuleDto, RuleSeverity, RuleType } from '../interfaces/rule.interface';
 import { logger } from '../utils/logger';
 
 // Extend Request to include user
@@ -549,7 +551,7 @@ export const getFileDefinitions = async (req: AuthRequest, res: Response, next: 
  */
 export const createFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { name, description, columns, status, deliveryFolder } = req.body;
+        const { name, description, columns, status, deliveryFolder, rules } = req.body;
 
         if (!name || !columns || !Array.isArray(columns)) {
             return res.status(400).json({
@@ -559,9 +561,11 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
         }
 
         let normalizedDeliveryFolder: string | null;
+        let initialRules: InitialRule[];
         try {
             validateDefinitionColumns(columns);
             normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
+            initialRules = validateInitialRules(rules, columns);
         } catch (validationError) {
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
@@ -574,7 +578,7 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             DeliveryFolder: normalizedDeliveryFolder
         };
 
-        const definition = await FileDefinitionService.createDefinition(dto, req.user!.userId);
+        const definition = await FileDefinitionService.createDefinition(dto, req.user!.userId, initialRules);
 
         // Log this action
         await logAction(
@@ -582,7 +586,7 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             AUDIT_ACTIONS.DEFINITION_CREATED,
             ENTITY_TYPES.FILE_DEFINITION,
             definition.Id,
-            { name, description },
+            { name, description, initialRules: initialRules.length },
             req.ip || undefined,
             req.headers['user-agent']
         );
@@ -730,6 +734,47 @@ function validateDefinitionColumns(columns: unknown): void {
             throw new Error(`Column "${name}" has unsupported type "${column.type}". Use: ${COLUMN_TYPES.join(', ')}`);
         }
     }
+}
+
+type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
+
+const MAX_INITIAL_RULES = 50;
+
+/**
+ * Validate the optional rules created together with a new definition (for example accepted suggestions from
+ * an example file): supported type, valid expression, and every referenced column defined.
+ */
+function validateInitialRules(rules: unknown, columns: { name: string }[]): InitialRule[] {
+    if (rules === undefined || rules === null) return [];
+    if (!Array.isArray(rules)) throw new Error('Rules must be an array');
+    if (rules.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
+
+    const columnNames = new Set(columns.map(column => column.name.trim()));
+    return rules.map((rule, index) => {
+        const name = typeof rule?.name === 'string' ? rule.name.trim() : '';
+        if (!name || name.length > 255) throw new Error(`Rule ${index + 1} needs a name of at most 255 characters`);
+        const severity = rule.severity ?? 'Error';
+        if (severity !== 'Error' && severity !== 'Warning') throw new Error(`Rule "${name}" severity must be Error or Warning`);
+
+        const expression = typeof rule.expression === 'string' ? rule.expression.trim() : '';
+        try {
+            assertValidRule(rule.ruleType, expression);
+        } catch (error) {
+            throw new Error(`Rule "${name}": ${(error as Error).message}`);
+        }
+        const parsed = parseRuleExpression(rule.ruleType, expression);
+        const referenced = 'columns' in parsed ? parsed.columns : [parsed.column];
+        const missing = referenced.find(column => !columnNames.has(column));
+        if (missing) throw new Error(`Rule "${name}" refers to column "${missing}", which is not in the definition`);
+
+        return {
+            Name: name,
+            Description: typeof rule.description === 'string' ? rule.description.slice(0, 1000) : '',
+            RuleType: rule.ruleType as RuleType,
+            Severity: severity as RuleSeverity,
+            SqlQuery: expression,
+        };
+    });
 }
 
 function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {

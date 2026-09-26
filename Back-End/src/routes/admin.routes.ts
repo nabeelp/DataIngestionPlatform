@@ -206,6 +206,11 @@ router.post(
         body('columns.*.type').isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
         body('columns.*.required').isBoolean(),
         body('status').optional().isIn(['Active', 'Inactive']),
+        body('rules').optional({ values: 'null' }).isArray({ max: 50 }),
+        body('rules.*.name').optional().isString().isLength({ min: 1, max: 255 }),
+        body('rules.*.ruleType').optional().isString(),
+        body('rules.*.expression').optional().isString().isLength({ max: 4000 }),
+        body('rules.*.severity').optional().isIn(['Error', 'Warning']),
     ],
     validateRequest,
     AdminController.createFileDefinition
@@ -305,6 +310,28 @@ router.post(
         });
     },
     FileDefinitionAdminController.uploadTemplate
+);
+
+/**
+ * POST /api/admin/file-definitions/analyze-example
+ * Propose columns and candidate rules from an example CSV/XLSX file (multipart "file"). Nothing is stored.
+ */
+import { uploadExample, EXAMPLE_MAX_FILE_SIZE_BYTES } from '../middleware/upload.middleware';
+import multer from 'multer';
+router.post(
+    '/file-definitions/analyze-example',
+    (req: Request, res: Response, next: NextFunction) => {
+        uploadExample.single('file')(req, res, (err: unknown) => {
+            if (err) {
+                const message = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+                    ? `Example files are limited to ${EXAMPLE_MAX_FILE_SIZE_BYTES / (1024 * 1024)} MB`
+                    : err instanceof Error ? err.message : 'Invalid example file';
+                return res.status(400).json({ success: false, message });
+            }
+            next();
+        });
+    },
+    FileDefinitionAdminController.analyzeExample
 );
 
 

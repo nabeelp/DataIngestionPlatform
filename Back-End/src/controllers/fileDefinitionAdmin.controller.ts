@@ -4,8 +4,11 @@
 // =============================================================================
 
 import { Request, Response, NextFunction } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
+import { ExampleFileError, analyzeExampleFile, type ExampleAnalysis } from '../services/validation/ExampleFileAnalyzer';
 import { TemplateStorage, getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { logAction } from '../models/AuditLog.model';
 import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
@@ -331,5 +334,37 @@ export const publishFileDefinitionVersion = async (req: AuthRequest, res: Respon
         logger.error('[FILEDEF_ADMIN_CTRL] Error publishing definition version:', error);
         next(error);
     }
+};
+
+/**
+ * Analyze an example CSV/XLSX file and propose columns and candidate rules (admin only).
+ * The example is deleted after analysis and never stored; nothing is saved until the admin saves the definition.
+ * POST /api/admin/file-definitions/analyze-example (multipart/form-data "file")
+ */
+export const analyzeExample = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const file = req.file;
+    if (!file) {
+        return res.status(400).json({ success: false, message: 'No example file uploaded' });
+    }
+
+    let analysis: ExampleAnalysis;
+    const fileType = path.extname(file.originalname).toLowerCase().slice(1);
+    try {
+        analysis = await analyzeExampleFile(file.path, fileType);
+    } catch (error) {
+        if (error instanceof ExampleFileError) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+        logger.error('[FILEDEF_ADMIN_CTRL] Error analyzing example file:', error);
+        return next(error);
+    } finally {
+        // Delete before responding: the example may contain customer data and is never kept.
+        await fs.promises.rm(file.path, { force: true }).catch(err =>
+            logger.warn('[FILEDEF_ADMIN_CTRL] Could not delete analyzed example file', err)
+        );
+    }
+
+    logger.info(`[FILEDEF_ADMIN_CTRL] Example analyzed by ${req.user?.userId}: ${fileType}, ${file.size}B, ${analysis.sheets.length} sheet(s)`);
+    res.json({ success: true, fileName: path.basename(file.originalname), ...analysis });
 };
 

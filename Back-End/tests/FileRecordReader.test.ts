@@ -51,6 +51,19 @@ describe('readRecords (delimited)', () => {
     it('rejects non-tabular file types', async () => {
         await expect(collect(write('data.json', '{}'), 'json')).rejects.toThrow(/cannot be validated/);
     });
+
+    it('reports the header row position and stops at the row limit', async () => {
+        const headerRows: (number | undefined)[] = [];
+        const rows: number[] = [];
+        const summary = await readRecords(write('limit.csv', '\nId\n1\n2\n3\n'), 'csv', {
+            onHeaders: (_h, _s, headerRow) => headerRows.push(headerRow),
+            onRow: (_row, rowNumber) => rows.push(rowNumber),
+        }, { maxRowsPerSheet: 2 });
+
+        expect(headerRows).toEqual([2]);
+        expect(rows).toEqual([3, 4]);
+        expect(summary).toEqual({ rowCount: 2, sheets: [], truncated: true });
+    });
 });
 
 describe('readRecords (Excel)', () => {
@@ -68,5 +81,24 @@ describe('readRecords (Excel)', () => {
         ]);
         expect(summary).toEqual({ rowCount: 3, sheets: [{ name: 'First', rowCount: 2 }, { name: 'Second', rowCount: 1 }] });
         expect(rows[1]).toEqual({ row: { Id: 2, Amount: 20 }, rowNumber: 4, sheet: 'First' });
+    });
+
+    it('limits rows per sheet and marks cut sheets as truncated', async () => {
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([[], ['Id'], [1], [2], [3]]), 'Long');
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Id'], [1]]), 'Short');
+        const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+        const headerRows: (number | undefined)[] = [];
+
+        const summary = await readRecords(write('limit.xlsx', buffer), 'xlsx', {
+            onHeaders: (_h, _s, headerRow) => headerRows.push(headerRow),
+            onRow: () => undefined,
+        }, { maxRowsPerSheet: 2 });
+
+        expect(headerRows).toEqual([2, 1]);
+        expect(summary).toEqual({
+            rowCount: 3,
+            sheets: [{ name: 'Long', rowCount: 2, truncated: true }, { name: 'Short', rowCount: 1 }],
+        });
     });
 });

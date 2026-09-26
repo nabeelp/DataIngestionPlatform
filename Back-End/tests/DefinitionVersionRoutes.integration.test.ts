@@ -142,6 +142,42 @@ describeDb('definition version routes', () => {
         expect(res.body.message).toContain('version 1 is already active');
     });
 
+    it('publishes rules accepted at creation in version 1', async () => {
+        const created = await call('admin', 'POST', '/admin/file-definitions', {
+            name: `Routes ${Date.now()}`,
+            columns: [{ name: 'Status', type: 'string', required: true }],
+            rules: [{ name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', severity: 'Error' }],
+        });
+        expect(created.status).toBe(201);
+        const id = created.body.definition.id;
+        createdDefinitions.push(id);
+
+        const history = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
+        expect(history.body.hasUnpublishedChanges).toBe(false);
+        expect(history.body.versions).toHaveLength(1);
+        expect(history.body.versions[0]).toMatchObject({
+            versionNumber: 1,
+            rules: [expect.objectContaining({ name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', executionOrder: 1 })],
+        });
+    });
+
+    it.each([
+        [{ name: 'Bad', ruleType: 'Custom SQL', expression: 'SELECT 1' }, 'Rule type must be one of'],
+        [{ name: 'Missing column', ruleType: 'Enum Check', expression: 'Region: North' }, 'refers to column "Region"'],
+    ])('refuses creation with an invalid initial rule (%#)', async (rule, message) => {
+        const name = `Routes invalid ${Date.now()}`;
+        const res = await call('admin', 'POST', '/admin/file-definitions', {
+            name,
+            columns: [{ name: 'Status', type: 'string', required: true }],
+            rules: [rule],
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain(message);
+        const listed = await call('admin', 'GET', '/admin/file-definitions');
+        expect(listed.body.definitions.some((d: any) => d.name === name)).toBe(false);
+    });
+
     it('returns 404 for an unknown definition', async () => {
         const res = await call('admin', 'GET', '/admin/file-definitions/00000000-0000-0000-0000-000000000000/versions');
         expect(res.status).toBe(404);

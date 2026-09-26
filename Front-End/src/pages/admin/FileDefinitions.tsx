@@ -13,12 +13,15 @@ import {
   uploadTemplate,
   FileDefinitionAdmin,
   FileDefinitionColumn,
-  IFileDefinitionUser
+  IFileDefinitionUser,
+  InitialRule
 } from '../../services/adminApi';
 
 import { Plus, Edit, Trash2, X, Check, Users, History } from 'lucide-react';
 import { Download, FileText, Upload } from 'lucide-react';
 import DefinitionVersionsModal from './DefinitionVersionsModal';
+import ExampleFileAssistant from './ExampleFileAssistant';
+import { rulesForColumns, type ColumnHint, type ExampleProposal } from './exampleProposal';
 
 const INITIAL_COLUMNS: FileDefinitionColumn[] = [
   { name: 'Column1', type: 'string', required: true }
@@ -54,6 +57,8 @@ export default function FileDefinitions() {
   const [currentTemplateFilename, setCurrentTemplateFilename] = useState<string | null>(null);
   const [versionsFor, setVersionsFor] = useState<FileDefinitionAdmin | null>(null);
   const [notice, setNotice] = useState<{ text: string; definition?: FileDefinitionAdmin } | null>(null);
+  const [exampleHints, setExampleHints] = useState<Record<string, ColumnHint>>({});
+  const [pendingRules, setPendingRules] = useState<InitialRule[]>([]);
 
   const editingDefinition = editingId ? definitions.find(def => def.id === editingId) : undefined;
 
@@ -116,6 +121,7 @@ export default function FileDefinitions() {
       status: formData.status,
       deliveryFolder: formData.deliveryFolder.trim() || null
     };
+    const initialRules = editingId ? [] : rulesForColumns(pendingRules, formData.columns).kept;
 
     let savedId: string | null = null;
     const wasEditing = Boolean(editingId);
@@ -125,7 +131,7 @@ export default function FileDefinitions() {
       setError(null);
       const saved = editingId
         ? await updateFileDefinitionAdmin(editingId, payload)
-        : await createFileDefinitionAdmin(payload);
+        : await createFileDefinitionAdmin(initialRules.length > 0 ? { ...payload, rules: initialRules } : payload);
       savedId = saved?.id || editingId;
     } catch (err) {
       console.error('Failed to save file definition:', err);
@@ -154,7 +160,8 @@ export default function FileDefinitions() {
       const current = refreshed.find(def => def.id === savedId);
       if (succeeded && current) {
         if (!wasEditing) {
-          setNotice({ text: `"${current.name}" was created and published as version ${current.activeVersion?.versionNumber ?? 1}.` });
+          const ruleText = initialRules.length > 0 ? ` It includes ${initialRules.length} rule${initialRules.length === 1 ? '' : 's'}.` : '';
+          setNotice({ text: `"${current.name}" was created and published as version ${current.activeVersion?.versionNumber ?? 1}.${ruleText}` });
         } else if (current.hasUnpublishedChanges) {
           setNotice({
             text: `"${current.name}" has unpublished changes. Uploads keep using v${current.activeVersion?.versionNumber ?? '-'} until you publish a new version.`,
@@ -178,7 +185,19 @@ export default function FileDefinitions() {
     });
     setCurrentTemplateFilename(def.templateFilename || null);
     setTemplateFile(null);
+    setExampleHints({});
+    setPendingRules([]);
     setShowModal(true);
+  };
+
+  const applyExample = (proposal: ExampleProposal) => {
+    setFormData(prev => ({
+      ...prev,
+      name: prev.name.trim() ? prev.name : proposal.suggestedName,
+      columns: proposal.columns,
+    }));
+    setExampleHints(proposal.hints);
+    setPendingRules(proposal.rules);
   };
 
   const handleDelete = async (id: string) => {
@@ -199,6 +218,8 @@ export default function FileDefinitions() {
     setEditingId(null);
     setTemplateFile(null);
     setCurrentTemplateFilename(null);
+    setExampleHints({});
+    setPendingRules([]);
     setFormData({
       name: '',
       description: '',
@@ -530,6 +551,7 @@ export default function FileDefinitions() {
                   {error}
                 </div>
               )}
+              <ExampleFileAssistant allowRules={!editingId} onApply={applyExample} />
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Name *
@@ -584,7 +606,8 @@ export default function FileDefinitions() {
                 </div>
                 
                 {formData.columns.map((col, index) => (
-                  <div key={index} className="flex items-center gap-2 mb-2">
+                  <div key={index} className="mb-2">
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
                       value={col.name}
@@ -623,8 +646,44 @@ export default function FileDefinitions() {
                       </button>
                     )}
                   </div>
+                  {exampleHints[col.name] && (
+                    <p className="mt-0.5 ml-1 text-xs text-gray-500">
+                      Example: {exampleHints[col.name].filledRows}/{exampleHints[col.name].rowsAnalyzed} rows filled
+                      {exampleHints[col.name].sampleValues.length > 0 && ` · e.g. ${exampleHints[col.name].sampleValues.join(', ')}`}
+                    </p>
+                  )}
+                  </div>
                 ))}
               </div>
+
+              {!editingId && pendingRules.length > 0 && (
+                <div className="mb-4">
+                  <p className="block text-sm font-medium text-gray-700 mb-2">Rules published with version 1</p>
+                  <ul className="space-y-1">
+                    {pendingRules.map(rule => {
+                      const skipped = rulesForColumns([rule], formData.columns).skipped.length > 0;
+                      return (
+                        <li key={rule.name} className="flex items-center justify-between gap-2 text-sm bg-gray-50 border border-gray-200 rounded-md px-3 py-1.5">
+                          <span className={skipped ? 'text-gray-400 line-through' : 'text-gray-800'}>
+                            {rule.name} <code className="text-xs bg-white px-1 rounded">{rule.expression}</code>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            {skipped && <span className="text-xs text-amber-700">Column removed; will be skipped</span>}
+                            <button
+                              type="button"
+                              onClick={() => setPendingRules(prev => prev.filter(r => r.name !== rule.name))}
+                              className="text-red-600 hover:text-red-700"
+                              aria-label={`Remove rule ${rule.name}`}
+                            >
+                              <X size={16} />
+                            </button>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
 
               {/* Delivery Section */}
               <div className="mb-4">

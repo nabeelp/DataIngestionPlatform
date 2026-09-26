@@ -368,6 +368,62 @@ export interface DefinitionVersionHistory {
   versions: DefinitionVersion[];
 }
 
+/** A rule created together with a new definition, so version 1 publishes it. */
+export interface InitialRule {
+  name: string;
+  ruleType: string;
+  expression: string;
+  severity: 'Error' | 'Warning';
+}
+
+export interface ExampleColumn extends FileDefinitionColumn {
+  filledRows: number;
+  sampleValues: string[];
+}
+
+export interface ExampleRuleSuggestion extends InitialRule {
+  reason: string;
+}
+
+export interface ExampleSheet {
+  /** Worksheet name; null for CSV files, which have no sheets. */
+  name: string | null;
+  headerRow: number | null;
+  rowsAnalyzed: number;
+  truncated: boolean;
+  columns: ExampleColumn[];
+  suggestedRules: ExampleRuleSuggestion[];
+  warnings: string[];
+}
+
+export interface ExampleAnalysis {
+  fileName: string;
+  fileType: 'csv' | 'xlsx';
+  sheets: ExampleSheet[];
+  warnings: string[];
+}
+
+/**
+ * Analyze an example CSV/XLSX file and get proposed columns and rules. The server does not keep the file.
+ */
+export const analyzeExampleFile = async (file: File): Promise<ExampleAnalysis> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = getAuthToken();
+
+  const response = await fetch(`${getBaseUrl()}/admin/file-definitions/analyze-example`, {
+    method: 'POST',
+    headers: token ? { Authorization: 'Bearer ' + token } : undefined,
+    body: formData,
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || 'Failed to analyze the example file');
+  }
+  return { fileName: data.fileName, fileType: data.fileType, sheets: data.sheets, warnings: data.warnings || [] };
+};
+
 export const getFileDefinitionVersions = (definitionId: string): Promise<DefinitionVersionHistory> =>
   apiRequest<DefinitionVersionHistory>(`/admin/file-definitions/${encodeURIComponent(definitionId)}/versions`);
 
@@ -397,6 +453,7 @@ export const createFileDefinitionAdmin = async (defData: {
   columns: FileDefinitionColumn[];
   status?: string;
   deliveryFolder?: string | null;
+  rules?: InitialRule[];
 }): Promise<FileDefinitionAdmin> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions`,

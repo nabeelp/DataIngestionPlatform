@@ -42,6 +42,17 @@ A definition's **columns and enabled rules** form its versioned contract. Everyt
 - Standard users see the active version's columns (Definitions) and rules (Rules). Admins edit the draft.
 - Deleting a definition keeps the versions that uploads reference.
 
+## Starting a definition from an example file
+
+In Admin → File Definitions, **Start from an example file** proposes a definition from an example **CSV** or **XLSX** file (up to 10 MB). The example is read the same way uploads are validated, so the proposal matches what validation will see:
+
+- **Header row**: the first non-empty row (the first record for CSV). Title rows above the headers become the header, so the panel warns when many header cells are blank.
+- **Sheets**: XLSX workbooks list each sheet with its column and row counts; choose the sheet to build the definition from. CSV files are a single table and have no sheets. Uploaded workbooks are validated sheet by sheet, so every sheet of an upload must have the chosen columns; the panel warns when the example's sheets differ.
+- **Columns**: name, the most specific type every value matches (`integer`, `decimal`, `datetime`, `boolean`, otherwise `string`), and **required** when every analyzed row has a value. Up to 1,000 data rows per sheet are analyzed. Fill counts and sample values are shown for review.
+- **Suggested rules** (new definitions only): an `Enum Check` for text columns with 2–10 repeating values. Selected suggestions are created with the definition and published in version 1. They allow only the values seen in the example, so review them carefully.
+
+**Use these columns** replaces the form's columns. You can then edit them before saving; nothing is saved until you click **Create** or **Update**. When editing an existing definition, applied columns are saved as a draft like any other column edit. The example file is deleted as soon as it has been analyzed and is never stored.
+
 `Custom SQL` and `Regex Pattern` rules are no longer supported. `upload_system_tables.sql` disables existing rules of those types, and on older databases it also disables rules without a `SqlQuery`. Review these rules on the Rules page and recreate them with a supported type before re-enabling them.
 
 ## Delivery

@@ -1,0 +1,289 @@
+// =============================================================================
+// Example File Analyzer - proposes file definition columns (and candidate rules) from an example file
+// The example is read with the same reader uploads are validated with, so the proposed header row,
+// column names and types are exactly what validation will see.
+// =============================================================================
+
+import fs from 'fs';
+import { readRecords } from './FileRecordReader';
+import { isEmptyValue, matchesType, parseRuleExpression, type ColumnType } from './ValidationEngine';
+
+export const EXAMPLE_FILE_TYPES = ['csv', 'xlsx'] as const;
+export type ExampleFileType = typeof EXAMPLE_FILE_TYPES[number];
+
+export const MAX_EXAMPLE_ROWS = 1000;
+export const MAX_EXAMPLE_SHEETS = 20;
+export const MAX_COLUMN_NAME_LENGTH = 100;
+
+const MAX_SAMPLE_VALUES = 3;
+const MAX_SAMPLE_LENGTH = 60;
+const MAX_ENUM_VALUES = 10;
+const MAX_ENUM_VALUE_LENGTH = 50;
+// An allowed-values rule is only suggested when values repeat, on average, at least this often.
+const MIN_ROWS_PER_ENUM_VALUE = 2;
+
+// Most specific first: the first type that every sampled value matches is proposed; otherwise string.
+const INFERENCE_ORDER: ColumnType[] = ['integer', 'decimal', 'datetime', 'boolean'];
+
+export interface SuggestedColumn {
+    name: string;
+    type: ColumnType;
+    required: boolean;
+    /** Rows (of those analyzed) with a value in this column. */
+    filledRows: number;
+    sampleValues: string[];
+}
+
+export interface SuggestedRule {
+    name: string;
+    ruleType: 'Enum Check';
+    expression: string;
+    severity: 'Error';
+    reason: string;
+}
+
+export interface ExampleSheet {
+    /** Worksheet name; null for CSV files, which have no sheets. */
+    name: string | null;
+    headerRow: number | null;
+    rowsAnalyzed: number;
+    truncated: boolean;
+    columns: SuggestedColumn[];
+    suggestedRules: SuggestedRule[];
+    warnings: string[];
+}
+
+export interface ExampleAnalysis {
+    fileType: ExampleFileType;
+    sheets: ExampleSheet[];
+    warnings: string[];
+}
+
+export class ExampleFileError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ExampleFileError';
+    }
+}
+
+interface ColumnProfile {
+    name: string;
+    generatedName: boolean;
+    candidates: ColumnType[];
+    filled: number;
+    samples: string[];
+    distinct: Set<string>;
+    enumEligible: boolean;
+}
+
+interface SheetProfile {
+    name: string | null;
+    headerRow: number | null;
+    rows: number;
+    columns: ColumnProfile[];
+    duplicateHeaders: string[];
+}
+
+const toText = (value: unknown): string => {
+    if (value instanceof Date) {
+        const iso = value.toISOString();
+        return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+    }
+    return String(value).trim();
+};
+
+const shorten = (text: string): string => (text.length > MAX_SAMPLE_LENGTH ? `${text.slice(0, MAX_SAMPLE_LENGTH)}...` : text);
+
+// XLSX workbooks are ZIP packages; the Excel parser would otherwise accept other formats renamed to .xlsx.
+async function hasZipSignature(filePath: string): Promise<boolean> {
+    const handle = await fs.promises.open(filePath, 'r');
+    try {
+        const buffer = Buffer.alloc(4);
+        const { bytesRead } = await handle.read(buffer, 0, 4, 0);
+        return bytesRead === 4 && buffer.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    } finally {
+        await handle.close();
+    }
+}
+
+function profileHeaders(headers: string[], name: string | null, headerRow: number | null): SheetProfile {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    const columns: ColumnProfile[] = [];
+    headers.forEach((header, index) => {
+        if (seen.has(header)) {
+            duplicates.add(header);
+            return;
+        }
+        seen.add(header);
+        columns.push({
+            name: header,
+            // FileRecordReader names blank header cells "Column<position>".
+            generatedName: header === `Column${index + 1}`,
+            candidates: [...INFERENCE_ORDER],
+            filled: 0,
+            samples: [],
+            distinct: new Set(),
+            enumEligible: true,
+        });
+    });
+    return { name, headerRow, rows: 0, columns, duplicateHeaders: [...duplicates] };
+}
+
+function profileRow(sheet: SheetProfile, row: Record<string, unknown>): void {
+    sheet.rows++;
+    for (const column of sheet.columns) {
+        const value = row[column.name];
+        if (isEmptyValue(value)) continue;
+
+        column.filled++;
+        column.candidates = column.candidates.filter(type => matchesType(value, type));
+        const text = toText(value);
+        if (column.samples.length < MAX_SAMPLE_VALUES && !column.samples.includes(shorten(text))) {
+            column.samples.push(shorten(text));
+        }
+        if (column.enumEligible) {
+            // Enum expressions are comma separated, so values containing commas cannot be listed.
+            if (typeof value !== 'string' || text.length > MAX_ENUM_VALUE_LENGTH || text.includes(',')) {
+                column.enumEligible = false;
+            } else {
+                column.distinct.add(text);
+                if (column.distinct.size > MAX_ENUM_VALUES) column.enumEligible = false;
+            }
+        }
+    }
+}
+
+function suggestRule(column: ColumnProfile, type: ColumnType): SuggestedRule | null {
+    const values = [...column.distinct];
+    if (type !== 'string' || !column.enumEligible || column.name.includes(':')) return null;
+    if (values.length < 2 || column.filled < values.length * MIN_ROWS_PER_ENUM_VALUE) return null;
+
+    const expression = `${column.name}: ${values.sort((a, b) => a.localeCompare(b)).join(', ')}`;
+    try {
+        parseRuleExpression('Enum Check', expression);
+    } catch {
+        return null;
+    }
+    return {
+        name: `${column.name} allowed values`,
+        ruleType: 'Enum Check',
+        expression,
+        severity: 'Error',
+        reason: `${values.length} distinct values repeat across ${column.filled} filled rows`,
+    };
+}
+
+function summarizeSheet(profile: SheetProfile, truncated: boolean): ExampleSheet {
+    const warnings: string[] = [];
+    const columns = profile.columns.map(column => {
+        const type: ColumnType = column.filled > 0 && column.candidates.length > 0 ? column.candidates[0] : 'string';
+        return {
+            column,
+            suggestion: {
+                name: column.name,
+                type,
+                required: profile.rows > 0 && column.filled === profile.rows,
+                filledRows: column.filled,
+                sampleValues: column.samples,
+            },
+        };
+    });
+
+    if (profile.columns.length === 0) {
+        warnings.push('No header row was found.');
+    }
+    const blankHeaders = profile.columns.filter(column => column.generatedName).length;
+    if (blankHeaders > 0) {
+        const titleHint = blankHeaders * 2 > profile.columns.length
+            ? ' Uploads use the first non-empty row as the header, so remove any title rows above the headers.'
+            : '';
+        warnings.push(`${blankHeaders} header cell(s) are blank and were named by position (for example "${profile.columns.find(c => c.generatedName)!.name}").${titleHint}`);
+    }
+    if (profile.duplicateHeaders.length > 0) {
+        warnings.push(`Duplicate headers were merged: ${profile.duplicateHeaders.join(', ')}. Validation reads only one of each; rename them in the source file.`);
+    }
+    const longNames = profile.columns.filter(column => column.name.length > MAX_COLUMN_NAME_LENGTH).length;
+    if (longNames > 0) {
+        warnings.push(`${longNames} column name(s) exceed ${MAX_COLUMN_NAME_LENGTH} characters and must be shortened before saving.`);
+    }
+    if (profile.columns.length > 0 && profile.rows === 0) {
+        warnings.push('There are no data rows below the header, so every column defaults to an optional string.');
+    }
+    if (truncated) {
+        warnings.push(`Only the first ${MAX_EXAMPLE_ROWS} data rows were analyzed.`);
+    }
+
+    return {
+        name: profile.name,
+        headerRow: profile.headerRow,
+        rowsAnalyzed: profile.rows,
+        truncated,
+        columns: columns.map(entry => entry.suggestion),
+        suggestedRules: columns
+            .map(entry => suggestRule(entry.column, entry.suggestion.type))
+            .filter((rule): rule is SuggestedRule => rule !== null),
+        warnings,
+    };
+}
+
+/**
+ * Analyze an example CSV or XLSX file and propose, per sheet, the columns (name, type, required) and
+ * candidate allowed-values rules. Proposals describe the example only; admins review them before saving.
+ * Throws ExampleFileError for unsupported or unreadable files.
+ */
+export async function analyzeExampleFile(filePath: string, fileType: string): Promise<ExampleAnalysis> {
+    const type = (fileType || '').toLowerCase().replace(/^\./, '');
+    if (!(EXAMPLE_FILE_TYPES as readonly string[]).includes(type)) {
+        throw new ExampleFileError(`Example files must be ${EXAMPLE_FILE_TYPES.map(t => t.toUpperCase()).join(' or ')}`);
+    }
+
+    const profiles = new Map<string | null, SheetProfile>();
+    let current: SheetProfile | null = null;
+
+    if (type === 'xlsx' && !(await hasZipSignature(filePath))) {
+        throw new ExampleFileError('The example file is not a valid XLSX workbook');
+    }
+    let summary;
+    try {
+        summary = await readRecords(filePath, type, {
+            onHeaders: (headers, sheet, headerRow) => {
+                current = profileHeaders(headers, sheet ?? null, headerRow ?? null);
+                profiles.set(current.name, current);
+            },
+            onRow: row => {
+                if (current) profileRow(current, row);
+            },
+        }, { maxRowsPerSheet: MAX_EXAMPLE_ROWS });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : 'unknown error';
+        throw new ExampleFileError(`The example file could not be read: ${reason}`);
+    }
+
+    const warnings: string[] = [];
+    let sheets: ExampleSheet[];
+    if (type === 'csv') {
+        const profile = profiles.get(null) ?? profileHeaders([], null, null);
+        sheets = [summarizeSheet(profile, Boolean(summary.truncated))];
+    } else {
+        sheets = summary.sheets.map(sheet => {
+            const profile = profiles.get(sheet.name) ?? profileHeaders([], sheet.name, null);
+            return summarizeSheet(profile, Boolean(sheet.truncated));
+        });
+        if (sheets.length > MAX_EXAMPLE_SHEETS) {
+            warnings.push(`Only the first ${MAX_EXAMPLE_SHEETS} of ${sheets.length} sheets are shown.`);
+            sheets = sheets.slice(0, MAX_EXAMPLE_SHEETS);
+        }
+        const layouts = new Set(
+            sheets.filter(sheet => sheet.columns.length > 0).map(sheet => sheet.columns.map(c => c.name).join('\u0000'))
+        );
+        if (layouts.size > 1) {
+            warnings.push('Sheets have different columns. Uploaded workbooks are validated sheet by sheet, so every sheet must match the columns you choose.');
+        }
+    }
+
+    if (sheets.every(sheet => sheet.columns.length === 0)) {
+        throw new ExampleFileError('The example file has no header row to build columns from');
+    }
+    return { fileType: type as ExampleFileType, sheets, warnings };
+}

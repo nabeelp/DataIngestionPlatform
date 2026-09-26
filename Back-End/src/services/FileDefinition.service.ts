@@ -3,8 +3,10 @@
 // =============================================================================
 
 import { FileDefinition } from '../models/FileDefinition.model';
+import { Rule } from '../models/Rule.model';
 import { DefinitionVersionService } from './DefinitionVersion.service';
 import { getConnection } from '../config/database';
+import type { ICreateRuleDto } from '../interfaces/rule.interface';
 import type { 
     IFileDefinition, 
     ICreateFileDefinitionDto, 
@@ -148,9 +150,14 @@ export class FileDefinitionService {
     }
 
     /**
-     * Create new file definition (admin only)
+     * Create new file definition (admin only). Initial rules (already validated by the caller) are created
+     * with it, so version 1 publishes columns and rules together.
      */
-    static async createDefinition(dto: ICreateFileDefinitionDto, createdByUserId: string): Promise<IFileDefinition> {
+    static async createDefinition(
+        dto: ICreateFileDefinitionDto,
+        createdByUserId: string,
+        initialRules: Omit<ICreateRuleDto, 'FileDefinitionId'>[] = []
+    ): Promise<IFileDefinition> {
         try {
             logger.info(`[FILEDEF_SVC] Creating definition "${dto.Name}" by user ${createdByUserId}`);
             
@@ -160,8 +167,20 @@ export class FileDefinitionService {
             }
 
             const definition = await FileDefinition.create(dto, createdByUserId);
+            const createdRuleIds: string[] = [];
+            try {
+                for (const [index, rule] of initialRules.entries()) {
+                    const created = await Rule.create({ ...rule, FileDefinitionId: definition.Id, ExecutionOrder: index + 1 }, createdByUserId);
+                    createdRuleIds.push(created.Id);
+                }
+            } catch (error) {
+                // Do not leave a half-created definition behind: it would publish version 1 without the rules.
+                for (const ruleId of createdRuleIds) await Rule.delete(ruleId).catch(() => undefined);
+                await FileDefinition.delete(definition.Id).catch(() => undefined);
+                throw error;
+            }
             await DefinitionVersionService.ensureActiveVersion(definition.Id, createdByUserId);
-            logger.info(`[FILEDEF_SVC] Created definition ${definition.Id}: ${definition.Name}`);
+            logger.info(`[FILEDEF_SVC] Created definition ${definition.Id}: ${definition.Name} with ${initialRules.length} rule(s)`);
             return definition;
         } catch (error) {
             logger.error(`[FILEDEF_SVC] Error creating definition:`, error);
