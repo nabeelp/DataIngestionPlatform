@@ -33,6 +33,24 @@ import type {
     UploadStatus,
     IUploadDetailResponse
 } from '../interfaces/upload.interface';
+import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+
+/**
+ * Attach the sheet each check applies to, from the version the upload was validated against:
+ * columns checks map to their table, rules to their Table. Null means the check covers every sheet (or the CSV).
+ */
+const withRuleSheets = (ruleDetails: IValidationRuleDetail[], version: IFileDefinitionVersion | null): IValidationRuleDetail[] => {
+    if (!version) return ruleDetails.map(detail => ({ ...detail, Sheet: null }));
+
+    const tables = validationTables({ columns: version.Columns, tables: version.Tables });
+    const ruleTables = new Map(version.Rules.map(rule => [String(rule.Id).toLowerCase(), rule.Table]));
+    return ruleDetails.map(detail => ({
+        ...detail,
+        Sheet: detail.RuleType === DEFINITION_SCHEMA_RULE_TYPE
+            ? tables.find(table => schemaCheckName(table.sheet) === detail.RuleName)?.sheet ?? null
+            : ruleTables.get(String(detail.RuleId).toLowerCase()) ?? null,
+    }));
+};
 
 export class UploadService {
     /**
@@ -467,17 +485,17 @@ export class UploadService {
         const validationResult = await ValidationResult.findByUploadId(uploadId);
         const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
         const deliveryRecords = await DeliveryRecord.findByUploadId(uploadId);
-        const definitionVersion = upload.FileDefinitionVersionId
-            ? toVersionSummary(await DefinitionVersionService.findVersion(upload.FileDefinitionVersionId))
+        const version = upload.FileDefinitionVersionId
+            ? await DefinitionVersionService.findVersion(upload.FileDefinitionVersionId)
             : null;
 
         return {
             success: true,
             upload,
-            definitionVersion,
+            definitionVersion: toVersionSummary(version),
             sheets,
             validationResult,
-            ruleDetails,
+            ruleDetails: withRuleSheets(ruleDetails, version),
             deliveryRecords
         };
     }

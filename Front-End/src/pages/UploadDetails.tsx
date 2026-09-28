@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { groupRulesBySheet } from './uploadRuleGroups';
 
 // ============================================================================
 // Types
@@ -18,6 +19,8 @@ interface SheetSummary {
 interface RuleResult {
   title: string;
   type: string;
+  /** Sheet the check applies to; null when it applies to every sheet (or the CSV). */
+  sheet: string | null;
   time?: string;
   isLast?: boolean;
   status?: 'Passed' | 'Failed' | 'Warning';
@@ -93,6 +96,7 @@ const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
   const mappedRules: RuleResult[] = ruleDetails.map((rule: any, idx: number, arr: any[]) => ({
     title: rule.RuleName || rule.ruleName || 'Unknown Rule',
     type: rule.RuleType || rule.ruleType || 'Unknown',
+    sheet: rule.Sheet ?? rule.sheet ?? null,
     time: rule.ExecutionTimeMs ? `${rule.ExecutionTimeMs}ms` : '0ms',
     isLast: idx === arr.length - 1,
     status: mapRuleStatus(rule.Status || rule.status),
@@ -229,6 +233,11 @@ const parseFailedRows = (failedRows: string): Array<{ column: string; error: str
     return [];
   }
 };
+
+const statusTextClass = (status: string): string =>
+  status.includes('Failed') ? 'text-[#ef4444]' :
+  status === 'Delivered' || status === 'Validated' || status.includes('Passed') ? 'text-[#22c55e]' :
+  'text-[#f59e0b]';
 
 const canVerify = (status: string): boolean => {
   return status === 'UPLOADED' || status === 'VALIDATION_FAILED';
@@ -573,7 +582,9 @@ const UploadDetails = () => {
           </span>
         </div>
         
-        <p className="text-xs text-gray-500 mb-6 font-medium">Delivered {sheetCount} sheet(s)</p>
+        <p className="text-xs text-gray-500 mb-6 font-medium">
+          {upload.statusCode === 'DELIVERED' ? 'Delivered' : 'Validated'} {sheetCount} sheet(s)
+        </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
           <InfoItem label="File Size" value={upload.fileSize} />
@@ -624,26 +635,25 @@ const UploadDetails = () => {
         </section>
       )}
 
-      {/* Rule Results Accordion/Section */}
-      {upload.rules.map((_, idx) => (
-        <section key={idx} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+      {/* Rule Results, one section per sheet */}
+      {groupRulesBySheet(upload.rules, upload.sheets, upload.status).map((group) => (
+        <section key={group.key} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
           <div className="flex justify-between items-center pb-4 border-b border-gray-50 mb-6">
             <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs">▼</span>
-              <span className="text-[13px] font-bold text-gray-700">{upload.sheets[0]?.name || 'Sheet'}</span>
-              <span className="text-[10px] text-gray-400">{upload.rules.length} rule(s)</span>
+              <span className="text-[13px] font-bold text-gray-700">{group.label}</span>
+              <span className="text-[10px] text-gray-400">{group.rules.length} rule(s)</span>
             </div>
-            <span className="text-[10px] text-[#22c55e] font-bold uppercase">Delivered</span>
+            <span className={`text-[10px] ${statusTextClass(group.status)} font-bold uppercase`}>{group.status}</span>
           </div>
 
           <div className="space-y-4">
-            {upload.rules.map((ruleItem, ruleIdx) => (
+            {group.rules.map((ruleItem, ruleIdx) => (
               <RuleItem 
                 key={ruleIdx}
                 title={ruleItem.title}
                 type={ruleItem.type}
                 time={ruleItem.time}
-                isLast={ruleIdx === upload.rules.length - 1}
+                isLast={ruleIdx === group.rules.length - 1}
                 status={ruleItem.status}
               />
             ))}
@@ -674,7 +684,7 @@ const SheetRow = ({ index, name, rows, status, path }: { index: string; name: st
       <td className="px-6 py-3 font-semibold text-gray-700">{name}</td>
       <td className="px-6 py-3 text-gray-500">{rows.toLocaleString()}</td>
       <td className="px-6 py-3">
-        <span className={`bg-[#f0fdf4] text-[#22c55e] text-[9px] px-1.5 py-0.5 rounded font-bold uppercase`}>
+        <span className={`${statusClass} text-[9px] px-1.5 py-0.5 rounded font-bold uppercase`}>
           {status}
         </span>
       </td>

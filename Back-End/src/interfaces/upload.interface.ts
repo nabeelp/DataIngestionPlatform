@@ -162,6 +162,8 @@ export interface IValidationRuleDetail {
     SampleErrorValue: string | null;
     StartedAt: Date | null;
     CompletedAt: Date | null;
+    /** Sheet the check applies to (null: every sheet or the CSV). Only set on upload details responses. */
+    Sheet?: string | null;
 }
 
 /**

@@ -160,10 +160,10 @@ describeDb('sheet table definitions (SQL Server)', () => {
             ReadMe: [['Anything'], ['is ignored']],
         }), 'xlsx');
         expect(good.upload.Status).toBe('VALIDATED');
-        expect(good.ruleDetails.map(r => [r.RuleName, r.Status])).toEqual([
-            ['Sheet "Orders" columns', 'PASSED'],
-            ['Sheet "Refunds" columns', 'PASSED'],
-            ['Status allowed values (Orders)', 'PASSED'],
+        expect(good.ruleDetails.map(r => [r.RuleName, r.Status, r.Sheet])).toEqual([
+            ['Sheet "Orders" columns', 'PASSED', 'Orders'],
+            ['Sheet "Refunds" columns', 'PASSED', 'Refunds'],
+            ['Status allowed values (Orders)', 'PASSED', 'Orders'],
         ]);
 
         const bad = await validateFile(id, workbook({
@@ -202,7 +202,7 @@ describeDb('sheet table definitions (SQL Server)', () => {
         const created = await createDefinition({ columns: [{ name: 'Code', type: 'string', required: true }] });
         const result = await validateFile(created.body.definition.id, workbook({ A: [['Code'], ['x']], B: [['Code'], ['y']] }), 'xlsx');
         expect(result.upload.Status).toBe('VALIDATED');
-        expect(result.ruleDetails.map(r => r.RuleName)).toEqual(['File definition columns']);
+        expect(result.ruleDetails.map(r => [r.RuleName, r.Sheet])).toEqual([['File definition columns', null]]);
     });
 
     it('requires rules added later to name an existing sheet table before publishing', async () => {
