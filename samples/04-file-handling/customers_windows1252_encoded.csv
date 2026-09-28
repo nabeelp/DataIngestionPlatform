@@ -1,0 +1,21 @@
+CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus
+CUST-000001,José,Chen,pierre.chen1@example.com,+1-555-821-9755,1984-05-02,518 MG Road,Bengaluru,KA,11827,IN,Prospect
+CUST-000002,Zoë,Chen,james.chen2@example.com,+1-555-259-2039,1962-04-28,5207 Victoria Street,London,ENG,20702,GB,Inactive
+CUST-000003,Renée,Young,naledi.young3@example.com,+1-555-471-6590,1990-11-29,8943 Victoria Street,Bengaluru,KA,55645,IN,Prospect
+CUST-000004,Björn,Muller,grace.muller4@example.com,+1-555-713-4333,1950-07-19,5220 High Road,Manchester,ENG,82066,GB,Inactive
+CUST-000005,José,Williams,emma.williams5@example.com,+1-555-279-4958,1990-09-22,419 Station Road,Cape Town,WC,00016,ZA,Active
+CUST-000006,Zoë,Walker,claire.walker6@example.com,+1-555-472-1128,1962-10-09,5625 High Road,New York,NY,61623,US,Prospect
+CUST-000007,Renée,Mokoena,priya.mokoena7@example.com,+1-555-577-3793,1988-01-11,5879 Jan Smuts Avenue,Manchester,ENG,80505,GB,Active
+CUST-000008,Björn,Thomas,robert.thomas8@example.com,+1-555-929-7429,1960-08-21,4966 Victoria Street,Johannesburg,GP,64189,ZA,Active
+CUST-000009,José,Schmidt,patricia.schmidt9@example.com,+1-555-725-8578,1985-01-30,8680 Rue de Rivoli,Berlin,BE,83418,DE,Active
+CUST-000010,Zoë,Johnson,emma.johnson10@example.com,+1-555-729-5855,1986-08-25,4823 Park Lane,Austin,TX,58332,US,Active
+CUST-000011,Renée,Walker,jennifer.walker11@example.com,+1-555-524-7513,1991-12-31,2755 Rue de Rivoli,Cape Town,WC,59617,ZA,Active
+CUST-000012,Björn,Jackson,greta.jackson12@example.com,+1-555-209-5995,1960-06-29,4807 Victoria Street,Manchester,ENG,63022,GB,Prospect
+CUST-000013,José,Muller,emma.muller13@example.com,+1-555-455-3442,1991-12-22,4709 High Road,Durban,KZN,38476,ZA,Inactive
+CUST-000014,Zoë,Nkosi,pierre.nkosi14@example.com,+1-555-831-1869,2002-06-08,7396 MG Road,Manchester,ENG,73726,GB,Inactive
+CUST-000015,Renée,Garcia,priya.garcia15@example.com,+1-555-813-6975,1980-02-26,842 Rue de Rivoli,Austin,TX,19253,US,Inactive
+CUST-000016,Björn,Dubois,john.dubois16@example.com,+1-555-718-5587,2002-01-31,3875 Church Street,Toronto,ON,68445,CA,Inactive
+CUST-000017,José,Clark,david.clark17@example.com,+1-555-760-4758,1971-10-09,9131 Main St,Paris,IDF,99877,FR,Inactive
+CUST-000018,Zoë,Johnson,john.johnson18@example.com,+1-555-998-6427,1951-03-16,4843 Jan Smuts Avenue,Cape Town,WC,64359,ZA,Inactive
+CUST-000019,Renée,Brown,mary.brown19@example.com,+1-555-364-2574,1979-01-20,7443 Hauptstraße,Melbourne,VIC,73996,AU,Inactive
+CUST-000020,Björn,Harris,claire.harris20@example.com,+1-555-794-6796,1952-07-22,1784 Rue de Rivoli,Munich,BY,47113,DE,Prospect

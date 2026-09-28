@@ -1,0 +1,41 @@
+﻿CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus
+CUST-000001,Ñandú,王,customer1@example.com,+1-555-319-2550,1989-11-14,5765 Rue de Rivoli,Seattle,WA,25661,US,Prospect
+CUST-000002,Αλέξανδρος,Çelik,customer2@example.com,+1-555-573-1476,1973-04-29,6592 Hauptstraße,Seattle,WA,75503,US,Prospect
+CUST-000003,Renée,Kovačević,customer3@example.com,+1-555-292-5429,1999-08-19,410 Long Street,Seattle,WA,63045,US,Prospect
+CUST-000004,Øyvind,山田,customer4@example.com,+1-555-277-4408,1966-02-06,3603 Oak Avenue,Sydney,NSW,31580,AU,Active
+CUST-000005,李,王,customer5@example.com,+1-555-101-1158,1981-03-25,8304 Rue de Rivoli,Munich,BY,88542,DE,Active
+CUST-000006,Dvořák,Παπαδόπουλος,customer6@example.com,+1-555-719-8829,2000-11-23,6916 Station Road,New York,NY,02141,US,Prospect
+CUST-000007,Søren,כהן,customer7@example.com,+1-555-273-3109,1958-02-09,1034 Hauptstraße,Sydney,NSW,67340,AU,Prospect
+CUST-000008,李,כהן,customer8@example.com,+1-555-193-9268,1997-11-18,3404 Jan Smuts Avenue,Toronto,ON,02112,CA,Inactive
+CUST-000009,Björn,Kovačević,customer9@example.com,+1-555-566-1754,2000-05-26,2604 Park Lane,Bengaluru,KA,77353,IN,Active
+CUST-000010,Ångström,Şahin,customer10@example.com,+1-555-263-6500,1958-02-25,3035 Park Lane,Toronto,ON,45997,CA,Prospect
+CUST-000011,Nguyễn,王,customer11@example.com,+1-555-936-4707,1950-02-16,3300 Jan Smuts Avenue,Manchester,ENG,57036,GB,Inactive
+CUST-000012,José,O'Brien,customer12@example.com,+1-555-328-4333,1985-09-25,9812 Oak Avenue,New York,NY,64821,US,Inactive
+CUST-000013,李,Ødegaard,customer13@example.com,+1-555-403-1191,1962-09-28,7874 Station Road,Durban,KZN,74181,ZA,Prospect
+CUST-000014,Renée,O'Brien,customer14@example.com,+1-555-678-8070,1960-07-05,6242 Main St,Berlin,BE,49955,DE,Active
+CUST-000015,שרה,山田,customer15@example.com,+1-555-381-7595,2003-01-30,4874 Long Street,Austin,TX,07707,US,Active
+CUST-000016,Renée,כהן,customer16@example.com,+1-555-119-1114,1991-12-25,2479 Victoria Street,Durban,KZN,81914,ZA,Inactive
+CUST-000017,李,Иванова,customer17@example.com,+1-555-769-5187,2003-09-19,9772 Main St,London,ENG,72678,GB,Inactive
+CUST-000018,Ñandú,Ødegaard,customer18@example.com,+1-555-590-4632,1987-06-26,9786 Park Lane,Paris,IDF,43258,FR,Active
+CUST-000019,שרה,Straße,customer19@example.com,+1-555-939-2450,2003-11-13,2519 Station Road,Mumbai,MH,88605,IN,Active
+CUST-000020,佐藤,Kovačević,customer20@example.com,+1-555-770-6225,1962-04-22,2740 Oak Avenue,Lyon,ARA,37435,FR,Inactive
+CUST-000021,محمد,Nuñez,customer21@example.com,+1-555-252-4704,1989-01-01,7810 Oak Avenue,Cape Town,WC,70624,ZA,Prospect
+CUST-000022,佐藤,Van der Merwe,customer22@example.com,+1-555-998-3079,2002-01-09,8987 Rue de Rivoli,Sydney,NSW,20020,AU,Prospect
+CUST-000023,Dvořák,العلي,customer23@example.com,+1-555-984-2285,1986-02-07,1835 Jan Smuts Avenue,London,ENG,16564,GB,Prospect
+CUST-000024,Ångström,王,customer24@example.com,+1-555-210-7997,1999-12-04,801 Oak Avenue,Durban,KZN,07079,ZA,Inactive
+CUST-000025,محمد,العلي,customer25@example.com,+1-555-208-1977,1993-02-21,7849 Oak Avenue,New York,NY,69101,US,Inactive
+CUST-000026,Αλέξανδρος,Παπαδόπουλος,customer26@example.com,+1-555-261-1301,1966-01-14,6779 Hauptstraße,Mumbai,MH,69414,IN,Prospect
+CUST-000027,Αλέξανδρος,Nuñez,customer27@example.com,+1-555-623-2868,1984-04-25,5064 Rue de Rivoli,Munich,BY,87645,DE,Active
+CUST-000028,佐藤,Müller,customer28@example.com,+1-555-328-2723,1955-06-21,6112 High Road,Toronto,ON,92529,CA,Prospect
+CUST-000029,Мария,王,customer29@example.com,+1-555-889-9552,1953-11-08,8332 Rue de Rivoli,New York,NY,99276,US,Active
+CUST-000030,Søren,Παπαδόπουλος,customer30@example.com,+1-555-779-7890,1999-01-25,2939 Main St,Cape Town,WC,71510,ZA,Inactive
+CUST-000031,Łukasz,Nuñez,customer31@example.com,+1-555-343-5296,1973-09-18,7485 Jan Smuts Avenue,Toronto,ON,40029,CA,Inactive
+CUST-000032,佐藤,Kovačević,customer32@example.com,+1-555-299-6477,1976-08-31,7634 Hauptstraße,Bengaluru,KA,31911,IN,Inactive
+CUST-000033,Björn,D’Angelo,customer33@example.com,+1-555-777-7208,1988-10-28,6595 Jan Smuts Avenue,Cape Town,WC,03027,ZA,Inactive
+CUST-000034,Siyabonga,Nuñez,customer34@example.com,+1-555-995-8445,2002-04-20,5871 MG Road,Mumbai,MH,64904,IN,Inactive
+CUST-000035,Ñandú,Παπαδόπουλος,customer35@example.com,+1-555-666-8491,1956-01-20,7032 High Road,New York,NY,96718,US,Prospect
+CUST-000036,Αλέξανδρος,Müller,customer36@example.com,+1-555-857-9987,1997-05-19,8501 MG Road,London,ENG,92120,GB,Prospect
+CUST-000037,Søren,Van der Merwe,customer37@example.com,+1-555-116-9221,1990-01-15,4269 Station Road,Durban,KZN,41528,ZA,Prospect
+CUST-000038,李,Παπαδόπουλος,customer38@example.com,+1-555-681-7914,1998-10-15,5011 Church Street,Sydney,NSW,96540,AU,Prospect
+CUST-000039,José,Иванова,customer39@example.com,+1-555-431-1749,1977-02-28,9038 Hauptstraße,Melbourne,VIC,78880,AU,Active
+CUST-000040,Chloé,Łódź,customer40@example.com,+1-555-597-3473,1996-09-08,4640 Rue de Rivoli,Bengaluru,KA,70077,IN,Inactive

@@ -1,0 +1,2 @@
+CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus
+CUST-1,A,B,a@example.com,,,,,,,US,Active

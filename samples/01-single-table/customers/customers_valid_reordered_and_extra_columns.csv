@@ -1,0 +1,51 @@
+Loyalty Tier,Country,CustomerStatus,Email,CustomerId,LastName,FirstName,Phone,DateOfBirth,Internal Notes,City,Address,State,ZipCode,Marketing Opt-In
+Gold,FR,Inactive,ethan.davis1@example.com,CUST-000001,Davis,Ethan,+1-555-420-2973,1956-05-25,n/a,Lyon,1271 Victoria Street,ARA,53015,maybe later
+Silver,ZA,Active,claire.brown2@example.com,CUST-000002,Brown,Claire,+1-555-172-4031,1991-10-09,n/a,Durban,4793 High Road,KZN,00925,maybe later
+Bronze,IN,Active,naledi.clark3@example.com,CUST-000003,Clark,Naledi,+1-555-876-4215,1951-02-05,n/a,Bengaluru,8266 Church Street,KA,68253,maybe later
+Gold,DE,Prospect,elizabeth.miller4@example.com,CUST-000004,Miller,Elizabeth,+1-555-215-7945,1960-07-30,n/a,Munich,899 Rue de Rivoli,BY,04660,maybe later
+Silver,US,Inactive,liam.sharma5@example.com,CUST-000005,Sharma,Liam,+1-555-230-5243,2004-05-07,n/a,Seattle,5186 Main St,WA,24059,maybe later
+Bronze,CA,Prospect,john.martin6@example.com,CUST-000006,Martin,John,+1-555-233-2729,1969-04-23,n/a,Vancouver,538 Main St,BC,20916,maybe later
+Gold,US,Active,wei.williams7@example.com,CUST-000007,Williams,Wei,+1-555-714-8421,1957-08-21,n/a,Seattle,7307 Hauptstraße,WA,99023,maybe later
+Silver,US,Prospect,pierre.dlamini8@example.com,CUST-000008,Dlamini,Pierre,+1-555-299-8581,2001-01-25,n/a,Austin,8705 Oak Avenue,TX,03047,maybe later
+Bronze,ZA,Inactive,noah.miller9@example.com,CUST-000009,Miller,Noah,+1-555-592-8864,1974-05-12,n/a,Johannesburg,3527 MG Road,GP,23788,maybe later
+Gold,CA,Prospect,hans.walker10@example.com,CUST-000010,Walker,Hans,+1-555-180-2799,1979-12-11,n/a,Vancouver,7388 Station Road,BC,42323,maybe later
+Silver,FR,Inactive,priya.williams11@example.com,CUST-000011,Williams,Priya,+1-555-912-1207,1960-04-20,n/a,Lyon,6926 MG Road,ARA,99893,maybe later
+Bronze,DE,Active,lerato.mokoena12@example.com,CUST-000012,Mokoena,Lerato,+1-555-498-9976,2002-06-11,n/a,Berlin,3822 Station Road,BE,70158,maybe later
+Gold,CA,Prospect,noah.lewis13@example.com,CUST-000013,Lewis,Noah,+1-555-572-6979,1990-08-14,n/a,Toronto,2158 Oak Avenue,ON,47239,maybe later
+Silver,US,Inactive,pierre.martin14@example.com,CUST-000014,Martin,Pierre,+1-555-395-7337,1952-11-17,n/a,Seattle,6568 Jan Smuts Avenue,WA,73127,maybe later
+Bronze,FR,Active,pierre.moore15@example.com,CUST-000015,Moore,Pierre,+1-555-822-8477,1998-04-11,n/a,Paris,5896 High Road,IDF,53105,maybe later
+Gold,FR,Inactive,arjun.miller16@example.com,CUST-000016,Miller,Arjun,+1-555-108-7859,1972-08-30,n/a,Paris,2253 Jan Smuts Avenue,IDF,33862,maybe later
+Silver,ZA,Inactive,james.schmidt17@example.com,CUST-000017,Schmidt,James,+1-555-803-9315,1963-12-12,n/a,Johannesburg,9253 Hauptstraße,GP,56205,maybe later
+Bronze,IN,Active,grace.young18@example.com,CUST-000018,Young,Grace,+1-555-264-3401,1995-10-07,n/a,Bengaluru,5890 Hauptstraße,KA,07370,maybe later
+Gold,CA,Prospect,chloe.brown19@example.com,CUST-000019,Brown,Chloe,+1-555-962-1752,1955-03-29,n/a,Vancouver,3464 Church Street,BC,32026,maybe later
+Silver,IN,Inactive,noah.patel20@example.com,CUST-000020,Patel,Noah,+1-555-495-8627,1964-03-15,n/a,Bengaluru,8211 Oak Avenue,KA,34859,maybe later
+Bronze,CA,Active,claire.clark21@example.com,CUST-000021,Clark,Claire,+1-555-768-4981,2004-05-24,n/a,Vancouver,4083 Station Road,BC,52275,maybe later
+Gold,FR,Active,patricia.williams22@example.com,CUST-000022,Williams,Patricia,+1-555-763-7955,1971-05-06,n/a,Paris,5085 Long Street,IDF,50358,maybe later
+Silver,DE,Prospect,ethan.chen23@example.com,CUST-000023,Chen,Ethan,+1-555-389-9967,1996-09-14,n/a,Berlin,7813 Oak Avenue,BE,27677,maybe later
+Bronze,FR,Inactive,liam.smith24@example.com,CUST-000024,Smith,Liam,+1-555-180-1025,1950-07-08,n/a,Paris,2152 Church Street,IDF,68467,maybe later
+Gold,AU,Prospect,patricia.nkosi25@example.com,CUST-000025,Nkosi,Patricia,+1-555-250-6855,2001-05-30,n/a,Melbourne,7367 Jan Smuts Avenue,VIC,58435,maybe later
+Silver,GB,Inactive,hans.nkosi26@example.com,CUST-000026,Nkosi,Hans,+1-555-853-9509,1982-07-13,n/a,London,9764 Rue de Rivoli,ENG,78568,maybe later
+Bronze,FR,Inactive,patricia.chen27@example.com,CUST-000027,Chen,Patricia,+1-555-726-7605,1978-11-11,n/a,Paris,20 Main St,IDF,27249,maybe later
+Gold,IN,Active,liam.white28@example.com,CUST-000028,White,Liam,+1-555-182-5899,1970-07-24,n/a,Mumbai,8358 Main St,MH,79586,maybe later
+Silver,FR,Active,michael.davis29@example.com,CUST-000029,Davis,Michael,+1-555-760-3754,1956-02-02,n/a,Lyon,9166 Victoria Street,ARA,52828,maybe later
+Bronze,ZA,Active,claire.dlamini30@example.com,CUST-000030,Dlamini,Claire,+1-555-446-5766,1951-07-22,n/a,Durban,4163 Jan Smuts Avenue,KZN,37432,maybe later
+Gold,DE,Inactive,elizabeth.smith31@example.com,CUST-000031,Smith,Elizabeth,+1-555-599-1695,1999-04-17,n/a,Berlin,817 Church Street,BE,65754,maybe later
+Silver,ZA,Prospect,chloe.anderson32@example.com,CUST-000032,Anderson,Chloe,+1-555-398-3463,1997-08-24,n/a,Johannesburg,7612 Church Street,GP,03956,maybe later
+Bronze,DE,Prospect,aiden.walker33@example.com,CUST-000033,Walker,Aiden,+1-555-774-4073,1996-07-15,n/a,Berlin,8709 Church Street,BE,08232,maybe later
+Gold,GB,Prospect,linda.sharma34@example.com,CUST-000034,Sharma,Linda,+1-555-713-6298,1966-05-20,n/a,London,8016 High Road,ENG,33811,maybe later
+Silver,AU,Active,thabo.muller35@example.com,CUST-000035,Muller,Thabo,+1-555-226-9102,2004-05-20,n/a,Melbourne,7365 High Road,VIC,79902,maybe later
+Bronze,ZA,Prospect,liam.patel36@example.com,CUST-000036,Patel,Liam,+1-555-809-4180,1979-10-29,n/a,Durban,6237 Long Street,KZN,25841,maybe later
+Gold,CA,Prospect,aiden.lewis37@example.com,CUST-000037,Lewis,Aiden,+1-555-381-2809,2004-07-05,n/a,Vancouver,50 Long Street,BC,82769,maybe later
+Silver,ZA,Inactive,noah.white38@example.com,CUST-000038,White,Noah,+1-555-354-4095,2002-09-25,n/a,Cape Town,9073 High Road,WC,07794,maybe later
+Bronze,CA,Active,hans.davis39@example.com,CUST-000039,Davis,Hans,+1-555-616-3873,1999-12-06,n/a,Vancouver,5154 Hauptstraße,BC,40295,maybe later
+Gold,CA,Inactive,mary.walker40@example.com,CUST-000040,Walker,Mary,+1-555-468-6278,1960-12-31,n/a,Vancouver,7379 MG Road,BC,30790,maybe later
+Silver,US,Active,james.davis41@example.com,CUST-000041,Davis,James,+1-555-436-3436,1973-03-23,n/a,New York,4667 Rue de Rivoli,NY,09453,maybe later
+Bronze,US,Active,priya.williams42@example.com,CUST-000042,Williams,Priya,+1-555-168-1318,1979-10-20,n/a,New York,7244 Park Lane,NY,28569,maybe later
+Gold,DE,Prospect,thabo.miller43@example.com,CUST-000043,Miller,Thabo,+1-555-434-7445,1965-06-15,n/a,Munich,7266 Hauptstraße,BY,44504,maybe later
+Silver,CA,Inactive,noah.nkosi44@example.com,CUST-000044,Nkosi,Noah,+1-555-580-6507,1990-04-27,n/a,Toronto,4142 Oak Avenue,ON,90384,maybe later
+Bronze,US,Active,thabo.clark45@example.com,CUST-000045,Clark,Thabo,+1-555-668-6780,1964-01-23,n/a,Austin,1554 MG Road,TX,50628,maybe later
+Gold,FR,Active,john.moore46@example.com,CUST-000046,Moore,John,+1-555-707-5320,1997-10-08,n/a,Paris,1861 Oak Avenue,IDF,09289,maybe later
+Silver,FR,Prospect,wei.patel47@example.com,CUST-000047,Patel,Wei,+1-555-407-9762,1969-06-02,n/a,Lyon,977 Oak Avenue,ARA,05609,maybe later
+Bronze,FR,Inactive,michael.nkosi48@example.com,CUST-000048,Nkosi,Michael,+1-555-199-4843,1994-11-10,n/a,Paris,3458 Main St,IDF,15011,maybe later
+Gold,ZA,Inactive,claire.schmidt49@example.com,CUST-000049,Schmidt,Claire,+1-555-664-9098,1972-07-17,n/a,Johannesburg,4049 Jan Smuts Avenue,GP,06069,maybe later
+Silver,US,Active,naledi.taylor50@example.com,CUST-000050,Taylor,Naledi,+1-555-789-4942,1998-11-04,n/a,New York,2449 Rue de Rivoli,NY,49123,maybe later

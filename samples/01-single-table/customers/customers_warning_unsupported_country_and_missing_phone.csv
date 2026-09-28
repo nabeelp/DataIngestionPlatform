@@ -1,0 +1,51 @@
+CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus
+CUST-000001,Ethan,Davis,ethan.davis1@example.com,+1-555-420-2973,1956-05-25,1271 Victoria Street,Lyon,ARA,53015,FR,Inactive
+CUST-000002,Claire,Brown,claire.brown2@example.com,+1-555-172-4031,1991-10-09,4793 High Road,Durban,KZN,00925,ZA,Active
+CUST-000003,Naledi,Clark,naledi.clark3@example.com,+1-555-876-4215,1951-02-05,8266 Church Street,Bengaluru,KA,68253,IN,Active
+CUST-000004,Elizabeth,Miller,elizabeth.miller4@example.com,+1-555-215-7945,1960-07-30,899 Rue de Rivoli,Munich,BY,04660,NZ,Prospect
+CUST-000005,Liam,Sharma,liam.sharma5@example.com,+1-555-230-5243,2004-05-07,5186 Main St,Seattle,WA,24059,US,Inactive
+CUST-000006,John,Martin,john.martin6@example.com,+1-555-233-2729,1969-04-23,538 Main St,Vancouver,BC,20916,CA,Prospect
+CUST-000007,Wei,Williams,wei.williams7@example.com,+1-555-714-8421,1957-08-21,7307 Hauptstraße,Seattle,WA,99023,US,Active
+CUST-000008,Pierre,Dlamini,pierre.dlamini8@example.com,+1-555-299-8581,2001-01-25,8705 Oak Avenue,Austin,TX,03047,US,Prospect
+CUST-000009,Noah,Miller,noah.miller9@example.com,+1-555-592-8864,1974-05-12,3527 MG Road,Johannesburg,GP,23788,BR,Inactive
+CUST-000010,Hans,Walker,hans.walker10@example.com,+1-555-180-2799,1979-12-11,7388 Station Road,Vancouver,BC,42323,CA,Prospect
+CUST-000011,Priya,Williams,priya.williams11@example.com,+1-555-912-1207,1960-04-20,6926 MG Road,Lyon,ARA,99893,FR,Inactive
+CUST-000012,Lerato,Mokoena,lerato.mokoena12@example.com,,2002-06-11,3822 Station Road,Berlin,BE,70158,DE,Active
+CUST-000013,Noah,Lewis,noah.lewis13@example.com,+1-555-572-6979,1990-08-14,2158 Oak Avenue,Toronto,ON,47239,CA,Prospect
+CUST-000014,Pierre,Martin,pierre.martin14@example.com,+1-555-395-7337,1952-11-17,6568 Jan Smuts Avenue,Seattle,WA,73127,US,Inactive
+CUST-000015,Pierre,Moore,pierre.moore15@example.com,+1-555-822-8477,1998-04-11,5896 High Road,Paris,IDF,53105,FR,Active
+CUST-000016,Arjun,Miller,arjun.miller16@example.com,+1-555-108-7859,1972-08-30,2253 Jan Smuts Avenue,Paris,IDF,33862,FR,Inactive
+CUST-000017,James,Schmidt,james.schmidt17@example.com,+1-555-803-9315,1963-12-12,9253 Hauptstraße,Johannesburg,GP,56205,ZA,Inactive
+CUST-000018,Grace,Young,grace.young18@example.com,+1-555-264-3401,1995-10-07,5890 Hauptstraße,Bengaluru,KA,07370,IN,Active
+CUST-000019,Chloe,Brown,chloe.brown19@example.com,+1-555-962-1752,1955-03-29,3464 Church Street,Vancouver,BC,32026,CA,Prospect
+CUST-000020,Noah,Patel,noah.patel20@example.com,+1-555-495-8627,1964-03-15,8211 Oak Avenue,Bengaluru,KA,34859,IN,Inactive
+CUST-000021,Claire,Clark,claire.clark21@example.com,,2004-05-24,4083 Station Road,Vancouver,BC,52275,CA,Active
+CUST-000022,Patricia,Williams,patricia.williams22@example.com,+1-555-763-7955,1971-05-06,5085 Long Street,Paris,IDF,50358,FR,Active
+CUST-000023,Ethan,Chen,ethan.chen23@example.com,+1-555-389-9967,1996-09-14,7813 Oak Avenue,Berlin,BE,27677,DE,Prospect
+CUST-000024,Liam,Smith,liam.smith24@example.com,+1-555-180-1025,1950-07-08,2152 Church Street,Paris,IDF,68467,FR,Inactive
+CUST-000025,Patricia,Nkosi,patricia.nkosi25@example.com,+1-555-250-6855,2001-05-30,7367 Jan Smuts Avenue,Melbourne,VIC,58435,AU,Prospect
+CUST-000026,Hans,Nkosi,hans.nkosi26@example.com,+1-555-853-9509,1982-07-13,9764 Rue de Rivoli,London,ENG,78568,GB,Inactive
+CUST-000027,Patricia,Chen,patricia.chen27@example.com,+1-555-726-7605,1978-11-11,20 Main St,Paris,IDF,27249,FR,Inactive
+CUST-000028,Liam,White,liam.white28@example.com,+1-555-182-5899,1970-07-24,8358 Main St,Mumbai,MH,79586,IN,Active
+CUST-000029,Michael,Davis,michael.davis29@example.com,+1-555-760-3754,1956-02-02,9166 Victoria Street,Lyon,ARA,52828,FR,Active
+CUST-000030,Claire,Dlamini,claire.dlamini30@example.com,+1-555-446-5766,1951-07-22,4163 Jan Smuts Avenue,Durban,KZN,37432,ZA,Active
+CUST-000031,Elizabeth,Smith,elizabeth.smith31@example.com,+1-555-599-1695,1999-04-17,817 Church Street,Berlin,BE,65754,DE,Inactive
+CUST-000032,Chloe,Anderson,chloe.anderson32@example.com,+1-555-398-3463,1997-08-24,7612 Church Street,Johannesburg,GP,03956,ZA,Prospect
+CUST-000033,Aiden,Walker,aiden.walker33@example.com,+1-555-774-4073,1996-07-15,8709 Church Street,Berlin,BE,08232,DE,Prospect
+CUST-000034,Linda,Sharma,linda.sharma34@example.com,+1-555-713-6298,1966-05-20,8016 High Road,London,ENG,33811,us,Prospect
+CUST-000035,Thabo,Muller,thabo.muller35@example.com,+1-555-226-9102,2004-05-20,7365 High Road,Melbourne,VIC,79902,AU,Active
+CUST-000036,Liam,Patel,liam.patel36@example.com,+1-555-809-4180,1979-10-29,6237 Long Street,Durban,KZN,25841,ZA,Prospect
+CUST-000037,Aiden,Lewis,aiden.lewis37@example.com,+1-555-381-2809,2004-07-05,50 Long Street,Vancouver,BC,82769,CA,Prospect
+CUST-000038,Noah,White,noah.white38@example.com,+1-555-354-4095,2002-09-25,9073 High Road,Cape Town,WC,07794,ZA,Inactive
+CUST-000039,Hans,Davis,hans.davis39@example.com,+1-555-616-3873,1999-12-06,5154 Hauptstraße,Vancouver,BC,40295,CA,Active
+CUST-000040,Mary,Walker,mary.walker40@example.com,+1-555-468-6278,1960-12-31,7379 MG Road,Vancouver,BC,30790,CA,Inactive
+CUST-000041,James,Davis,james.davis41@example.com,+1-555-436-3436,1973-03-23,4667 Rue de Rivoli,New York,NY,09453,US,Active
+CUST-000042,Priya,Williams,priya.williams42@example.com,+1-555-168-1318,1979-10-20,7244 Park Lane,New York,NY,28569,US,Active
+CUST-000043,Thabo,Miller,thabo.miller43@example.com,+1-555-434-7445,1965-06-15,7266 Hauptstraße,Munich,BY,44504,DE,Prospect
+CUST-000044,Noah,Nkosi,noah.nkosi44@example.com,+1-555-580-6507,1990-04-27,4142 Oak Avenue,Toronto,ON,90384,CA,Inactive
+CUST-000045,Thabo,Clark,thabo.clark45@example.com,+1-555-668-6780,1964-01-23,1554 MG Road,Austin,TX,50628,US,Active
+CUST-000046,John,Moore,john.moore46@example.com,+1-555-707-5320,1997-10-08,1861 Oak Avenue,Paris,IDF,09289,FR,Active
+CUST-000047,Wei,Patel,wei.patel47@example.com,+1-555-407-9762,1969-06-02,977 Oak Avenue,Lyon,ARA,05609,FR,Prospect
+CUST-000048,Michael,Nkosi,michael.nkosi48@example.com,+1-555-199-4843,1994-11-10,3458 Main St,Paris,IDF,15011,FR,Inactive
+CUST-000049,Claire,Schmidt,claire.schmidt49@example.com,+1-555-664-9098,1972-07-17,4049 Jan Smuts Avenue,Johannesburg,GP,06069,ZA,Inactive
+CUST-000050,Naledi,Taylor,naledi.taylor50@example.com,+1-555-789-4942,1998-11-04,2449 Rue de Rivoli,New York,NY,49123,US,Active

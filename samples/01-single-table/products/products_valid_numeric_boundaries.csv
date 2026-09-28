@@ -1,0 +1,6 @@
+SKU,ProductName,Category,Description,UnitPrice,CostPrice,StockQuantity,ReorderLevel,Supplier,WeightKg,Dimensions,Active
+SKU-00001,Eco Charger,Electronics,Electronics item #1 for everyday use,0,40.87,0,500,Fabrikam Inc,0,68x58x27 cm,true
+SKU-00002,Portable T-Shirt,Apparel,Apparel item #2 for everyday use,100000,755.95,10000,0,Tailspin Toys,-0,30x67x50 cm,true
+SKU-00003,Ultra Headphones,Electronics,Electronics item #3 for everyday use,100000.00,208.42,+10,336,Fabrikam Inc,.5,39x44x37 cm,true
+SKU-00004,Premium Kite,Toys,Toys item #4 for everyday use,1e3,1.5E2,007,165,Wide World Importers,16.501,79x17x25 cm,true
+SKU-00005,Portable Kite,Toys,Toys item #5 for everyday use,+19.99,0.,5793,,Adventure Works,,23x9x16 cm,true

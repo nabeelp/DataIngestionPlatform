@@ -1,0 +1,11 @@
+CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus,Email
+CUST-000001,Ethan,Davis,ethan.davis1@example.com,+1-555-420-2973,1956-05-25,1271 Victoria Street,Lyon,ARA,53015,FR,Inactive,
+CUST-000002,Claire,Brown,claire.brown2@example.com,+1-555-172-4031,1991-10-09,4793 High Road,Durban,KZN,00925,ZA,Active,
+CUST-000003,Naledi,Clark,naledi.clark3@example.com,+1-555-876-4215,1951-02-05,8266 Church Street,Bengaluru,KA,68253,IN,Active,
+CUST-000004,Elizabeth,Miller,elizabeth.miller4@example.com,+1-555-215-7945,1960-07-30,899 Rue de Rivoli,Munich,BY,04660,DE,Prospect,
+CUST-000005,Liam,Sharma,liam.sharma5@example.com,+1-555-230-5243,2004-05-07,5186 Main St,Seattle,WA,24059,US,Inactive,
+CUST-000006,John,Martin,john.martin6@example.com,+1-555-233-2729,1969-04-23,538 Main St,Vancouver,BC,20916,CA,Prospect,
+CUST-000007,Wei,Williams,wei.williams7@example.com,+1-555-714-8421,1957-08-21,7307 Hauptstraße,Seattle,WA,99023,US,Active,
+CUST-000008,Pierre,Dlamini,pierre.dlamini8@example.com,+1-555-299-8581,2001-01-25,8705 Oak Avenue,Austin,TX,03047,US,Prospect,
+CUST-000009,Noah,Miller,noah.miller9@example.com,+1-555-592-8864,1974-05-12,3527 MG Road,Johannesburg,GP,23788,ZA,Inactive,
+CUST-000010,Hans,Walker,hans.walker10@example.com,+1-555-180-2799,1979-12-11,7388 Station Road,Vancouver,BC,42323,CA,Prospect,

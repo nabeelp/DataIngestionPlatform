@@ -1,0 +1,695 @@
+{
+  "customers": {
+    "name": "Sample - Customers",
+    "description": "Sample single-table definition (same columns as \"Customer Data\") with enum, required-value and schema rules.",
+    "columns": [
+      {
+        "name": "CustomerId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "FirstName",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "LastName",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "Email",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "Phone",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "DateOfBirth",
+        "type": "datetime",
+        "required": false
+      },
+      {
+        "name": "Address",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "City",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "State",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "ZipCode",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "Country",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "CustomerStatus",
+        "type": "string",
+        "required": true
+      }
+    ],
+    "tables": [],
+    "rules": [
+      {
+        "name": "Customer status allowed values",
+        "ruleType": "Enum Check",
+        "expression": "CustomerStatus: Active, Inactive, Prospect",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Country is a supported market",
+        "ruleType": "Enum Check",
+        "expression": "Country: US, CA, GB, ZA, AU, DE, FR, IN",
+        "severity": "Warning",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Phone number provided",
+        "ruleType": "Required Values",
+        "expression": "Phone",
+        "severity": "Warning",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Key customer columns present",
+        "ruleType": "Schema Validation",
+        "expression": "CustomerId, Email",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      }
+    ]
+  },
+  "products": {
+    "name": "Sample - Products",
+    "description": "Sample single-table definition (same columns as \"Product Catalog\") with range, enum and type rules.",
+    "columns": [
+      {
+        "name": "SKU",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "ProductName",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "Category",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "Description",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "UnitPrice",
+        "type": "decimal",
+        "required": true
+      },
+      {
+        "name": "CostPrice",
+        "type": "decimal",
+        "required": true
+      },
+      {
+        "name": "StockQuantity",
+        "type": "integer",
+        "required": true
+      },
+      {
+        "name": "ReorderLevel",
+        "type": "integer",
+        "required": false
+      },
+      {
+        "name": "Supplier",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "WeightKg",
+        "type": "decimal",
+        "required": false
+      },
+      {
+        "name": "Dimensions",
+        "type": "string",
+        "required": false
+      },
+      {
+        "name": "Active",
+        "type": "boolean",
+        "required": true
+      }
+    ],
+    "tables": [],
+    "rules": [
+      {
+        "name": "Unit price range",
+        "ruleType": "Range Check",
+        "expression": "UnitPrice: 0..100000",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Stock quantity range",
+        "ruleType": "Range Check",
+        "expression": "StockQuantity: 0..10000",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Weight is not negative",
+        "ruleType": "Range Check",
+        "expression": "WeightKg: 0..",
+        "severity": "Warning",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Reorder level ceiling",
+        "ruleType": "Range Check",
+        "expression": "ReorderLevel: ..500",
+        "severity": "Warning",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Category allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Category: Apparel, Electronics, Garden, Home, Sports, Toys",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Reorder level is a whole number",
+        "ruleType": "Type Check",
+        "expression": "ReorderLevel: integer",
+        "severity": "Warning",
+        "table": null,
+        "description": ""
+      }
+    ]
+  },
+  "orders": {
+    "name": "Sample - Sales Orders",
+    "description": "Sample single-table definition (same columns as \"Sales Orders\") used for format, date and large-file tests.",
+    "columns": [
+      {
+        "name": "OrderId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "CustomerId",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "OrderDate",
+        "type": "datetime",
+        "required": true
+      },
+      {
+        "name": "ShipDate",
+        "type": "datetime",
+        "required": false
+      },
+      {
+        "name": "TotalAmount",
+        "type": "decimal",
+        "required": true
+      },
+      {
+        "name": "Currency",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "PaymentStatus",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "ShippingAddress",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "TaxAmount",
+        "type": "decimal",
+        "required": false
+      },
+      {
+        "name": "DiscountAmount",
+        "type": "decimal",
+        "required": false
+      },
+      {
+        "name": "Notes",
+        "type": "string",
+        "required": false
+      }
+    ],
+    "tables": [],
+    "rules": [
+      {
+        "name": "Currency allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Currency: EUR, GBP, USD, ZAR",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Payment status allowed values",
+        "ruleType": "Enum Check",
+        "expression": "PaymentStatus: Failed, Paid, Pending, Refunded",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Order total range",
+        "ruleType": "Range Check",
+        "expression": "TotalAmount: 0..1000000",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Discount is not negative",
+        "ruleType": "Range Check",
+        "expression": "DiscountAmount: 0..",
+        "severity": "Warning",
+        "table": null,
+        "description": ""
+      },
+      {
+        "name": "Order and customer identifiers present",
+        "ruleType": "Required Values",
+        "expression": "OrderId, CustomerId",
+        "severity": "Error",
+        "table": null,
+        "description": ""
+      }
+    ]
+  },
+  "finance": {
+    "name": "Sample - Finance Workbook",
+    "description": "Sample one-table-per-sheet definition: Invoices, Payments and Credit Notes; other sheets are ignored.",
+    "columns": [],
+    "tables": [
+      {
+        "sheet": "Invoices",
+        "columns": [
+          {
+            "name": "InvoiceId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "CustomerId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "InvoiceDate",
+            "type": "datetime",
+            "required": true
+          },
+          {
+            "name": "DueDate",
+            "type": "datetime",
+            "required": false
+          },
+          {
+            "name": "Amount",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "name": "Currency",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Status",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "PONumber",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      {
+        "sheet": "Payments",
+        "columns": [
+          {
+            "name": "PaymentId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "InvoiceId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "PaymentDate",
+            "type": "datetime",
+            "required": true
+          },
+          {
+            "name": "Amount",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "name": "Method",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Reference",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      {
+        "sheet": "Credit Notes",
+        "columns": [
+          {
+            "name": "CreditNoteId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "InvoiceId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "IssueDate",
+            "type": "datetime",
+            "required": true
+          },
+          {
+            "name": "Amount",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "name": "Reason",
+            "type": "string",
+            "required": false
+          }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "name": "Invoice status allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Status: Cancelled, Draft, Issued, Overdue, Paid",
+        "severity": "Error",
+        "table": "Invoices",
+        "description": ""
+      },
+      {
+        "name": "Invoice currency allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Currency: EUR, GBP, USD, ZAR",
+        "severity": "Error",
+        "table": "Invoices",
+        "description": ""
+      },
+      {
+        "name": "Invoice amount is positive",
+        "ruleType": "Range Check",
+        "expression": "Amount: 0.01..",
+        "severity": "Error",
+        "table": "Invoices",
+        "description": ""
+      },
+      {
+        "name": "Invoice has a PO number",
+        "ruleType": "Required Values",
+        "expression": "PONumber",
+        "severity": "Warning",
+        "table": "Invoices",
+        "description": ""
+      },
+      {
+        "name": "Payment method allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Method: Card, Cash, Cheque, EFT",
+        "severity": "Error",
+        "table": "Payments",
+        "description": ""
+      },
+      {
+        "name": "Payment amount range",
+        "ruleType": "Range Check",
+        "expression": "Amount: 0.01..250000",
+        "severity": "Error",
+        "table": "Payments",
+        "description": ""
+      },
+      {
+        "name": "Credit note amount range",
+        "ruleType": "Range Check",
+        "expression": "Amount: 0.01..50000",
+        "severity": "Error",
+        "table": "Credit Notes",
+        "description": ""
+      },
+      {
+        "name": "Credit note reason provided",
+        "ruleType": "Required Values",
+        "expression": "Reason",
+        "severity": "Warning",
+        "table": "Credit Notes",
+        "description": ""
+      }
+    ]
+  },
+  "hr": {
+    "name": "Sample - HR Onboarding Workbook",
+    "description": "Sample one-table-per-sheet definition with special-character and 31-character sheet names.",
+    "columns": [],
+    "tables": [
+      {
+        "sheet": "Employees",
+        "columns": [
+          {
+            "name": "EmployeeId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "FirstName",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "LastName",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Email",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Department",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Position",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "HireDate",
+            "type": "datetime",
+            "required": true
+          },
+          {
+            "name": "Salary",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "name": "FullTime",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "name": "ManagerId",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      {
+        "sheet": "Benefits (2026)",
+        "columns": [
+          {
+            "name": "EmployeeId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Plan",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Dependents",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "name": "MonthlyCost",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "name": "EffectiveDate",
+            "type": "datetime",
+            "required": true
+          }
+        ]
+      },
+      {
+        "sheet": "Employee Emergency Contacts '26",
+        "columns": [
+          {
+            "name": "EmployeeId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "ContactName",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Relationship",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "Phone",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "AltPhone",
+            "type": "string",
+            "required": false
+          }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "name": "Department allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Department: Engineering, Finance, HR, Operations, Sales",
+        "severity": "Error",
+        "table": "Employees",
+        "description": ""
+      },
+      {
+        "name": "Salary range",
+        "ruleType": "Range Check",
+        "expression": "Salary: 10000..1000000",
+        "severity": "Error",
+        "table": "Employees",
+        "description": ""
+      },
+      {
+        "name": "Employee key columns present",
+        "ruleType": "Schema Validation",
+        "expression": "EmployeeId, Email",
+        "severity": "Error",
+        "table": "Employees",
+        "description": ""
+      },
+      {
+        "name": "Benefit plan allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Plan: Basic, Premium, Standard",
+        "severity": "Error",
+        "table": "Benefits (2026)",
+        "description": ""
+      },
+      {
+        "name": "Dependents range",
+        "ruleType": "Range Check",
+        "expression": "Dependents: 0..10",
+        "severity": "Error",
+        "table": "Benefits (2026)",
+        "description": ""
+      },
+      {
+        "name": "Monthly cost within budget",
+        "ruleType": "Range Check",
+        "expression": "MonthlyCost: 0..5000",
+        "severity": "Warning",
+        "table": "Benefits (2026)",
+        "description": ""
+      },
+      {
+        "name": "Relationship allowed values",
+        "ruleType": "Enum Check",
+        "expression": "Relationship: Child, Friend, Other, Parent, Partner, Sibling, Spouse",
+        "severity": "Warning",
+        "table": "Employee Emergency Contacts '26",
+        "description": ""
+      },
+      {
+        "name": "Alternate phone provided",
+        "ruleType": "Required Values",
+        "expression": "AltPhone",
+        "severity": "Warning",
+        "table": "Employee Emergency Contacts '26",
+        "description": ""
+      }
+    ]
+  }
+}

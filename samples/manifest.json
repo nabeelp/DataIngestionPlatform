@@ -1,0 +1,1955 @@
+{
+  "generatedBy": "samples/tools/generate_samples.py",
+  "uploadLimitBytes": 104857600,
+  "files": [
+    {
+      "file": "01-single-table/customers/customers_valid.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Baseline: 50 clean rows, comma-delimited UTF-8.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 6330
+    },
+    {
+      "file": "01-single-table/customers/customers_valid.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Baseline workbook: one sheet, native date cells.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 10469
+    },
+    {
+      "file": "01-single-table/customers/customers_valid.xls",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Legacy Excel 97-2003 (.xls) workbook.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 17920
+    },
+    {
+      "file": "01-single-table/customers/customers_valid.tsv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Tab-separated (.tsv is always read as tab-delimited).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 6330
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_semicolon_delimited.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Semicolon delimiter is auto-detected from the header line.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 6330
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_pipe_delimited.txt",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Pipe-delimited .txt file.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 6330
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_tab_delimited.txt",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Tab-delimited .txt file (delimiter auto-detected).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 6330
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_crlf_line_endings.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Windows CRLF line endings.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 6381
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_utf8_bom_unicode.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "UTF-8 with BOM (Excel \"CSV UTF-8\" export); accented, Cyrillic, Greek, CJK, RTL and emoji names.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 40
+      },
+      "sizeBytes": 5204
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_unicode.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Unicode data and a Unicode sheet name.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 40
+      },
+      "sizeBytes": 9542
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_quoted_fields_multiline.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Every field quoted; embedded commas, doubled quotes and multi-line values count as one record.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 10
+      },
+      "sizeBytes": 1679
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_blank_lines_and_whitespace.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Blank lines, all-empty records and padded values are skipped/trimmed.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 20
+      },
+      "sizeBytes": 3629
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_reordered_and_extra_columns.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Columns in a different order plus undeclared columns (ignored).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 7491
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_padded_headers.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Header names with surrounding spaces are trimmed.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 15
+      },
+      "sizeBytes": 1999
+    },
+    {
+      "file": "01-single-table/customers/customers_valid_mixed_date_formats.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "ISO dates/times with zones and day-first/month-first local formats are all valid datetimes.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 30
+      },
+      "sizeBytes": 3988
+    },
+    {
+      "file": "01-single-table/customers/customers_warning_optional_columns_missing.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Only required columns present: definition passes; the Warning rule on Phone reports the missing column.",
+      "expected": {
+        "status": "WARNING",
+        "failedChecks": [],
+        "warningChecks": [
+          "Phone number provided"
+        ],
+        "rows": 50
+      },
+      "sizeBytes": 3210
+    },
+    {
+      "file": "01-single-table/customers/customers_warning_unsupported_country_and_missing_phone.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Only Warning-severity rules fail (unsupported/lower-case country, missing phone), so the upload is accepted.",
+      "expected": {
+        "status": "WARNING",
+        "failedChecks": [],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ],
+        "rows": 50,
+        "errorCounts": {
+          "Country is a supported market": 3,
+          "Phone number provided": 2
+        }
+      },
+      "sizeBytes": 6300
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_missing_required_column.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Required Email column is absent: definition columns and the schema rule fail.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 4985
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_empty_required_values.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Required values blank or whitespace-only in 5 rows.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "File definition columns": 5
+        }
+      },
+      "sizeBytes": 6301
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_dates.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Ten unparseable DateOfBirth values (invalid month/day, year-first slashes, words, compact dates).",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "File definition columns": 10
+        }
+      },
+      "sizeBytes": 6329
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_status_values.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Enum checks are case-sensitive (active/ACTIVE fail) but trim spaces (\"  Prospect  \" passes).",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "Customer status allowed values": 4
+        }
+      },
+      "sizeBytes": 6332
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_header_case_mismatch.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Header names are case-sensitive: lower-case headers match no definition column.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ]
+      },
+      "sizeBytes": 704
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_duplicate_headers.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "A second, empty \"Email\" column overrides the first (last duplicate wins), so Email looks blank.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "File definition columns": 10
+        }
+      },
+      "sizeBytes": 1357
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_ragged_rows.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Short rows (Country/CustomerStatus missing) fail; rows with extra trailing values are accepted.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "File definition columns": 6
+        }
+      },
+      "sizeBytes": 1596
+    },
+    {
+      "file": "01-single-table/customers/customers_header_only.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Header row with no data rows (0 rows) passes.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 0
+      },
+      "sizeBytes": 104
+    },
+    {
+      "file": "01-single-table/customers/customers_empty_file.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Zero-byte file: no header, so every column check fails.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ],
+        "rows": 0
+      },
+      "sizeBytes": 0
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_unclosed_quote.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Malformed CSV (unterminated quoted field): the parser stops and the upload fails with an error message.",
+      "expected": {
+        "status": "READ_ERROR",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 782
+    },
+    {
+      "file": "01-single-table/customers/customers_invalid_many_errors_5000_rows.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Thousands of issues: only 100 samples are stored per check, but the total count is exact.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "rows": 5000,
+        "errorCounts": {
+          "File definition columns": 1667,
+          "Customer status allowed values": 2500
+        }
+      },
+      "sizeBytes": 628801
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_blank_rows_above_header.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Header on row 4 (first non-empty row) and blank rows between data blocks are skipped.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 30
+      },
+      "sizeBytes": 8676
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_title_row_above_header.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "A title row above the headers becomes the header row, so no definition column is found.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ]
+      },
+      "sizeBytes": 8714
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_multi_sheet_same_columns.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "One-table definition: every sheet is validated against the same columns (4 x 50 rows).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 200
+      },
+      "sizeBytes": 24250
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "One-table definitions validate EVERY sheet, so an extra \"Notes\" sheet fails. Use a sheet-table definition to ignore extra sheets.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ]
+      },
+      "sizeBytes": 10913
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_with_empty_sheet.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Completely empty sheets have no header and are skipped by one-table definitions.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 11159
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_native_types_and_formulas.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Native date/number cells, numeric ZipCode/Phone in string columns, extra formula columns (cached values).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 11717
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_excel_table_object.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Data formatted as an Excel Table (ListObject).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 11036
+    },
+    {
+      "file": "01-single-table/customers/customers_xlsx_protected_sheet.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Sheet protection (not file encryption) does not prevent reading.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 50
+      },
+      "sizeBytes": 10371
+    },
+    {
+      "file": "01-single-table/products/products_valid.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Baseline: 80 clean products.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 80
+      },
+      "sizeBytes": 10383
+    },
+    {
+      "file": "01-single-table/products/products_valid.xlsx",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Native numeric and TRUE/FALSE boolean cells.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 80
+      },
+      "sizeBytes": 12618
+    },
+    {
+      "file": "01-single-table/products/products_valid_boolean_variants.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Every accepted boolean spelling: true/false, yes/no, y/n, 1/0 (any case).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 20
+      },
+      "sizeBytes": 2632
+    },
+    {
+      "file": "01-single-table/products/products_valid_numeric_boundaries.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Inclusive range bounds, signed/leading-dot/scientific numbers and leading zeros are accepted.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 5
+      },
+      "sizeBytes": 724
+    },
+    {
+      "file": "01-single-table/products/products_invalid_number_formats.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Comma decimals, currency symbols, thousands separators, 10.5/1e3 as integers and non-boolean flags.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns",
+          "Unit price range"
+        ],
+        "warningChecks": [
+          "Reorder level ceiling",
+          "Reorder level is a whole number"
+        ],
+        "errorCounts": {
+          "File definition columns": 8,
+          "Unit price range": 2,
+          "Reorder level ceiling": 1,
+          "Reorder level is a whole number": 1
+        }
+      },
+      "sizeBytes": 1149
+    },
+    {
+      "file": "01-single-table/products/products_invalid_range_violations.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Just outside each range bound; the weight and reorder rules are Warnings.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Stock quantity range",
+          "Unit price range"
+        ],
+        "warningChecks": [
+          "Reorder level ceiling",
+          "Weight is not negative"
+        ]
+      },
+      "sizeBytes": 2658
+    },
+    {
+      "file": "01-single-table/products/products_warning_only_ranges.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Only Warning-severity range rules fail.",
+      "expected": {
+        "status": "WARNING",
+        "failedChecks": [],
+        "warningChecks": [
+          "Reorder level ceiling",
+          "Weight is not negative"
+        ]
+      },
+      "sizeBytes": 2657
+    },
+    {
+      "file": "01-single-table/products/products_invalid_category.csv",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Unknown and wrong-case categories.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Category allowed values"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "Category allowed values": 3
+        }
+      },
+      "sizeBytes": 2659
+    },
+    {
+      "file": "01-single-table/products/products_xlsx_numbers_stored_as_text.xlsx",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Numbers and booleans stored as text cells (green-triangle cells) still match their types.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 80
+      },
+      "sizeBytes": 12694
+    },
+    {
+      "file": "01-single-table/products/products_xlsx_formulas_with_cached_values.xlsx",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "UnitPrice is a formula; its cached value is what gets validated.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 80
+      },
+      "sizeBytes": 13472
+    },
+    {
+      "file": "01-single-table/products/products_xlsx_max_cell_length.xlsx",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "Description cells at Excel's 32,767-character limit.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 10
+      },
+      "sizeBytes": 6875
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_valid.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Baseline: 500 orders, optional ShipDate/Notes sometimes blank.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 500
+      },
+      "sizeBytes": 59498
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_valid.xlsx",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Baseline workbook.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 500
+      },
+      "sizeBytes": 40584
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_valid_date_format_variants.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Accepted date/time spellings in both date columns.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 40
+      },
+      "sizeBytes": 5445
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_invalid_dates.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Invalid OrderDate values and an invalid optional ShipDate.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "File definition columns": 9
+        }
+      },
+      "notes": "\"2026-02-30\" style dates that roll over are accepted; see orders_quirk_impossible_dates_accepted.csv.",
+      "sizeBytes": 4881
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_quirk_impossible_dates_accepted.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Impossible calendar dates (30 Feb, 31 Apr, 29 Feb in a non-leap year) are accepted: ISO dates roll over and local dates only check day <= 31 and month <= 12.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 10
+      },
+      "notes": "Gap: stricter date validation would reject these.",
+      "sizeBytes": 1378
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_invalid_currency_and_payment_status.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Enum violations in two columns.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Currency allowed values",
+          "Payment status allowed values"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "Currency allowed values": 3,
+          "Payment status allowed values": 3
+        }
+      },
+      "sizeBytes": 4896
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_warning_negative_discount.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Negative discounts only trip a Warning rule.",
+      "expected": {
+        "status": "WARNING",
+        "failedChecks": [],
+        "warningChecks": [
+          "Discount is not negative"
+        ],
+        "errorCounts": {
+          "Discount is not negative": 2
+        }
+      },
+      "sizeBytes": 4909
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_invalid_long_text_values.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "A 500+ character invalid value (reported values are truncated to 200 characters) and a 5,000 character note.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns",
+          "Order total range"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 6847
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_xlsx_one_sheet_per_month.xlsx",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "12 monthly sheets, all validated by the one-table definition.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 1200
+      },
+      "sizeBytes": 95464
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_xlsx_dates_as_serial_numbers.xlsx",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Dates stored as plain numbers (Excel serials without a date format) are not datetimes.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "File definition columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "File definition columns": 20
+        }
+      },
+      "sizeBytes": 7380
+    },
+    {
+      "file": "01-single-table/sales-orders/orders_valid_datetimes.xls",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Legacy .xls with date-time cells.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 20
+      },
+      "sizeBytes": 9728
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "All three table sheets plus ignored Instructions/Lookups/Summary (formulas), a hidden and a very-hidden sheet.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 21609
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid.xls",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Legacy .xls workbook with the three table sheets.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 38400
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_sheet_names_case_and_spacing.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Sheets matched ignoring case and surrounding spaces, in any order.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 19094
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_20_ignored_sheets.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "20 extra sheets full of invalid data are ignored (not validated).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 37209
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_similar_named_ignored_sheets.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Look-alike sheets (\"Invoices (old)\", \"Invoices_backup\", \"Payments 2025\") contain bad data but are not table sheets.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 22278
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_hidden_table_sheet.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "A hidden table sheet (Payments) is still found and validated.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 18509
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_header_only_credit_notes.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Credit Notes has a header row and no data rows: the table is present, so it passes.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 17840
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_excel_tables_and_formulas.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Each table sheet is an Excel Table; Invoice Amount is a formula (=Net+Tax) with extra helper columns.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 24173
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Optional PONumber/Reason missing: only the Warning rules for those sheets fail.",
+      "expected": {
+        "status": "WARNING",
+        "failedChecks": [],
+        "warningChecks": [
+          "Credit note reason provided",
+          "Invoice has a PO number"
+        ],
+        "errorCounts": {
+          "Invoice has a PO number": 2,
+          "Credit note reason provided": 1
+        }
+      },
+      "sizeBytes": 18479
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_invalid_missing_credit_notes_sheet.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "A required table sheet is missing: its columns check fails; its rules have nothing to check.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Credit Notes\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 17859
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_invalid_similar_sheet_names_only.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Near-miss names (\"Invoice\", \"Payments 2026\", \"CreditNotes\") do not match, so all three sheets are missing.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Credit Notes\" columns",
+          "Sheet \"Invoices\" columns",
+          "Sheet \"Payments\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 18509
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_invalid_empty_payments_sheet.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "A completely empty \"Payments\" sheet has no header row and is reported as not found.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Payments\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 14196
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_invalid_errors_in_every_sheet.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Type, enum, range and required-value errors in each table; issues are reported with their sheet name.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Credit note amount range",
+          "Invoice amount is positive",
+          "Invoice currency allowed values",
+          "Invoice status allowed values",
+          "Payment amount range",
+          "Payment method allowed values",
+          "Sheet \"Credit Notes\" columns",
+          "Sheet \"Invoices\" columns",
+          "Sheet \"Payments\" columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "Invoice amount is positive": 2,
+          "Credit note amount range": 2
+        }
+      },
+      "sizeBytes": 19154
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_invalid_missing_required_column.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Payments lacks its required Method column: the sheet check and the Method rule fail.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Payment method allowed values",
+          "Sheet \"Payments\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 18017
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_invalid_unrelated_workbook.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "The wrong workbook (a customer list) for a sheet-table definition: every table sheet is missing.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Credit Notes\" columns",
+          "Sheet \"Invoices\" columns",
+          "Sheet \"Payments\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 7771
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_rejected_csv_upload.csv",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "CSV files have no sheets, so sheet-table definitions reject them at upload (HTTP 400).",
+      "expected": {
+        "status": "UPLOAD_REJECTED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 9043
+    },
+    {
+      "file": "02-sheet-tables/finance/finance_valid_values_stored_as_text.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "All dates and amounts are text cells (e.g. pasted from a CSV).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 18560
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_valid.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "Sheet names with parentheses and a 31-character name with an apostrophe; Instructions and Org Chart are ignored.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 14072
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_valid_unicode_and_emoji.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "Non-Latin scripts, accents and emoji in names.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 11378
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_invalid_values.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "Enum and range errors in the Employees and Benefits sheets.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Benefit plan allowed values",
+          "Department allowed values",
+          "Dependents range",
+          "Salary range"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "Department allowed values": 2,
+          "Dependents range": 2
+        }
+      },
+      "sizeBytes": 12548
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "The contacts sheet is named without the apostrophe, so it is not matched.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Employee Emergency Contacts '26\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 12509
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_warning_cost_relationship_alt_phone.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "Only Warning rules in two sheets fail.",
+      "expected": {
+        "status": "WARNING",
+        "failedChecks": [],
+        "warningChecks": [
+          "Alternate phone provided",
+          "Monthly cost within budget",
+          "Relationship allowed values"
+        ],
+        "errorCounts": {
+          "Alternate phone provided": 2
+        }
+      },
+      "sizeBytes": 12494
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_invalid_boolean_integer_and_date_types.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "Non-boolean FullTime (text and the number 2), non-integer Dependents, bad and missing dates.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Dependents range",
+          "Sheet \"Benefits (2026)\" columns",
+          "Sheet \"Employees\" columns"
+        ],
+        "warningChecks": [],
+        "errorCounts": {
+          "Sheet \"Employees\" columns": 3,
+          "Sheet \"Benefits (2026)\" columns": 3,
+          "Dependents range": 1
+        }
+      },
+      "sizeBytes": 12534
+    },
+    {
+      "file": "02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx",
+      "kind": "upload",
+      "definition": "hr",
+      "purpose": "Only one of the three table sheets is present.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Benefits (2026)\" columns",
+          "Sheet \"Employees\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 8592
+    },
+    {
+      "file": "03-example-files/example_single_sheet_customers.xlsx",
+      "kind": "example",
+      "purpose": "Single populated sheet: proposed as one table for every sheet.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "single",
+        "sheets": [
+          "Customers"
+        ],
+        "columns": {
+          "Customers": {
+            "CustomerId": [
+              "string",
+              true
+            ],
+            "DateOfBirth": [
+              "datetime",
+              true
+            ],
+            "CustomerStatus": [
+              "string",
+              true
+            ]
+          }
+        },
+        "suggestedRules": [
+          "CustomerStatus allowed values",
+          "Country allowed values"
+        ],
+        "notSuggested": [
+          "City allowed values"
+        ]
+      },
+      "sizeBytes": 11180
+    },
+    {
+      "file": "03-example-files/example_multi_sheet_finance.xlsx",
+      "kind": "example",
+      "purpose": "Four populated sheets: proposed as one table per sheet; deselect ReadMe.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "sheets",
+        "sheets": [
+          "Invoices",
+          "Payments",
+          "Credit Notes",
+          "ReadMe"
+        ],
+        "columns": {
+          "Invoices": {
+            "Amount": [
+              "decimal",
+              true
+            ],
+            "InvoiceDate": [
+              "datetime",
+              true
+            ]
+          },
+          "Payments": {
+            "Method": [
+              "string",
+              true
+            ]
+          }
+        },
+        "suggestedRules": [
+          "Status allowed values",
+          "Method allowed values",
+          "Currency allowed values"
+        ]
+      },
+      "sizeBytes": 10430
+    },
+    {
+      "file": "03-example-files/example_multi_sheet_hr.xlsx",
+      "kind": "example",
+      "purpose": "Special-character and 31-character sheet names become sheet tables.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "sheets",
+        "sheets": [
+          "Employees",
+          "Benefits (2026)",
+          "Employee Emergency Contacts '26"
+        ],
+        "columns": {
+          "Employees": {
+            "FullTime": [
+              "boolean",
+              true
+            ],
+            "Salary": [
+              "integer",
+              true
+            ],
+            "ManagerId": [
+              "string",
+              false
+            ]
+          },
+          "Benefits (2026)": {
+            "Dependents": [
+              "integer",
+              true
+            ],
+            "MonthlyCost": [
+              "decimal",
+              true
+            ]
+          }
+        }
+      },
+      "notes": "Whole-number salaries are proposed as integer; change to decimal if cents are expected.",
+      "sizeBytes": 10531
+    },
+    {
+      "file": "03-example-files/example_type_inference.csv",
+      "kind": "example",
+      "purpose": "Most specific common type per column; 1/0 columns are proposed as integer, not boolean.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "single",
+        "sheets": [
+          null
+        ],
+        "columns": {
+          "null": {
+            "Quantity": [
+              "integer",
+              true
+            ],
+            "Price": [
+              "decimal",
+              true
+            ],
+            "OrderedOn": [
+              "datetime",
+              true
+            ],
+            "IsGift": [
+              "boolean",
+              true
+            ],
+            "Flag01": [
+              "integer",
+              true
+            ],
+            "Code": [
+              "string",
+              true
+            ],
+            "Sparse": [
+              "integer",
+              false
+            ],
+            "Mixed": [
+              "string",
+              true
+            ]
+          }
+        }
+      },
+      "sizeBytes": 1517
+    },
+    {
+      "file": "03-example-files/example_enum_candidates.csv",
+      "kind": "example",
+      "purpose": "Allowed-values suggestions only for repeating text columns with 2-10 short values without commas or colons.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "single",
+        "suggestedRules": [
+          "Priority allowed values"
+        ],
+        "notSuggested": [
+          "Region allowed values",
+          "Tags allowed values",
+          "Colour allowed values",
+          "Label allowed values",
+          "RareCode allowed values",
+          "Status:Code allowed values",
+          "Amount allowed values"
+        ]
+      },
+      "sizeBytes": 5557
+    },
+    {
+      "file": "03-example-files/example_blank_header_cells.xlsx",
+      "kind": "example",
+      "purpose": "Blank header cells are named by position (Column2, Column4...).",
+      "expected": {
+        "result": "PROPOSAL",
+        "warningsContain": [
+          "header cell(s) are blank"
+        ]
+      },
+      "sizeBytes": 5831
+    },
+    {
+      "file": "03-example-files/example_title_row_above_headers.xlsx",
+      "kind": "example",
+      "purpose": "Title row becomes the header row; the warning suggests removing it.",
+      "expected": {
+        "result": "PROPOSAL",
+        "warningsContain": [
+          "remove any title rows"
+        ]
+      },
+      "sizeBytes": 7832
+    },
+    {
+      "file": "03-example-files/example_duplicate_headers.csv",
+      "kind": "example",
+      "purpose": "Duplicate headers are merged, with a warning.",
+      "expected": {
+        "result": "PROPOSAL",
+        "warningsContain": [
+          "Duplicate headers were merged"
+        ]
+      },
+      "sizeBytes": 123
+    },
+    {
+      "file": "03-example-files/example_long_column_names.csv",
+      "kind": "example",
+      "purpose": "Column names over 100 characters must be shortened before saving.",
+      "expected": {
+        "result": "PROPOSAL",
+        "warningsContain": [
+          "exceed 100 characters"
+        ]
+      },
+      "sizeBytes": 138
+    },
+    {
+      "file": "03-example-files/example_header_only.csv",
+      "kind": "example",
+      "purpose": "No data rows: every column defaults to an optional string.",
+      "expected": {
+        "result": "PROPOSAL",
+        "warningsContain": [
+          "no data rows below the header"
+        ],
+        "columns": {
+          "null": {
+            "CustomerId": [
+              "string",
+              false
+            ],
+            "Email": [
+              "string",
+              false
+            ]
+          }
+        }
+      },
+      "sizeBytes": 104
+    },
+    {
+      "file": "03-example-files/example_5000_rows_truncated.csv",
+      "kind": "example",
+      "purpose": "Only the first 1,000 data rows are analyzed.",
+      "expected": {
+        "result": "PROPOSAL",
+        "warningsContain": [
+          "Only the first 1000 data rows were analyzed."
+        ]
+      },
+      "sizeBytes": 634753
+    },
+    {
+      "file": "03-example-files/example_25_sheets.xlsx",
+      "kind": "example",
+      "purpose": "More than 20 sheets: only the first 20 are shown.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "sheets",
+        "warningsContain": [
+          "Only the first 20 of 25 sheets are shown."
+        ]
+      },
+      "sizeBytes": 31335
+    },
+    {
+      "file": "03-example-files/example_one_populated_two_empty_sheets.xlsx",
+      "kind": "example",
+      "purpose": "Only one populated sheet, so one table is proposed; empty sheets warn.",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "single",
+        "warningsContain": [
+          "No header row was found."
+        ]
+      },
+      "sizeBytes": 8645
+    },
+    {
+      "file": "03-example-files/example_all_sheets_empty.xlsx",
+      "kind": "example",
+      "purpose": "No header row anywhere: rejected.",
+      "expected": {
+        "result": "REJECTED",
+        "errorContains": "no header row"
+      },
+      "sizeBytes": 5356
+    },
+    {
+      "file": "03-example-files/example_not_a_workbook.xlsx",
+      "kind": "example",
+      "purpose": "CSV text renamed to .xlsx fails the ZIP signature check.",
+      "expected": {
+        "result": "REJECTED",
+        "errorContains": "not a valid XLSX workbook"
+      },
+      "sizeBytes": 145
+    },
+    {
+      "file": "03-example-files/example_legacy_format.xls",
+      "kind": "example",
+      "purpose": "Example files must be CSV or XLSX (.xls is rejected here, though uploads accept it).",
+      "expected": {
+        "result": "REJECTED",
+        "errorContains": "CSV (.csv) or Excel workbooks (.xlsx)"
+      },
+      "sizeBytes": 9728
+    },
+    {
+      "file": "03-example-files/example_csv_semicolon.csv",
+      "kind": "example",
+      "purpose": "Semicolon-delimited example (delimiter detected like uploads).",
+      "expected": {
+        "result": "PROPOSAL",
+        "layout": "single",
+        "columns": {
+          "null": {
+            "Email": [
+              "string",
+              true
+            ],
+            "DateOfBirth": [
+              "datetime",
+              true
+            ]
+          }
+        }
+      },
+      "sizeBytes": 7679
+    },
+    {
+      "file": "03-example-files/example_too_large_over_10mb.csv",
+      "kind": "example",
+      "purpose": "Just over the 10 MB example limit: rejected before analysis.",
+      "expected": {
+        "result": "REJECTED",
+        "errorContains": "limited to 10 MB"
+      },
+      "sizeBytes": 10747933
+    },
+    {
+      "file": "04-file-handling/customers_unsupported_extension.json",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Extension not in .csv/.tsv/.txt/.xlsx/.xls.",
+      "expected": {
+        "status": "UPLOAD_REJECTED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 26
+    },
+    {
+      "file": "04-file-handling/customers_zipped_archive.zip",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Compressed archives are not accepted.",
+      "expected": {
+        "status": "UPLOAD_REJECTED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 1482
+    },
+    {
+      "file": "04-file-handling/CUSTOMERS_UPPERCASE_EXTENSION.XLSX",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Upper-case file extension is accepted.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 25
+      },
+      "sizeBytes": 8228
+    },
+    {
+      "file": "04-file-handling/customers_macro_enabled.xlsm",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Macro-enabled workbooks (.xlsm) are not accepted.",
+      "expected": {
+        "status": "UPLOAD_REJECTED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 8228
+    },
+    {
+      "file": "04-file-handling/customers export (Q3) – José & Zoë.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "File name with spaces, brackets, an en dash, accents and an ampersand (sanitized when stored).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 25
+      },
+      "sizeBytes": 3244
+    },
+    {
+      "file": "04-file-handling/customers_corrupt_truncated.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Truncated ZIP package: the workbook cannot be opened.",
+      "expected": {
+        "status": "READ_ERROR",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 4114
+    },
+    {
+      "file": "04-file-handling/customers_zero_bytes.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Empty file with an .xlsx extension is read as one empty sheet, so a one-table definition has nothing to check.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 0
+      },
+      "notes": "Gap: consider rejecting empty workbooks (a zero-byte CSV fails because it has no header).",
+      "sizeBytes": 0
+    },
+    {
+      "file": "04-file-handling/finance_zero_bytes.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "The same empty workbook against a sheet-table definition: every table sheet is missing.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Sheet \"Credit Notes\" columns",
+          "Sheet \"Invoices\" columns",
+          "Sheet \"Payments\" columns"
+        ],
+        "warningChecks": []
+      },
+      "sizeBytes": 0
+    },
+    {
+      "file": "04-file-handling/customers_csv_renamed_to_xlsx.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "CSV text renamed to .xlsx: the upload reader sniffs the content and reads it as a single sheet.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "notes": "Unlike example files, uploads do not check the ZIP signature; consider adding that check.",
+      "sizeBytes": 3244
+    },
+    {
+      "file": "04-file-handling/customers_random_binary.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Binary content with a .csv extension: no recognizable header.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ]
+      },
+      "sizeBytes": 4096
+    },
+    {
+      "file": "04-file-handling/customers_utf16le_bom_encoded.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "UTF-16LE with a BOM (Excel \"Unicode Text\") is detected from the BOM and decoded.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 25
+      },
+      "sizeBytes": 6488
+    },
+    {
+      "file": "04-file-handling/customers_utf16le_no_bom.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "UTF-16 without a BOM is read as UTF-8, so the headers do not match. Re-save as UTF-8.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ]
+      },
+      "sizeBytes": 6486
+    },
+    {
+      "file": "04-file-handling/customers_windows1252_encoded.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Windows-1252 (ANSI) encoding: validates, but accented letters are read as replacement characters.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 20
+      },
+      "sizeBytes": 2616
+    },
+    {
+      "file": "04-file-handling/customers_cr_only_line_endings.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Classic Mac CR-only line endings.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 25
+      },
+      "sizeBytes": 3244
+    },
+    {
+      "file": "04-file-handling/customers_no_trailing_newline.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Last record without a trailing newline.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 25
+      },
+      "sizeBytes": 3243
+    },
+    {
+      "file": "04-file-handling/customers_single_column_no_delimiter.txt",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "A single-column text file: only CustomerId is present.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Customer status allowed values",
+          "File definition columns",
+          "Key customer columns present"
+        ],
+        "warningChecks": [
+          "Country is a supported market",
+          "Phone number provided"
+        ]
+      },
+      "sizeBytes": 311
+    },
+    {
+      "file": "05-large/orders_large_250k_rows.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "250,000 valid rows (~30 MB CSV).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 250000
+      },
+      "sizeBytes": 29911393
+    },
+    {
+      "file": "05-large/orders_large_near_100mb_limit.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Just under the default 100 MB upload limit (859,000 rows).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 859000
+      },
+      "sizeBytes": 102792800
+    },
+    {
+      "file": "05-large/orders_large_over_100mb_limit.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Just over the default 100 MB upload limit (894,000 rows): rejected with HTTP 413/400 (UPLOAD_MAX_FILE_SIZE).",
+      "expected": {
+        "status": "UPLOAD_REJECTED",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "sizeBytes": 106997924
+    },
+    {
+      "file": "05-large/orders_large_200k_rows_with_errors.csv",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "200,000 rows with 1% bad currencies and 0.4% negative totals: exact totals, 100 samples each.",
+      "expected": {
+        "status": "FAILED",
+        "failedChecks": [
+          "Currency allowed values",
+          "Order total range"
+        ],
+        "warningChecks": [],
+        "rows": 200000,
+        "errorCounts": {
+          "Currency allowed values": 2000,
+          "Order total range": 800
+        }
+      },
+      "sizeBytes": 23930150
+    },
+    {
+      "file": "05-large/orders_large_250k_rows.xlsx",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "250,000-row single-sheet workbook (~150 MB of sheet XML).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 250000
+      },
+      "sizeBytes": 16524200
+    },
+    {
+      "file": "05-large/orders_large_500k_rows.xlsx",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "500,000-row workbook (~310 MB of sheet XML): near the practical ceiling of the in-memory Excel reader.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 500000
+      },
+      "sizeBytes": 33061399
+    },
+    {
+      "file": "05-large/orders_xlsx_excel_max_rows.xlsx",
+      "kind": "upload",
+      "definition": "orders",
+      "purpose": "Excel's row limit: header + 1,048,575 data rows. The ~650 MB sheet XML exceeds the JavaScript string limit, so the sheet cannot be parsed and the upload fails with a read error.",
+      "expected": {
+        "status": "READ_ERROR",
+        "failedChecks": [],
+        "warningChecks": []
+      },
+      "notes": "Gap: the error surfaces as \"Cannot read properties of undefined (reading '!ref')\"; consider a streaming Excel reader or a clear row/size limit message.",
+      "sizeBytes": 69386808
+    },
+    {
+      "file": "05-large/finance_large_used_and_ignored_sheets.xlsx",
+      "kind": "upload",
+      "definition": "finance",
+      "purpose": "Sheet-table definition on 540k rows across 6 sheets; 250k rows are in ignored sheets.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 540000
+      },
+      "sizeBytes": 25660275
+    },
+    {
+      "file": "05-large/customers_wide_500_columns.csv",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "500 columns (488 undeclared) x 2,000 rows.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 2000
+      },
+      "sizeBytes": 4918010
+    },
+    {
+      "file": "05-large/customers_xlsx_excel_max_columns.xlsx",
+      "kind": "upload",
+      "definition": "customers",
+      "purpose": "Excel's column limit (16,384 columns, A..XFD) x 200 rows.",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 200
+      },
+      "sizeBytes": 16570757
+    },
+    {
+      "file": "05-large/products_xlsx_2k_rows_max_length_cells.xlsx",
+      "kind": "upload",
+      "definition": "products",
+      "purpose": "2,000 rows each with a 32,767-character Description (~65 MB of cell text once read).",
+      "expected": {
+        "status": "PASSED",
+        "failedChecks": [],
+        "warningChecks": [],
+        "rows": 2000
+      },
+      "sizeBytes": 575900
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+SKU,ProductName,Category,Description,UnitPrice,CostPrice,StockQuantity,ReorderLevel,Supplier,WeightKg,Dimensions,Active
+SKU-00001,Eco Charger,Electronics,Electronics item #1 for everyday use,79.2,40.87,6690,51,Fabrikam Inc,1.205,68x58x27 cm,true
+SKU-00002,Portable T-Shirt,Apparel,Apparel item #2 for everyday use,1653.28,755.95,3392,130,Tailspin Toys,36.582,30x67x50 cm,true
+SKU-00003,Ultra Headphones,Electronics,Electronics item #3 for everyday use,232.63,208.42,1923,336,Fabrikam Inc,41.386,39x44x37 cm,true
+SKU-00004,Premium Kite,Toys,Toys item #4 for everyday use,198.83,151.87,6399,165,Wide World Importers,16.501,79x17x25 cm,true
+SKU-00005,Portable Kite,Toys,Toys item #5 for everyday use,1263.07,575.41,5793,222,Adventure Works,12.992,23x9x16 cm,true
+SKU-00006,Classic Dumbbell,Sports,Sports item #6 for everyday use,1259.83,643.73,969,269,Adventure Works,23.51,12x33x2 cm,true
+SKU-00007,Eco Charger,Electronics,Electronics item #7 for everyday use,974.98,642.35,3096,480,Northwind Traders,25.943,33x64x44 cm,true
+SKU-00008,Rugged Sneakers,Apparel,Apparel item #8 for everyday use,1560.07,689.6,5600,196,Tailspin Toys,31.88,56x48x42 cm,true
+SKU-00009,Rugged Hose,Garden,Garden item #9 for everyday use,564.02,226.49,1906,270,Fabrikam Inc,23.23,50x65x3 cm,true
+SKU-00010,Ultra Planter,Garden,Garden item #10 for everyday use,67.7,48.07,8269,122,Fabrikam Inc,9.37,72x63x51 cm,true
+SKU-00011,Rugged Board Game,Toys,Toys item #11 for everyday use,372.04,232.13,3131,299,Contoso Ltd,34.532,70x37x9 cm,true
+SKU-00012,Eco Dumbbell,Sports,Sports item #12 for everyday use,978.76,538.35,165,106,Northwind Traders,32.519,15x27x27 cm,true
+SKU-00013,Compact Dumbbell,Sports,Sports item #13 for everyday use,1462.32,733.04,5834,203,Contoso Ltd,0.542,46x22x53 cm,true
+SKU-00014,Deluxe Charger,Electronics,Electronics item #14 for everyday use,319.3,198.49,1019,132,Northwind Traders,25.204,118x27x32 cm,true
+SKU-00015,Eco Lamp,Home,Home item #15 for everyday use,817.97,495.92,3071,405,Contoso Ltd,40.247,54x62x48 cm,true
+SKU-00016,Ultra T-Shirt,Apparel,Apparel item #16 for everyday use,218.47,96.19,4479,45,Contoso Ltd,14.669,107x30x33 cm,true
+SKU-00017,Premium Monitor,Electronics,Electronics item #17 for everyday use,452.69,257.45,7422,80,Tailspin Toys,40.322,112x16x33 cm,true
+SKU-00018,Premium Monitor,Electronics,Electronics item #18 for everyday use,142.25,64.11,7781,16,Fabrikam Inc,7.818,27x57x23 cm,true
+SKU-00019,Smart Hose,Garden,Garden item #19 for everyday use,1443.46,595.82,3423,268,Northwind Traders,29.46,78x7x18 cm,false
+SKU-00020,Rugged Blender,Home,Home item #20 for everyday use,253.86,103.23,8479,159,Tailspin Toys,39.571,62x57x55 cm,true
+SKU-00021,Rugged Tennis Racket,Sports,Sports item #21 for everyday use,256.18,146.48,9778,459,Adventure Works,5.606,116x7x30 cm,true
+SKU-00022,Deluxe Monitor,Electronics,Electronics item #22 for everyday use,20.42,15.51,297,75,Northwind Traders,16.088,90x49x30 cm,true
+SKU-00023,Compact Blender,Home,Home item #23 for everyday use,23.34,20.66,1287,465,Tailspin Toys,34.639,11x37x2 cm,true
+SKU-00024,Ultra Tennis Racket,Sports,Sports item #24 for everyday use,652.01,312.66,8849,376,Fabrikam Inc,39.23,86x56x35 cm,true
+SKU-00025,Smart Kettle,Home,Home item #25 for everyday use,559.75,229.95,7629,256,Northwind Traders,35.807,41x35x9 cm,false
+SKU-00026,Portable Planter,Garden,Garden item #26 for everyday use,294.79,210.72,3191,365,Contoso Ltd,39.159,55x48x15 cm,true
+SKU-00027,Premium Kettle,Home,Home item #27 for everyday use,1058.16,632.51,9827,205,Adventure Works,44.648,83x9x48 cm,true
+SKU-00028,Wireless Jacket,Apparel,Apparel item #28 for everyday use,865.51,421.41,3668,164,Adventure Works,22.535,103x58x37 cm,true
+SKU-00029,Premium Toaster,Home,Home item #29 for everyday use,162.04,74.52,8470,133,Wide World Importers,43.881,55x63x39 cm,true
+SKU-00030,Premium Kite,Toys,Toys item #30 for everyday use,174.46,132.05,8969,102,Wide World Importers,18.377,59x12x39 cm,true
+SKU-00031,Smart Toaster,Home,Home item #31 for everyday use,523.52,378.72,9746,37,Northwind Traders,23.936,119x12x21 cm,true
+SKU-00032,Rugged Headphones,Electronics,Electronics item #32 for everyday use,1722.44,714.11,1705,135,Northwind Traders,44.649,7x18x56 cm,true
+SKU-00033,Rugged Planter,Garden,Garden item #33 for everyday use,1329.42,656.55,9116,144,Adventure Works,17.119,19x60x45 cm,false
+SKU-00034,Portable Blender,Home,Home item #34 for everyday use,1065.14,509.11,7996,124,Fabrikam Inc,34.805,19x47x6 cm,true
+SKU-00035,Compact Sneakers,Apparel,Apparel item #35 for everyday use,399.61,361.96,8275,289,Northwind Traders,41.575,5x69x20 cm,true
+SKU-00036,Deluxe Shears,Garden,Garden item #36 for everyday use,222.06,157.38,2672,490,Tailspin Toys,7.68,94x23x25 cm,false
+SKU-00037,Smart Hose,Garden,Garden item #37 for everyday use,1411.34,629.77,1808,215,Contoso Ltd,21.34,95x56x49 cm,true
+SKU-00038,Smart Toaster,Home,Home item #38 for everyday use,1567.26,657.46,6015,180,Fabrikam Inc,18.664,16x45x7 cm,true
+SKU-00039,Rugged Bicycle Helmet,Sports,Sports item #39 for everyday use,253.24,106.79,241,82,Contoso Ltd,27.207,6x57x31 cm,true
+SKU-00040,Compact Charger,Electronics,Electronics item #40 for everyday use,226.74,161.96,6220,124,Wide World Importers,29.406,28x6x38 cm,true
+SKU-00041,Premium Charger,Electronics,Electronics item #41 for everyday use,1287.23,516.29,1338,318,Northwind Traders,5.499,69x9x41 cm,true
+SKU-00042,Rugged Blender,Home,Home item #42 for everyday use,436.69,392.69,4700,304,Wide World Importers,40.305,43x6x6 cm,true
+SKU-00043,Portable Yoga Mat,Sports,Sports item #43 for everyday use,284.47,180.09,2092,120,Fabrikam Inc,1.114,5x8x45 cm,true
+SKU-00044,Smart Lamp,Home,Home item #44 for everyday use,682.58,305.57,1961,154,Contoso Ltd,31.776,36x70x40 cm,true
+SKU-00045,Rugged Charger,Electronics,Electronics item #45 for everyday use,989.3,715.36,5106,472,Adventure Works,22.197,25x7x41 cm,true
+SKU-00046,Ultra Shears,Garden,Garden item #46 for everyday use,618.42,342.94,914,214,Adventure Works,18.358,42x56x59 cm,true
+SKU-00047,Rugged Sneakers,Apparel,Apparel item #47 for everyday use,25.29,18.17,1496,311,Wide World Importers,3.751,53x43x39 cm,true
+SKU-00048,Portable Toaster,Home,Home item #48 for everyday use,638.49,527.19,8594,442,Wide World Importers,8.855,117x26x22 cm,true
+SKU-00049,Deluxe Sprinkler,Garden,Garden item #49 for everyday use,96.32,46.95,995,159,Fabrikam Inc,4.934,59x35x13 cm,true
+SKU-00050,Smart T-Shirt,Apparel,Apparel item #50 for everyday use,1845.81,740.52,9089,272,Northwind Traders,10.921,117x50x23 cm,true
+SKU-00051,Rugged Kite,Toys,Toys item #51 for everyday use,1192.71,713.03,3541,4,Adventure Works,13.561,75x33x55 cm,false
+SKU-00052,Premium Charger,Electronics,Electronics item #52 for everyday use,1118.47,565.4,8930,160,Wide World Importers,9.569,86x63x3 cm,true
+SKU-00053,Smart Headphones,Electronics,Electronics item #53 for everyday use,454.43,246.29,6623,232,Adventure Works,1.783,45x57x19 cm,true
+SKU-00054,Premium Kite,Toys,Toys item #54 for everyday use,832.27,707.8,7962,316,Tailspin Toys,23.046,107x26x54 cm,true
+SKU-00055,Deluxe Monitor,Electronics,Electronics item #55 for everyday use,618.88,378.86,9742,156,Wide World Importers,23.653,21x33x53 cm,true
+SKU-00056,Smart Dumbbell,Sports,Sports item #56 for everyday use,364.83,309.08,3281,125,Wide World Importers,39.413,73x42x29 cm,true
+SKU-00057,Deluxe Lamp,Home,Home item #57 for everyday use,874.28,351.64,1615,115,Contoso Ltd,43.09,90x39x23 cm,true
+SKU-00058,Wireless Yoga Mat,Sports,Sports item #58 for everyday use,318.74,267.77,9809,121,Northwind Traders,41.606,43x20x10 cm,false
+SKU-00059,Classic T-Shirt,Apparel,Apparel item #59 for everyday use,836.4,558.8,6348,74,Tailspin Toys,21.851,90x51x56 cm,false
+SKU-00060,Wireless Puzzle,Toys,Toys item #60 for everyday use,1403.68,584.44,2122,292,Wide World Importers,32.978,15x58x22 cm,true
+SKU-00061,Premium Kettle,Home,Home item #61 for everyday use,58.67,26.29,6855,130,Tailspin Toys,11.997,24x41x12 cm,true
+SKU-00062,Classic Kettle,Home,Home item #62 for everyday use,391.17,234.76,4854,68,Northwind Traders,18.758,94x36x43 cm,true
+SKU-00063,Smart Hose,Garden,Garden item #63 for everyday use,899.04,602.24,632,339,Wide World Importers,21.511,24x21x6 cm,true
+SKU-00064,Rugged Charger,Electronics,Electronics item #64 for everyday use,162.45,92.84,16,226,Tailspin Toys,14.835,118x18x2 cm,true
+SKU-00065,Rugged Dumbbell,Sports,Sports item #65 for everyday use,429.94,318.76,687,9,Contoso Ltd,1.217,15x40x46 cm,true
+SKU-00066,Smart Cap,Apparel,Apparel item #66 for everyday use,1189.06,489.42,8573,236,Wide World Importers,21.745,77x54x4 cm,true
+SKU-00067,Compact Board Game,Toys,Toys item #67 for everyday use,35.73,30.61,1209,243,Wide World Importers,8.614,30x54x28 cm,true
+SKU-00068,Ultra Yoga Mat,Sports,Sports item #68 for everyday use,1315.59,679.88,2550,420,Fabrikam Inc,14.32,18x68x26 cm,true
+SKU-00069,Classic Cap,Apparel,Apparel item #69 for everyday use,963.87,671.98,3859,272,Contoso Ltd,19.49,14x74x47 cm,true
+SKU-00070,Classic Toaster,Home,Home item #70 for everyday use,1219.08,740.74,4934,194,Fabrikam Inc,1.008,72x77x9 cm,true
+SKU-00071,Classic Charger,Electronics,Electronics item #71 for everyday use,451.45,321.36,5821,128,Contoso Ltd,41.626,77x66x58 cm,false
+SKU-00072,Eco Sneakers,Apparel,Apparel item #72 for everyday use,1558.89,689.6,1331,370,Tailspin Toys,7.449,51x53x18 cm,true
+SKU-00073,Compact Shears,Garden,Garden item #73 for everyday use,39.82,27.59,2206,477,Wide World Importers,3.006,84x74x20 cm,false
+SKU-00074,Compact Sprinkler,Garden,Garden item #74 for everyday use,339.63,136.47,2931,167,Fabrikam Inc,22.662,59x72x32 cm,false
+SKU-00075,Deluxe Speaker,Electronics,Electronics item #75 for everyday use,693.32,509.5,3357,456,Contoso Ltd,4.324,110x24x56 cm,true
+SKU-00076,Premium Kite,Toys,Toys item #76 for everyday use,741.54,426.28,5625,5,Wide World Importers,2.963,5x72x34 cm,true
+SKU-00077,Ultra Bicycle Helmet,Sports,Sports item #77 for everyday use,1455.61,616.76,2553,433,Fabrikam Inc,20.188,96x39x28 cm,true
+SKU-00078,Portable Yoga Mat,Sports,Sports item #78 for everyday use,688.19,554.38,3141,69,Wide World Importers,44.439,116x49x47 cm,false
+SKU-00079,Eco Cap,Apparel,Apparel item #79 for everyday use,657.03,469.9,9012,453,Wide World Importers,24.164,53x32x36 cm,true
+SKU-00080,Compact T-Shirt,Apparel,Apparel item #80 for everyday use,650.34,415.85,7731,233,Northwind Traders,18.471,94x77x21 cm,true

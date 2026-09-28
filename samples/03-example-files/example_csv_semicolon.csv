@@ -1,0 +1,61 @@
+CustomerId;FirstName;LastName;Email;Phone;DateOfBirth;Address;City;State;ZipCode;Country;CustomerStatus
+CUST-000001;John;Anderson;john.anderson1@example.com;+1-555-492-7217;1964-11-09;6833 Church Street;Melbourne;VIC;61234;AU;Inactive
+CUST-000002;Lerato;Jones;lerato.jones2@example.com;+1-555-793-6738;1962-06-02;4514 Main St;Bengaluru;KA;85890;IN;Prospect
+CUST-000003;Jennifer;Jackson;jennifer.jackson3@example.com;+1-555-644-9897;1969-08-12;2929 Church Street;London;ENG;89472;GB;Inactive
+CUST-000004;Lerato;Garcia;lerato.garcia4@example.com;+1-555-741-5548;1959-12-17;760 Station Road;Manchester;ENG;56886;GB;Prospect
+CUST-000005;Sipho;Mokoena;sipho.mokoena5@example.com;+1-555-804-3503;1955-01-16;6165 Rue de Rivoli;Seattle;WA;80245;US;Active
+CUST-000006;Ethan;Garcia;ethan.garcia6@example.com;+1-555-720-6178;1994-11-26;3020 Main St;Munich;BY;92805;DE;Active
+CUST-000007;Arjun;Mokoena;arjun.mokoena7@example.com;+1-555-153-2321;1971-04-10;7238 Oak Avenue;Toronto;ON;06162;CA;Inactive
+CUST-000008;Elizabeth;Davis;elizabeth.davis8@example.com;+1-555-131-6369;1952-10-01;9738 Station Road;London;ENG;99524;GB;Inactive
+CUST-000009;Linda;Miller;linda.miller9@example.com;+1-555-239-9447;1973-10-15;689 High Road;Johannesburg;GP;80957;ZA;Inactive
+CUST-000010;Mei;Sharma;mei.sharma10@example.com;+1-555-384-4737;1980-04-03;9537 Station Road;Paris;IDF;71970;FR;Prospect
+CUST-000011;Michael;Mokoena;michael.mokoena11@example.com;+1-555-254-7602;1977-07-31;9241 Long Street;New York;NY;18399;US;Inactive
+CUST-000012;Pierre;Moore;pierre.moore12@example.com;+1-555-528-4960;2000-04-08;5910 Victoria Street;London;ENG;43027;GB;Prospect
+CUST-000013;Sipho;Clark;sipho.clark13@example.com;+1-555-101-6444;1994-04-04;7421 Jan Smuts Avenue;Vancouver;BC;03602;CA;Prospect
+CUST-000014;Patricia;Anderson;patricia.anderson14@example.com;+1-555-208-2657;1969-10-04;7101 Station Road;Durban;KZN;55456;ZA;Inactive
+CUST-000015;Pierre;Moore;pierre.moore15@example.com;+1-555-288-8687;1967-02-10;4795 Victoria Street;Vancouver;BC;86314;CA;Prospect
+CUST-000016;Priya;Patel;priya.patel16@example.com;+1-555-424-2140;1992-08-14;8930 High Road;Seattle;WA;53764;US;Inactive
+CUST-000017;Thabo;Smith;thabo.smith17@example.com;+1-555-627-4788;1975-10-14;8847 Station Road;Mumbai;MH;01133;IN;Inactive
+CUST-000018;Aiden;Dlamini;aiden.dlamini18@example.com;+1-555-740-1961;1969-06-26;3261 Church Street;Johannesburg;GP;80570;ZA;Inactive
+CUST-000019;Pierre;Martin;pierre.martin19@example.com;+1-555-647-5584;1983-03-22;6834 Victoria Street;Vancouver;BC;91121;CA;Inactive
+CUST-000020;John;Nkosi;john.nkosi20@example.com;+1-555-134-2490;1986-10-01;8860 High Road;Mumbai;MH;25946;IN;Active
+CUST-000021;Olivia;Anderson;olivia.anderson21@example.com;+1-555-509-1601;1992-08-19;3608 Long Street;Melbourne;VIC;42506;AU;Active
+CUST-000022;Greta;Muller;greta.muller22@example.com;+1-555-553-5624;1950-05-09;7181 Jan Smuts Avenue;Seattle;WA;07717;US;Prospect
+CUST-000023;Sipho;Davis;sipho.davis23@example.com;+1-555-399-7384;1954-07-09;9893 Park Lane;Durban;KZN;67279;ZA;Inactive
+CUST-000024;Ethan;Wang;ethan.wang24@example.com;+1-555-737-6258;1984-05-18;4304 Jan Smuts Avenue;Austin;TX;03117;US;Inactive
+CUST-000025;Claire;Martin;claire.martin25@example.com;+1-555-298-2958;1986-05-15;1166 Rue de Rivoli;Cape Town;WC;58414;ZA;Prospect
+CUST-000026;James;Wang;james.wang26@example.com;+1-555-568-2970;1998-12-01;2140 Victoria Street;Paris;IDF;92627;FR;Prospect
+CUST-000027;Hans;Clark;hans.clark27@example.com;+1-555-411-9482;1998-04-02;6097 High Road;Cape Town;WC;57088;ZA;Active
+CUST-000028;Elizabeth;Jones;elizabeth.jones28@example.com;+1-555-940-6295;1956-04-02;3033 Station Road;London;ENG;17586;GB;Inactive
+CUST-000029;Michael;Williams;michael.williams29@example.com;+1-555-212-4417;1969-03-11;5010 Station Road;Seattle;WA;29964;US;Prospect
+CUST-000030;Pierre;Garcia;pierre.garcia30@example.com;+1-555-459-9851;1959-10-27;6536 Park Lane;Melbourne;VIC;53980;AU;Prospect
+CUST-000031;Robert;Smith;robert.smith31@example.com;+1-555-841-7414;1951-05-21;4060 Main St;New York;NY;79809;US;Active
+CUST-000032;Greta;Sharma;greta.sharma32@example.com;+1-555-400-6357;1970-08-29;7336 Rue de Rivoli;Durban;KZN;24810;ZA;Active
+CUST-000033;Arjun;Sharma;arjun.sharma33@example.com;+1-555-546-6993;1978-04-15;7953 Oak Avenue;Durban;KZN;77792;ZA;Active
+CUST-000034;Linda;Patel;linda.patel34@example.com;+1-555-264-9893;1954-12-11;5058 MG Road;Lyon;ARA;18918;FR;Inactive
+CUST-000035;Sipho;Jones;sipho.jones35@example.com;+1-555-156-3565;1979-06-24;4695 Church Street;Mumbai;MH;29070;IN;Inactive
+CUST-000036;Thabo;Chen;thabo.chen36@example.com;+1-555-331-5941;1980-04-05;7128 Jan Smuts Avenue;Sydney;NSW;98681;AU;Prospect
+CUST-000037;Naledi;Taylor;naledi.taylor37@example.com;+1-555-221-1026;1958-08-05;9991 Church Street;Seattle;WA;99632;US;Active
+CUST-000038;Wei;Jackson;wei.jackson38@example.com;+1-555-414-3657;1952-09-05;4820 Oak Avenue;Cape Town;WC;79279;ZA;Prospect
+CUST-000039;Claire;Lewis;claire.lewis39@example.com;+1-555-597-3340;1989-05-25;4231 Hauptstraße;Johannesburg;GP;11734;ZA;Prospect
+CUST-000040;James;Young;james.young40@example.com;+1-555-187-9853;1968-09-10;4657 Jan Smuts Avenue;Mumbai;MH;28007;IN;Prospect
+CUST-000041;Elizabeth;Dubois;elizabeth.dubois41@example.com;+1-555-976-2920;1980-08-06;8822 Victoria Street;Durban;KZN;99238;ZA;Inactive
+CUST-000042;John;Mokoena;john.mokoena42@example.com;+1-555-947-3143;2001-01-10;392 MG Road;Vancouver;BC;44594;CA;Prospect
+CUST-000043;Arjun;Dlamini;arjun.dlamini43@example.com;+1-555-393-7011;1970-02-20;5051 Oak Avenue;New York;NY;42457;US;Active
+CUST-000044;Jennifer;Patel;jennifer.patel44@example.com;+1-555-165-9062;1972-10-03;9223 Church Street;Sydney;NSW;13516;AU;Active
+CUST-000045;Olivia;Wang;olivia.wang45@example.com;+1-555-849-6516;1997-01-25;5414 High Road;Cape Town;WC;74161;ZA;Prospect
+CUST-000046;Claire;Moore;claire.moore46@example.com;+1-555-684-3381;1951-08-27;2066 Park Lane;Lyon;ARA;37839;FR;Inactive
+CUST-000047;Naledi;Brown;naledi.brown47@example.com;+1-555-528-3827;1982-09-04;6980 Jan Smuts Avenue;New York;NY;29321;US;Inactive
+CUST-000048;Claire;Young;claire.young48@example.com;+1-555-347-4070;2001-11-07;317 Victoria Street;Toronto;ON;42968;CA;Active
+CUST-000049;Arjun;Schmidt;arjun.schmidt49@example.com;+1-555-925-3350;1982-11-23;7134 MG Road;Austin;TX;24490;US;Inactive
+CUST-000050;Aiden;Walker;aiden.walker50@example.com;+1-555-727-9655;1987-03-30;121 High Road;Paris;IDF;07971;FR;Inactive
+CUST-000051;Noah;Moore;noah.moore51@example.com;+1-555-586-3994;1959-10-21;6675 Hauptstraße;Sydney;NSW;41956;AU;Prospect
+CUST-000052;Thabo;Davis;thabo.davis52@example.com;+1-555-558-5878;1992-12-24;9256 Rue de Rivoli;London;ENG;11085;GB;Inactive
+CUST-000053;Mary;Williams;mary.williams53@example.com;+1-555-256-7772;1987-02-21;9604 Hauptstraße;Berlin;BE;29953;DE;Inactive
+CUST-000054;Naledi;Anderson;naledi.anderson54@example.com;+1-555-226-3869;1972-09-03;9546 MG Road;Seattle;WA;14736;US;Active
+CUST-000055;Patricia;Muller;patricia.muller55@example.com;+1-555-893-7513;1988-07-01;5321 Main St;New York;NY;88728;US;Active
+CUST-000056;Wei;Martin;wei.martin56@example.com;+1-555-466-5420;1972-05-28;3580 Jan Smuts Avenue;Toronto;ON;68949;CA;Active
+CUST-000057;John;Nkosi;john.nkosi57@example.com;+1-555-437-9539;1986-07-15;3637 Church Street;Toronto;ON;51945;CA;Inactive
+CUST-000058;Robert;Patel;robert.patel58@example.com;+1-555-468-1725;1963-05-17;9827 Park Lane;Vancouver;BC;26160;CA;Inactive
+CUST-000059;Greta;Patel;greta.patel59@example.com;+1-555-815-3446;2004-04-19;5699 Victoria Street;Durban;KZN;07180;ZA;Prospect
+CUST-000060;Michael;Nkosi;michael.nkosi60@example.com;+1-555-621-8209;1963-02-09;4014 Station Road;Austin;TX;79306;US;Inactive

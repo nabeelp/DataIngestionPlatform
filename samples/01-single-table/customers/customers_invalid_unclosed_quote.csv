@@ -1,0 +1,7 @@
+CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus
+CUST-000001,Ethan,Davis,ethan.davis1@example.com,+1-555-420-2973,1956-05-25,1271 Victoria Street,Lyon,ARA,53015,FR,Inactive
+CUST-000002,Claire,Brown,claire.brown2@example.com,+1-555-172-4031,1991-10-09,4793 High Road,Durban,KZN,00925,ZA,Active
+CUST-000003,Naledi,Clark,naledi.clark3@example.com,+1-555-876-4215,1951-02-05,8266 Church Street,Bengaluru,KA,68253,IN,Active
+CUST-000004,Elizabeth,Miller,elizabeth.miller4@example.com,+1-555-215-7945,1960-07-30,899 Rue de Rivoli,Munich,BY,04660,DE,Prospect
+CUST-000005,Liam,Sharma,liam.sharma5@example.com,+1-555-230-5243,2004-05-07,5186 Main St,Seattle,WA,24059,US,Inactive
+CUST-999999,"Unclosed,Quote,x@example.com,,,,,,,US,Active

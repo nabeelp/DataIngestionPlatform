@@ -1,0 +1,11 @@
+OrderId,CustomerId,OrderDate,ShipDate,TotalAmount,Currency,PaymentStatus,ShippingAddress,TaxAmount,DiscountAmount,Notes
+SO-00000001,CUST-035460,2026-02-30,2025-02-09,14815.68,USD,Refunded,"3887 High Road, Durban, ZA",2222.35,0,"Fragile, handle with care"
+SO-00000002,CUST-048852,2026-04-31,2025-06-24,11615.3,ZAR,Paid,"458 Main St, London, GB",1742.29,5,"Fragile, handle with care"
+SO-00000003,CUST-049016,2025-02-29,2026-06-14,22002.29,EUR,Refunded,"3952 Jan Smuts Avenue, Bengaluru, IN",3300.34,0,Leave at reception
+SO-00000004,CUST-018028,31/02/2026,2025-09-24,20654.56,GBP,Refunded,"3861 High Road, Vancouver, CA",3098.18,10,Gift wrap
+SO-00000005,CUST-006305,30/02/2026,2025-04-25,16685.54,EUR,Refunded,"2758 Rue de Rivoli, Cape Town, ZA",2502.83,0,
+SO-00000006,CUST-019448,2025-01-26,2025-01-31,21610.24,ZAR,Pending,"4007 Main St, Seattle, US",3241.54,0,Gift wrap
+SO-00000007,CUST-049626,2025-11-17,2025-11-25,2796.1,ZAR,Pending,"2827 Station Road, Lyon, FR",419.41,0,"Fragile, handle with care"
+SO-00000008,CUST-002643,2025-09-21,,2499.66,USD,Failed,"9670 Oak Avenue, Sydney, AU",374.95,0,Call before delivery
+SO-00000009,CUST-037488,2025-02-26,2025-03-04,18405.69,USD,Failed,"7766 Main St, Johannesburg, ZA",2760.85,0,Call before delivery
+SO-00000010,CUST-025375,2025-10-02,2025-10-03,21748.58,USD,Refunded,"9401 Hauptstraße, Vancouver, CA",3262.29,0,Leave at reception
