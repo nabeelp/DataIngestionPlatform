@@ -1286,7 +1286,8 @@
         "suggestedRules": [
           "Status allowed values",
           "Method allowed values",
-          "Currency allowed values"
+          "Currency allowed values",
+          "Amount range"
         ]
       },
       "sizeBytes": 10430
@@ -1328,7 +1329,12 @@
               true
             ]
           }
-        }
+        },
+        "suggestedRules": [
+          "Salary range",
+          "Dependents range",
+          "MonthlyCost range"
+        ]
       },
       "notes": "Whole-number salaries are proposed as integer; change to decimal if cents are expected.",
       "sizeBytes": 10531
@@ -1378,7 +1384,17 @@
               true
             ]
           }
-        }
+        },
+        "suggestedRules": [
+          "Quantity range",
+          "Price range"
+        ],
+        "notSuggested": [
+          "IsGift range",
+          "Code range",
+          "Mixed range",
+          "OrderedOn range"
+        ]
       },
       "sizeBytes": 1517
     },
@@ -1412,6 +1428,12 @@
         "result": "PROPOSAL",
         "warningsContain": [
           "header cell(s) are blank"
+        ],
+        "suggestedRules": [
+          "Amount range"
+        ],
+        "notSuggested": [
+          "OrderId range"
         ]
       },
       "sizeBytes": 5831

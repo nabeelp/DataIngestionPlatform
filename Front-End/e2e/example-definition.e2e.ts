@@ -3,8 +3,8 @@ import { fileURLToPath } from 'url';
 import { expect, test, type Page } from '@playwright/test';
 
 // Drives example-assisted definition creation: an admin proposes one table per sheet from a multi-sheet XLSX
-// example (or a single table from a CSV example), reviews them, accepts a suggested rule, and uploads are
-// then validated sheet by sheet against them.
+// example (or a single table from a CSV example), reviews them and the suggested allowed-values and range rules,
+// accepts a suggested rule, and uploads are then validated sheet by sheet against them.
 
 const API_URL = process.env.E2E_API_URL || 'http://localhost:3000/api/v1';
 const PASSWORD = 'password123';
@@ -88,6 +88,16 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     await expect(proposed.getByRole('row', { name: /Amount/ })).toContainText('decimal');
     await expect(proposed.getByRole('row', { name: /OrderDate/ })).toContainText('datetime');
     await expect(proposed.getByRole('row', { name: /Comment/ })).toContainText('No');
+
+    // Numeric columns get a rounded-out range suggestion; identifiers such as OrderId do not.
+    const suggestions = assistant.getByRole('group', { name: /Suggested rules for sheet "Orders"/ });
+    await expect(suggestions.getByRole('checkbox')).toHaveCount(2);
+    await expect(suggestions.getByRole('checkbox', { name: /Range Check Amount: 0\.\.20/ })).toBeVisible();
+    await expect(suggestions.getByRole('checkbox', { name: /OrderId/ })).toHaveCount(0);
+    await suggestions.getByRole('button', { name: 'Select all suggested rules' }).click();
+    await expect(suggestions.getByRole('checkbox', { checked: true })).toHaveCount(2);
+    await suggestions.getByRole('button', { name: 'Clear' }).click();
+    await expect(suggestions.getByRole('checkbox', { checked: true })).toHaveCount(0);
     await assistant.getByRole('checkbox', { name: /Status: Closed, Open/ }).check();
 
     await assistant.getByLabel('Preview sheet').selectOption({ label: 'Refunds — 2 columns, 2 rows' });

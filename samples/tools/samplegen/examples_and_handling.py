@@ -30,7 +30,7 @@ def build_examples():
                  layout='sheets', sheets=['Invoices', 'Payments', 'Credit Notes', 'ReadMe'],
                  columns={'Invoices': {'Amount': ['decimal', True], 'InvoiceDate': ['datetime', True]},
                           'Payments': {'Method': ['string', True]}},
-                 suggested_rules=['Status allowed values', 'Method allowed values', 'Currency allowed values'])
+                 suggested_rules=['Status allowed values', 'Method allowed values', 'Currency allowed values', 'Amount range'])
 
     emp, ben, con = hr(25, offset=5)
     write_xlsx(EX + 'example_multi_sheet_hr.xlsx', [sheet(EMPLOYEES, EMPLOYEE_HEADERS, emp), sheet(BENEFITS, BENEFIT_HEADERS, ben),
@@ -39,6 +39,7 @@ def build_examples():
                  layout='sheets', sheets=[EMPLOYEES, BENEFITS, CONTACTS],
                  columns={EMPLOYEES: {'FullTime': ['boolean', True], 'Salary': ['integer', True], 'ManagerId': ['string', False]},
                           BENEFITS: {'Dependents': ['integer', True], 'MonthlyCost': ['decimal', True]}},
+                 suggested_rules=['Salary range', 'Dependents range', 'MonthlyCost range'],
                  notes='Whole-number salaries are proposed as integer; change to decimal if cents are expected.')
 
     r = rng(700)
@@ -54,7 +55,9 @@ def build_examples():
                  layout='single', sheets=[None],
                  columns={None: {'Quantity': ['integer', True], 'Price': ['decimal', True], 'OrderedOn': ['datetime', True],
                                  'IsGift': ['boolean', True], 'Flag01': ['integer', True], 'Code': ['string', True],
-                                 'Sparse': ['integer', False], 'Mixed': ['string', True]}})
+                                 'Sparse': ['integer', False], 'Mixed': ['string', True]}},
+                 suggested_rules=['Quantity range', 'Price range'],
+                 not_suggested=['IsGift range', 'Code range', 'Mixed range', 'OrderedOn range'])
 
     enum_rows = []
     regions = [f'Region {i}' for i in range(12)]
@@ -72,7 +75,7 @@ def build_examples():
     headers = ['OrderId', None, 'Amount', None, None, 'Status']
     write_xlsx(EX + 'example_blank_header_cells.xlsx', [sheet('Orders', headers, [[i, 'x', i * 1.5, 'y', 'z', 'Open'] for i in range(1, 11)])])
     example_case(EX + 'example_blank_header_cells.xlsx', 'Blank header cells are named by position (Column2, Column4...).',
-                 warnings_contain=['header cell(s) are blank'])
+                 warnings_contain=['header cell(s) are blank'], suggested_rules=['Amount range'], not_suggested=['OrderId range'])
 
     write_xlsx(EX + 'example_title_row_above_headers.xlsx',
                [sheet('Report', CUSTOMER_HEADERS, rows[:20], pre_rows=[['Quarterly customer report']])])

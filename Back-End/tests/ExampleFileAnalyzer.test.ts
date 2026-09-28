@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import * as XLSX from 'xlsx';
-import { analyzeExampleFile, MAX_EXAMPLE_ROWS } from '../src/services/validation/ExampleFileAnalyzer';
+import { analyzeExampleFile, looksLikeIdentifier, MAX_EXAMPLE_ROWS, niceCeiling } from '../src/services/validation/ExampleFileAnalyzer';
 import { readRecords } from '../src/services/validation/FileRecordReader';
 import { createDefinitionSchemaEvaluator, createRuleEvaluator } from '../src/services/validation/ValidationEngine';
 
@@ -55,9 +55,41 @@ describe('analyzeExampleFile (CSV)', () => {
     it('suggests allowed-values rules only for repeating categories that can be expressed', async () => {
         const [sheet] = (await analyzeExampleFile(write('orders-rules.csv', CSV), 'csv')).sheets;
 
-        expect(sheet.suggestedRules).toEqual([
+        expect(sheet.suggestedRules.filter(rule => rule.ruleType === 'Enum Check')).toEqual([
             expect.objectContaining({ name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', severity: 'Error' }),
         ]);
+    });
+
+    it('suggests rounded-out range rules for numeric columns, but not for identifiers', async () => {
+        const [sheet] = (await analyzeExampleFile(write('orders-ranges.csv', CSV), 'csv')).sheets;
+
+        expect(sheet.suggestedRules.filter(rule => rule.ruleType === 'Range Check')).toEqual([
+            expect.objectContaining({ name: 'Amount range', expression: 'Amount: 0..20', severity: 'Error' }),
+        ]);
+        expect(sheet.suggestedRules.find(rule => rule.name === 'Amount range')!.reason).toMatch(/from 5\.25 to 20\b.*reject negative values/);
+        expect(sheet.suggestedRules.map(rule => rule.name)).toEqual(['Amount range', 'Status allowed values']);
+    });
+
+    it('extends range bounds below zero for negative values and skips constant or single-value columns', async () => {
+        const csv = [
+            'Balance,Quantity,Rate,Fixed,ZipCode,Order No',
+            '-35,3,0.12,5,8001,17',
+            '120,64,0.3,5,2196,18',
+            '-2,1,0.05,5,7700,19',
+        ].join('\n');
+        const [sheet] = (await analyzeExampleFile(write('ranges.csv', csv), 'csv')).sheets;
+
+        expect(sheet.suggestedRules.map(rule => rule.expression)).toEqual([
+            'Balance: -50..200',
+            'Quantity: 0..100',
+            'Rate: 0..0.5',
+        ]);
+        expect(sheet.suggestedRules[0].reason).not.toMatch(/negative/);
+    });
+
+    it('does not suggest a range for a column with only one numeric value', async () => {
+        const [sheet] = (await analyzeExampleFile(write('one-value.csv', 'Amount\n42\n'), 'csv')).sheets;
+        expect(sheet.suggestedRules).toEqual([]);
     });
 
     it('proposes columns and rules that the example itself passes', async () => {
@@ -143,5 +175,22 @@ describe('analyzeExampleFile (XLSX)', () => {
 describe('analyzeExampleFile (file types)', () => {
     it.each(['xls', 'txt', 'tsv', 'json'])('rejects .%s examples', async type => {
         await expect(analyzeExampleFile(write(`example.${type}`, 'Id\n1\n'), type)).rejects.toThrow('CSV or XLSX');
+    });
+});
+
+describe('range suggestion helpers', () => {
+    it.each([
+        [0.3, 0.5], [0.05, 0.05], [1, 1], [1.2, 2], [20, 20], [41.386, 50], [336, 500], [1000, 1000], [1653.28, 2000], [6690, 10000],
+    ])('rounds %p up to %p', (value, expected) => {
+        expect(niceCeiling(value)).toBe(expected);
+    });
+
+    it.each(['Id', 'ID', 'CustomerId', 'customer_id', 'Order No', 'OrderNumber', 'ZipCode', 'Postal Code', 'SKU', 'PhoneNumber'])(
+        'treats %p as an identifier',
+        name => expect(looksLikeIdentifier(name)).toBe(true),
+    );
+
+    it.each(['Amount', 'StockQuantity', 'Idle Minutes', 'Kidney Count', 'UnitPrice', 'Nominal'])('treats %p as a quantity', name => {
+        expect(looksLikeIdentifier(name)).toBe(false);
     });
 });

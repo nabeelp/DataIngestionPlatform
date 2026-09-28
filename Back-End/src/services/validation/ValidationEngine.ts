@@ -71,7 +71,7 @@ const displayValue = (value: unknown): string | null => {
     return text.length > 200 ? `${text.slice(0, 200)}...` : text;
 };
 
-const toNumber = (value: unknown): number | null => {
+export const toNumber = (value: unknown): number | null => {
     if (typeof value === 'number') return Number.isFinite(value) ? value : null;
     if (typeof value === 'string' && DECIMAL_PATTERN.test(value.trim())) return Number(value.trim());
     return null;

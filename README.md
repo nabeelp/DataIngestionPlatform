@@ -62,7 +62,11 @@ In Admin → File Definitions, **Start from an example file** proposes a definit
 - **Header row**: the first non-empty row (the first record for CSV). Title rows above the headers become the header, so the panel warns when many header cells are blank.
 - **Sheets**: an XLSX workbook with **more than one populated sheet** is proposed as **one table per sheet**. Choose which sheets to include (all populated sheets are included by default) and preview each sheet's columns. A workbook with a single populated sheet, or a CSV file (which has no sheets), is proposed as one table.
 - **Columns**: name, the most specific type every value matches (`integer`, `decimal`, `datetime`, `boolean`, otherwise `string`), and **required** when every analyzed row has a value. Up to 1,000 data rows per sheet are analyzed. Fill counts and sample values are shown for review.
-- **Suggested rules** (new definitions only): an `Enum Check` for text columns with 2–10 repeating values, scoped to its sheet's table. Selected suggestions from included sheets are created with the definition and published in version 1. They allow only the values seen in the example, so review them carefully.
+- **Suggested rules** (new definitions only), each scoped to its sheet's table:
+  - an `Enum Check` for text columns with 2–10 repeating values. It allows only the values seen in the example, so review it carefully.
+  - a `Range Check` for integer and decimal columns with at least two different values. The bounds are rounded out to the next 1, 2 or 5 × 10ⁿ (for example, values from 16 to 9,827 suggest `StockQuantity: 0..10000`), and the minimum is 0 unless the example has negative values. Columns named like identifiers or codes (such as `CustomerId`, `Order No`, `ZipCode` or `SKU`) are skipped.
+
+  The reason for each suggestion is shown next to it. Pick suggestions individually or with **Select all suggested rules**. Selected suggestions from included sheets are created with the definition and published in version 1.
 
 **Use these columns** (or **Use N sheet tables**) replaces the form's layout and columns. You can then edit them, including switching layout, before saving; nothing is saved until you click **Create** or **Update**. When editing an existing definition, applied columns are saved as a draft like any other column edit. The example file is deleted as soon as it has been analyzed and is never stored.
 

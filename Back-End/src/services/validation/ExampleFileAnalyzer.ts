@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import { readRecords } from './FileRecordReader';
-import { isEmptyValue, matchesType, parseRuleExpression, type ColumnType } from './ValidationEngine';
+import { isEmptyValue, matchesType, parseRuleExpression, toNumber, type ColumnType } from './ValidationEngine';
 
 export const EXAMPLE_FILE_TYPES = ['csv', 'xlsx'] as const;
 export type ExampleFileType = typeof EXAMPLE_FILE_TYPES[number];
@@ -21,6 +21,14 @@ const MAX_ENUM_VALUES = 10;
 const MAX_ENUM_VALUE_LENGTH = 50;
 // An allowed-values rule is only suggested when values repeat, on average, at least this often.
 const MIN_ROWS_PER_ENUM_VALUE = 2;
+// A range rule needs at least this many different numbers, so a single or constant value is not a range.
+const MIN_RANGE_DISTINCT_VALUES = 2;
+const MAX_TRACKED_NUMBERS = MIN_RANGE_DISTINCT_VALUES;
+// Identifiers, codes and phone-like numbers are labels, not quantities, so no range is suggested for them.
+const IDENTIFIER_WORDS = new Set([
+    'id', 'key', 'code', 'number', 'num', 'no', 'nr', 'ref', 'reference', 'sku', 'ean', 'upc', 'isbn',
+    'zip', 'zipcode', 'postcode', 'postalcode', 'phone', 'mobile', 'fax', 'account',
+]);
 
 // Most specific first: the first type that every sampled value matches is proposed; otherwise string.
 const INFERENCE_ORDER: ColumnType[] = ['integer', 'decimal', 'datetime', 'boolean'];
@@ -36,7 +44,7 @@ export interface SuggestedColumn {
 
 export interface SuggestedRule {
     name: string;
-    ruleType: 'Enum Check';
+    ruleType: 'Enum Check' | 'Range Check';
     expression: string;
     severity: 'Error';
     reason: string;
@@ -74,6 +82,11 @@ interface ColumnProfile {
     samples: string[];
     distinct: Set<string>;
     enumEligible: boolean;
+    /** Smallest and largest numeric values seen (non-numeric values are ignored). */
+    min: number | null;
+    max: number | null;
+    /** Up to MAX_TRACKED_NUMBERS different numbers, enough to tell a range from a constant. */
+    numbers: Set<number>;
 }
 
 interface SheetProfile {
@@ -125,6 +138,9 @@ function profileHeaders(headers: string[], name: string | null, headerRow: numbe
             samples: [],
             distinct: new Set(),
             enumEligible: true,
+            min: null,
+            max: null,
+            numbers: new Set(),
         });
     });
     return { name, headerRow, rows: 0, columns, duplicateHeaders: [...duplicates] };
@@ -142,6 +158,12 @@ function profileRow(sheet: SheetProfile, row: Record<string, unknown>): void {
         if (column.samples.length < MAX_SAMPLE_VALUES && !column.samples.includes(shorten(text))) {
             column.samples.push(shorten(text));
         }
+        const numeric = toNumber(value);
+        if (numeric !== null) {
+            column.min = column.min === null ? numeric : Math.min(column.min, numeric);
+            column.max = column.max === null ? numeric : Math.max(column.max, numeric);
+            if (column.numbers.size < MAX_TRACKED_NUMBERS) column.numbers.add(numeric);
+        }
         if (column.enumEligible) {
             // Enum expressions are comma separated, so values containing commas cannot be listed.
             if (typeof value !== 'string' || text.length > MAX_ENUM_VALUE_LENGTH || text.includes(',')) {
@@ -154,7 +176,7 @@ function profileRow(sheet: SheetProfile, row: Record<string, unknown>): void {
     }
 }
 
-function suggestRule(column: ColumnProfile, type: ColumnType): SuggestedRule | null {
+function suggestEnumRule(column: ColumnProfile, type: ColumnType): SuggestedRule | null {
     const values = [...column.distinct];
     if (type !== 'string' || !column.enumEligible || column.name.includes(':')) return null;
     if (values.length < 2 || column.filled < values.length * MIN_ROWS_PER_ENUM_VALUE) return null;
@@ -170,8 +192,53 @@ function suggestRule(column: ColumnProfile, type: ColumnType): SuggestedRule | n
         ruleType: 'Enum Check',
         expression,
         severity: 'Error',
-        reason: `${values.length} distinct values repeat across ${column.filled} filled rows`,
+        reason: `${values.length} distinct values repeat across ${column.filled} filled rows. Only values seen in the example would be allowed`,
     };
+}
+
+const nameWords = (name: string): string[] =>
+    name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+/** True for columns named like identifiers or codes ("CustomerId", "Order No", "ZipCode", "SKU"). */
+export const looksLikeIdentifier = (name: string): boolean => {
+    const words = nameWords(name);
+    return words.length > 0 && (IDENTIFIER_WORDS.has(words[words.length - 1]) || IDENTIFIER_WORDS.has(words.join('')));
+};
+
+/** The smallest 1, 2 or 5 x 10^n that is at least value (value > 0), so a range bound leaves headroom. */
+export const niceCeiling = (value: number): number => {
+    const base = 10 ** Math.floor(Math.log10(value));
+    const step = [1, 2, 5, 10].find(multiplier => multiplier * base >= value) ?? 10;
+    return Number((step * base).toPrecision(12));
+};
+
+const formatNumber = (value: number): string => String(Number(value.toPrecision(12)));
+
+function suggestRangeRule(column: ColumnProfile, type: ColumnType): SuggestedRule | null {
+    if ((type !== 'integer' && type !== 'decimal') || column.name.includes(':') || column.generatedName) return null;
+    if (column.min === null || column.max === null || column.numbers.size < MIN_RANGE_DISTINCT_VALUES) return null;
+    if (looksLikeIdentifier(column.name)) return null;
+
+    const min = column.min >= 0 ? 0 : -niceCeiling(-column.min);
+    const max = column.max > 0 ? niceCeiling(column.max) : 0;
+    const expression = `${column.name}: ${formatNumber(min)}..${formatNumber(max)}`;
+    try {
+        parseRuleExpression('Range Check', expression);
+    } catch {
+        return null;
+    }
+    const observed = `Values in the example range from ${formatNumber(column.min)} to ${formatNumber(column.max)}`;
+    return {
+        name: `${column.name} range`,
+        ruleType: 'Range Check',
+        expression,
+        severity: 'Error',
+        reason: `${observed}. The bounds are rounded out to leave headroom${min === 0 ? ' and reject negative values' : ''}`,
+    };
+}
+
+function suggestRules(column: ColumnProfile, type: ColumnType): SuggestedRule[] {
+    return [suggestEnumRule(column, type), suggestRangeRule(column, type)].filter((rule): rule is SuggestedRule => rule !== null);
 }
 
 function summarizeSheet(profile: SheetProfile, truncated: boolean): ExampleSheet {
@@ -220,16 +287,15 @@ function summarizeSheet(profile: SheetProfile, truncated: boolean): ExampleSheet
         rowsAnalyzed: profile.rows,
         truncated,
         columns: columns.map(entry => entry.suggestion),
-        suggestedRules: columns
-            .map(entry => suggestRule(entry.column, entry.suggestion.type))
-            .filter((rule): rule is SuggestedRule => rule !== null),
+        suggestedRules: columns.flatMap(entry => suggestRules(entry.column, entry.suggestion.type)),
         warnings,
     };
 }
 
 /**
  * Analyze an example CSV or XLSX file and propose, per sheet, the columns (name, type, required) and
- * candidate allowed-values rules. Proposals describe the example only; admins review them before saving.
+ * candidate allowed-values (Enum Check) and numeric range (Range Check) rules. Proposals describe the example
+ * only; admins review them before saving.
  * Throws ExampleFileError for unsupported or unreadable files.
  */
 export async function analyzeExampleFile(filePath: string, fileType: string): Promise<ExampleAnalysis> {

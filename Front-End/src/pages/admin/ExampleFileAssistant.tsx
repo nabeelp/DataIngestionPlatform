@@ -82,6 +82,18 @@ export default function ExampleFileAssistant({ allowRules, onApply }: Props) {
     });
   };
 
+  const setSheetRules = (target: ExampleSheet, selected: boolean) => {
+    setSelectedRules(prev => {
+      const next = new Set(prev);
+      for (const rule of target.suggestedRules) {
+        const key = suggestionKey(target.name, rule.name);
+        if (selected) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
   const apply = () => {
     if (!analysis || !sheet) return;
     const rules = allowRules ? selectedRules : new Set<string>();
@@ -110,8 +122,9 @@ export default function ExampleFileAssistant({ allowRules, onApply }: Props) {
         <div>
           <p className="text-sm font-medium text-gray-800">Start from an example file (optional)</p>
           <p className="text-xs text-gray-600">
-            Upload a CSV or XLSX example to propose columns from its header row and data. A workbook with several sheets
-            becomes one table per sheet. You review everything before saving; the example is not stored.
+            Upload a CSV or XLSX example to propose columns from its header row and data, plus candidate rules (allowed values
+            for repeating categories and ranges for numeric columns). A workbook with several sheets becomes one table per
+            sheet. You review everything before saving; the example is not stored.
           </p>
         </div>
       </div>
@@ -236,6 +249,16 @@ export default function ExampleFileAssistant({ allowRules, onApply }: Props) {
                 <legend className="text-xs font-medium text-gray-700 mb-1">
                   Suggested rules{sheetTables ? ` for sheet "${sheet.name}"` : ''} (published with version 1 if selected)
                 </legend>
+                {rulesSelectable && (
+                  <div className="flex gap-3 mb-1 text-xs">
+                    <button type="button" onClick={() => setSheetRules(sheet, true)} className="text-blue-700 underline hover:text-blue-900">
+                      Select all suggested rules
+                    </button>
+                    <button type="button" onClick={() => setSheetRules(sheet, false)} className="text-blue-700 underline hover:text-blue-900">
+                      Clear
+                    </button>
+                  </div>
+                )}
                 {sheet.suggestedRules.map(rule => {
                   const key = suggestionKey(sheet.name, rule.name);
                   return (
@@ -249,7 +272,7 @@ export default function ExampleFileAssistant({ allowRules, onApply }: Props) {
                       />
                       <span>
                         <span className="font-medium">{rule.ruleType}</span> <code className="bg-gray-100 px-1 rounded">{rule.expression}</code>
-                        <span className="block text-gray-500">{rule.reason}. Only values seen in the example would be allowed.</span>
+                        <span className="block text-gray-500">{rule.reason}.</span>
                       </span>
                     </label>
                   );
