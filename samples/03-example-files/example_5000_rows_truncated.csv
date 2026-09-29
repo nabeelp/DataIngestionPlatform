@@ -1,6 +1,6 @@
 CustomerId,FirstName,LastName,Email,Phone,DateOfBirth,Address,City,State,ZipCode,Country,CustomerStatus
 CUST-000001,Robert,Nkosi,robert.nkosi1@example.com,+1-555-242-4235,1991-10-21,7831 Hauptstraße,Cape Town,WC,65473,ZA,Active
-CUST-000002,James,Thomas,james.thomas2@example.com,+1-555-608-2860,1955-06-11,1854 Jan Smuts Avenue,Munich,BY,65698,DE,Inactive
+CUST-000002,James,Thomas,james.thomas2@microsoft.com,+1-555-608-2860,1955-06-11,1854 Jan Smuts Avenue,Munich,BY,65698,DE,Inactive
 CUST-000003,David,Chen,david.chen3@example.com,+1-555-250-8336,1952-10-26,2424 Rue de Rivoli,Mumbai,MH,79445,IN,Active
 CUST-000004,Naledi,Thomas,naledi.thomas4@example.com,+1-555-285-3287,1970-11-23,4389 Church Street,Sydney,NSW,77812,AU,Active
 CUST-000005,Ethan,Smith,ethan.smith5@example.com,+1-555-488-4557,1997-01-09,5933 Victoria Street,Cape Town,WC,93962,ZA,Inactive
@@ -13,7 +13,7 @@ CUST-000011,Thabo,Anderson,thabo.anderson11@example.com,+1-555-578-9901,1987-03-
 CUST-000012,Jennifer,Lewis,jennifer.lewis12@example.com,+1-555-432-9901,1977-11-02,4537 Rue de Rivoli,Munich,BY,54622,DE,Inactive
 CUST-000013,Hans,Muller,hans.muller13@example.com,+1-555-695-2741,1989-06-05,3105 Church Street,Manchester,ENG,75953,GB,Prospect
 CUST-000014,Patricia,Anderson,patricia.anderson14@example.com,+1-555-487-6874,1968-03-24,6398 MG Road,Paris,IDF,04211,FR,Active
-CUST-000015,Olivia,Muller,olivia.muller15@example.com,+1-555-597-5405,1990-12-13,2196 MG Road,Vancouver,BC,81170,CA,Prospect
+CUST-000015,Olivia,Muller,olivia.muller15@microsoft.com,+1-555-597-5405,1990-12-13,2196 MG Road,Vancouver,BC,81170,CA,Prospect
 CUST-000016,Aiden,Chen,aiden.chen16@example.com,+1-555-188-6196,1951-04-12,2014 Park Lane,Austin,TX,82831,US,Inactive
 CUST-000017,Sipho,Patel,sipho.patel17@example.com,+1-555-207-6607,1965-10-10,9962 Long Street,New York,NY,42258,US,Prospect
 CUST-000018,Thabo,Anderson,thabo.anderson18@example.com,+1-555-142-9331,1967-11-01,8570 Oak Avenue,Cape Town,WC,46619,ZA,Active
