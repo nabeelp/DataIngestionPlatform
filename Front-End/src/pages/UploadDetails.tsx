@@ -428,15 +428,6 @@ const UploadDetails = () => {
                 {actionLoading ? 'Retrying...' : 'Retry'}
               </button>
             )}
-            {canVerify(upload.statusCode) && (
-              <button 
-                onClick={handleVerify}
-                disabled={actionLoading}
-                className="px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 transition disabled:opacity-50"
-              >
-                {actionLoading ? 'Verifying...' : 'Verify'}
-              </button>
-            )}
             {canDelete(upload.statusCode) && (
               <button 
                 onClick={handleDelete}
