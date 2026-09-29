@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { groupRulesBySheet } from './uploadRuleGroups';
+import { getValidationIssueCount, parseValidationIssues, type ValidationIssue } from './validationIssues';
 
 // ============================================================================
 // Types
@@ -25,7 +26,7 @@ interface RuleResult {
   isLast?: boolean;
   status?: 'Passed' | 'Failed' | 'Warning';
   errorCount?: number;
-  errors?: Array<{ column: string; error: string; row_num: number; value: string }>;
+  errors?: ValidationIssue[];
 }
 
 interface UploadDetail {
@@ -93,16 +94,26 @@ const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
   console.log('Mapped sheets:', mappedSheets);
 
   // Map validation rules - handle empty arrays
-  const mappedRules: RuleResult[] = ruleDetails.map((rule: any, idx: number, arr: any[]) => ({
-    title: rule.RuleName || rule.ruleName || 'Unknown Rule',
-    type: rule.RuleType || rule.ruleType || 'Unknown',
-    sheet: rule.Sheet ?? rule.sheet ?? null,
-    time: rule.ExecutionTimeMs ? `${rule.ExecutionTimeMs}ms` : '0ms',
-    isLast: idx === arr.length - 1,
-    status: mapRuleStatus(rule.Status || rule.status),
-    errorCount: rule.ErrorCount || rule.errorCount || 0,
-    errors: rule.FailedRows ? parseFailedRows(rule.FailedRows) : undefined,
-  }));
+  const mappedRules: RuleResult[] = ruleDetails.map((rule: any, idx: number, arr: any[]) => {
+    const status = mapRuleStatus(rule.Status || rule.status);
+    const failedRows = rule.FailedRows ?? rule.failedRows;
+    const errorCount = getValidationIssueCount(
+      status,
+      rule.ErrorCount ?? rule.errorCount,
+      rule.WarningCount ?? rule.warningCount,
+    );
+
+    return {
+      title: rule.RuleName || rule.ruleName || 'Unknown Rule',
+      type: rule.RuleType || rule.ruleType || 'Unknown',
+      sheet: rule.Sheet ?? rule.sheet ?? null,
+      time: rule.ExecutionTimeMs ? `${rule.ExecutionTimeMs}ms` : '0ms',
+      isLast: idx === arr.length - 1,
+      status,
+      errorCount,
+      errors: parseValidationIssues(failedRows),
+    };
+  });
 
   return {
     id: upload.Id || upload.id,
@@ -224,14 +235,6 @@ const formatDate = (dateString: string): string => {
     minute: '2-digit',
     second: '2-digit'
   });
-};
-
-const parseFailedRows = (failedRows: string): Array<{ column: string; error: string; row_num: number; value: string }> => {
-  try {
-    return JSON.parse(failedRows);
-  } catch {
-    return [];
-  }
 };
 
 const statusTextClass = (status: string): string =>
@@ -736,8 +739,7 @@ interface RuleResultSectionProps {
 }
 
 const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
-  const hasErrors = rule.errors && rule.errors.length > 0;
-  const isPassed = !hasErrors && rule.status !== 'Failed';
+  const isPassed = rule.status === 'Passed';
   const isWarning = rule.status === 'Warning';
 
   if (isPassed) {
@@ -772,8 +774,8 @@ const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
         
         {rule.errorCount !== undefined && rule.errorCount > 0 && (
           <>
-            <p className="text-[13px] text-[#ef4444] font-bold mb-1">{rule.errorCount} failed row{rule.errorCount > 1 ? 's' : ''}</p>
-            <p className="text-[11px] text-gray-400 mb-4">Sample errors (showing {Math.min(rule.errorCount, 10)} of {rule.errorCount}):</p>
+            <p className="text-[13px] text-[#f59e0b] font-bold mb-1">{rule.errorCount} warning row{rule.errorCount > 1 ? 's' : ''}</p>
+            <p className="text-[11px] text-gray-400 mb-4">Sample warnings (showing {Math.min(rule.errorCount, 10)} of {rule.errorCount}):</p>
 
             <div className="overflow-hidden border border-gray-100 rounded">
               <table className="w-full text-left border-collapse">
@@ -781,13 +783,13 @@ const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
                   <tr className="bg-gray-50/50 text-[11px] text-gray-500 border-b border-gray-100">
                     <th className="px-4 py-2 font-medium">column</th>
                     <th className="px-4 py-2 font-medium">error</th>
-                    <th className="px-4 py-2 font-medium">row_num</th>
+                    <th className="px-4 py-2 font-medium">row</th>
                     <th className="px-4 py-2 font-medium">value</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rule.errors?.slice(0, 10).map((err, idx) => (
-                    <ErrorRow key={idx} col={err.column} err={err.error} row={err.row_num} val={err.value} />
+                    <ErrorRow key={idx} col={err.column} err={err.error} row={err.rowNumber} val={err.value} />
                   ))}
                 </tbody>
               </table>
@@ -823,13 +825,13 @@ const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
                 <tr className="bg-gray-50/50 text-[11px] text-gray-500 border-b border-gray-100">
                   <th className="px-4 py-2 font-medium">column</th>
                   <th className="px-4 py-2 font-medium">error</th>
-                  <th className="px-4 py-2 font-medium">row_num</th>
+                  <th className="px-4 py-2 font-medium">row</th>
                   <th className="px-4 py-2 font-medium">value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {rule.errors?.slice(0, 10).map((err, idx) => (
-                  <ErrorRow key={idx} col={err.column} err={err.error} row={err.row_num} val={err.value} />
+                  <ErrorRow key={idx} col={err.column} err={err.error} row={err.rowNumber} val={err.value} />
                 ))}
               </tbody>
             </table>
@@ -841,11 +843,11 @@ const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
   );
 };
 
-const ErrorRow = ({ col, err, row, val }: { col: string; err: string; row: number; val: string }) => (
+const ErrorRow = ({ col, err, row, val }: { col: string; err: string; row?: number; val: string }) => (
   <tr className="text-[12px] text-gray-700">
     <td className="px-4 py-2 font-medium">{col}</td>
     <td className="px-4 py-2">{err}</td>
-    <td className="px-4 py-2 text-[#991b1b] font-bold">{row}</td>
+    <td className="px-4 py-2 text-[#991b1b] font-bold">{row ?? '-'}</td>
     <td className="px-4 py-2 font-mono text-[11px]">{val}</td>
   </tr>
 );
