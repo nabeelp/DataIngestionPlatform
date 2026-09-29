@@ -17,14 +17,16 @@ import { ValidationRuleDetail } from '../models/ValidationRuleDetail.model';
 import { logger } from '../utils/logger';
 import type { IValidationJobData } from '../interfaces/upload.interface';
 import {
+    CONTRACT_RULE_TYPES,
     DEFINITION_SCHEMA_RULE_TYPE,
-    SUPPORTED_RULE_TYPES,
+    NATURAL_LANGUAGE_RULE_TYPE,
     createDefinitionSchemaEvaluator,
     createRuleEvaluator,
     scopeToSheet,
     type RowEvaluator,
 } from './validation/ValidationEngine';
-import { schemaCheckName, validationTables } from './validation/DefinitionContract';
+import { contractRuleColumns, schemaCheckName, validationTables } from './validation/DefinitionContract';
+import { createNaturalLanguageRuleEvaluator, loadRuleSandbox, type SandboxedRowEvaluator } from './validation/NaturalLanguageRuleRuntime';
 import { readRecords } from './validation/FileRecordReader';
 import { createValidationWorker } from './Queue.service';
 import { DefinitionVersionService } from './DefinitionVersion.service';
@@ -99,6 +101,7 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
 
     let tempFilePath: string | null = null;
     let upload: any = null;
+    const sandboxes: SandboxedRowEvaluator[] = [];
 
     try {
         upload = await Upload.findById(uploadId);
@@ -145,8 +148,25 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
                 const rule = contract.rules.find(r => String(r.Id).toLowerCase() === String(ruleDetail.RuleId).toLowerCase());
                 if (!rule) {
                     logger.warn(`[VAL-WORKER] Rule ${ruleDetail.RuleId} is not part of the validation contract; skipping for upload ${uploadId}`);
-                } else if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
+                } else if (!(CONTRACT_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
                     logger.warn(`[VAL-WORKER] Rule "${rule.Name}" has unsupported type "${rule.RuleType}"; skipping`);
+                } else if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
+                    // Generated code only runs inside the sandbox; configuration problems fail the rule, not the job.
+                    let ruleEvaluator: SandboxedRowEvaluator;
+                    try {
+                        ruleEvaluator = createNaturalLanguageRuleEvaluator(
+                            await loadRuleSandbox(),
+                            rule.GeneratedCode || '',
+                            contractRuleColumns(rule),
+                            appConfig.workers.ruleSandbox,
+                        );
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : 'Invalid natural-language rule';
+                        const issue = { error: `Rule configuration error: ${message}` };
+                        ruleEvaluator = { onHeaders: () => undefined, onRow: () => undefined, result: () => ({ passed: false, errorCount: 1, errors: [issue] }), dispose: () => undefined };
+                    }
+                    sandboxes.push(ruleEvaluator);
+                    evaluator = rule.Table ? scopeToSheet(ruleEvaluator, rule.Table, { reportMissing: false }) : ruleEvaluator;
                 } else {
                     const ruleEvaluator = createRuleEvaluator(rule.RuleType, rule.SqlQuery);
                     evaluator = rule.Table ? scopeToSheet(ruleEvaluator, rule.Table, { reportMissing: false }) : ruleEvaluator;
@@ -303,6 +323,7 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
 
         throw error;
     } finally {
+        for (const sandbox of sandboxes) sandbox.dispose();
         if (tempFilePath && upload?.TempLocalPath !== tempFilePath && existsSync(tempFilePath)) {
             unlinkSync(tempFilePath);
         }

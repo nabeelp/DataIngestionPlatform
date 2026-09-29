@@ -128,6 +128,14 @@ IF COL_LENGTH('dbo.Rules', 'CreatedBy') IS NULL
 -- Sheet table a rule applies to, for definitions with one table per workbook sheet. NULL for single-table definitions.
 IF COL_LENGTH('dbo.Rules', 'TableName') IS NULL
     ALTER TABLE dbo.Rules ADD TableName NVARCHAR(255) NULL;
+-- Natural Language rules: the request they were created from, the model's pseudocode, and the generated
+-- TypeScript the validation engine runs in a sandbox. NULL for declarative rule types.
+IF COL_LENGTH('dbo.Rules', 'NaturalLanguageText') IS NULL
+    ALTER TABLE dbo.Rules ADD NaturalLanguageText NVARCHAR(MAX) NULL;
+IF COL_LENGTH('dbo.Rules', 'Pseudocode') IS NULL
+    ALTER TABLE dbo.Rules ADD Pseudocode NVARCHAR(MAX) NULL;
+IF COL_LENGTH('dbo.Rules', 'GeneratedCode') IS NULL
+    ALTER TABLE dbo.Rules ADD GeneratedCode NVARCHAR(MAX) NULL;
 GO
 
 -- Custom SQL and Regex Pattern rules are no longer supported. Disable any existing ones so they

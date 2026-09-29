@@ -8,7 +8,8 @@ import type {
     ICreateRuleDto, 
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
-import { SUPPORTED_RULE_TYPES, parseRuleExpression } from './validation/ValidationEngine';
+import { NATURAL_LANGUAGE_RULE_TYPE, SUPPORTED_RULE_TYPES, parseRuleExpression } from './validation/ValidationEngine';
+import { contractRuleColumns } from './validation/DefinitionContract';
 import { DefinitionVersionService } from './DefinitionVersion.service';
 
 /**
@@ -32,6 +33,21 @@ export function assertValidRule(ruleType: string | undefined, expression: string
         parseRuleExpression(ruleType, expression || '');
     } catch (error) {
         throw new RuleValidationError(error instanceof Error ? error.message : 'Invalid rule expression');
+    }
+}
+
+/**
+ * Ensure a stored rule (declarative or natural-language) can run before it is enabled.
+ */
+function assertRuleCanRun(rule: Pick<IRule, 'RuleType' | 'SqlQuery' | 'GeneratedCode'>): void {
+    if (rule.RuleType !== NATURAL_LANGUAGE_RULE_TYPE) {
+        assertValidRule(rule.RuleType, rule.SqlQuery);
+        return;
+    }
+    try {
+        contractRuleColumns({ RuleType: rule.RuleType, SqlQuery: rule.SqlQuery, GeneratedCode: rule.GeneratedCode ?? undefined });
+    } catch (error) {
+        throw new RuleValidationError(error instanceof Error ? error.message : 'Invalid natural-language rule');
     }
 }
 
@@ -80,6 +96,9 @@ export async function getPublishedRules(
         ExecutionOrder: rule.ExecutionOrder,
         SqlQuery: rule.SqlQuery,
         TableName: rule.Table,
+        NaturalLanguageText: rule.NaturalLanguageText ?? null,
+        Pseudocode: rule.Pseudocode ?? null,
+        GeneratedCode: rule.GeneratedCode ?? null,
         IsEnabled: true,
         CreatedBy: activeVersion.CreatedBy,
         CreatorName: activeVersion.CreatedByName,
@@ -150,6 +169,20 @@ export async function updateRule(
         return null;
     }
 
+    if (existing.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
+        // Generated code is bound to its columns, sheet and type; regenerate the rule to change its behaviour.
+        const changesLogic = (updates.RuleType !== undefined && updates.RuleType !== existing.RuleType) ||
+            (updates.SqlQuery !== undefined && updates.SqlQuery !== existing.SqlQuery) ||
+            (updates.TableName !== undefined && (updates.TableName ?? null) !== (existing.TableName ?? null));
+        if (changesLogic) {
+            throw new RuleValidationError('The type, columns and sheet table of a natural-language rule cannot be changed; create a new rule instead');
+        }
+        if ((updates.IsEnabled ?? existing.IsEnabled) && !existing.IsEnabled) {
+            assertRuleCanRun(existing);
+        }
+        return await Rule.update(ruleId, updates);
+    }
+
     const effectiveType = updates.RuleType ?? existing.RuleType;
     const effectiveExpression = updates.SqlQuery ?? existing.SqlQuery;
     const willBeEnabled = updates.IsEnabled ?? existing.IsEnabled;
@@ -195,7 +228,7 @@ export async function toggleRuleEnabled(
     }
 
     if (!rule.IsEnabled) {
-        assertValidRule(rule.RuleType, rule.SqlQuery);
+        assertRuleCanRun(rule);
     }
 
     return await Rule.update(ruleId, { IsEnabled: !rule.IsEnabled });

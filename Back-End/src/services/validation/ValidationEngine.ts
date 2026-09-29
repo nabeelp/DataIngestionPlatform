@@ -14,6 +14,16 @@ export const SUPPORTED_RULE_TYPES = [
 
 export type SupportedRuleType = typeof SUPPORTED_RULE_TYPES[number];
 
+/**
+ * Rules generated from a natural-language request that no declarative type expresses without loss. They run
+ * model-generated TypeScript in a sandbox; their expression (SqlQuery) lists the columns the code reads.
+ * They can only be created through natural-language authoring, never as a manual expression.
+ */
+export const NATURAL_LANGUAGE_RULE_TYPE = 'Natural Language';
+
+/** Every rule type a published contract may contain. */
+export const CONTRACT_RULE_TYPES = [...SUPPORTED_RULE_TYPES, NATURAL_LANGUAGE_RULE_TYPE] as const;
+
 export const COLUMN_TYPES = ['string', 'integer', 'decimal', 'datetime', 'boolean'] as const;
 export type ColumnType = typeof COLUMN_TYPES[number];
 
@@ -65,7 +75,7 @@ const BOOLEAN_VALUES = new Set(['true', 'false', 'yes', 'no', 'y', 'n', '1', '0'
 export const isEmptyValue = (value: unknown): boolean =>
     value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
 
-const displayValue = (value: unknown): string | null => {
+export const displayValue = (value: unknown): string | null => {
     if (value === null || value === undefined) return null;
     const text = value instanceof Date ? value.toISOString() : String(value);
     return text.length > 200 ? `${text.slice(0, 200)}...` : text;
@@ -115,7 +125,7 @@ export function matchesType(value: unknown, type: string): boolean {
 // Rule expression parsing
 // -----------------------------------------------------------------------------
 
-const splitList = (text: string): string[] =>
+export const splitList = (text: string): string[] =>
     text.split(',').map(item => item.trim()).filter(Boolean);
 
 const splitColumnExpression = (expression: string, example: string): [string, string] => {
@@ -183,7 +193,7 @@ export function parseRuleExpression(ruleType: string, expression: string): Parse
 // Evaluators
 // -----------------------------------------------------------------------------
 
-class IssueCollector {
+export class IssueCollector {
     private count = 0;
     private readonly samples: ValidationIssue[] = [];
 
@@ -199,7 +209,7 @@ class IssueCollector {
     }
 }
 
-const withSheet = (issue: ValidationIssue, sheet?: string): ValidationIssue =>
+export const withSheet = (issue: ValidationIssue, sheet?: string): ValidationIssue =>
     sheet ? { sheet, ...issue } : issue;
 
 /** Whether two sheet names refer to the same sheet: case-insensitive, ignoring surrounding spaces. */

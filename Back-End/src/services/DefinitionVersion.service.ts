@@ -71,7 +71,7 @@ async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: str
 
     const rules = await db.request()
         .input('FileDefinitionId', fileDefinitionId)
-        .query(`SELECT Id, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
+        .query(`SELECT Id, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, NaturalLanguageText, Pseudocode, GeneratedCode FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
 
     const row = definition.recordset[0];
     return buildContractSnapshot(parseJson(row.Columns), rules.recordset, parseJson(row.Tables));
@@ -127,7 +127,7 @@ export class DefinitionVersionService {
         const pool = await getConnection();
         const [activeVersions, rules] = await Promise.all([
             FileDefinitionVersion.findAllActive(pool),
-            pool.request().query(`SELECT Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName FROM Rules`),
+            pool.request().query(`SELECT Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, NaturalLanguageText, Pseudocode, GeneratedCode FROM Rules`),
         ]);
 
         const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));

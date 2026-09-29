@@ -111,14 +111,17 @@ export class Rule {
             .input('SqlQuery', dto.SqlQuery)
             .input('IsEnabled', dto.IsEnabled !== undefined ? dto.IsEnabled : 1)
             .input('TableName', dto.TableName ?? null)
+            .input('NaturalLanguageText', dto.NaturalLanguageText ?? null)
+            .input('Pseudocode', dto.Pseudocode ?? null)
+            .input('GeneratedCode', dto.GeneratedCode ?? null)
             .input('CreatedBy', createdByUserId)
             .input('CreatedAt', now)
             .input('UpdatedAt', now)
             .query(`
                 INSERT INTO ${this.TABLE_NAME} 
-                (Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, CreatedBy, CreatedAt, UpdatedAt)
+                (Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, NaturalLanguageText, Pseudocode, GeneratedCode, CreatedBy, CreatedAt, UpdatedAt)
                 VALUES 
-                (@Id, @FileDefinitionId, @Name, @Description, @RuleType, @Severity, @ExecutionOrder, @SqlQuery, @IsEnabled, @TableName, @CreatedBy, @CreatedAt, @UpdatedAt)
+                (@Id, @FileDefinitionId, @Name, @Description, @RuleType, @Severity, @ExecutionOrder, @SqlQuery, @IsEnabled, @TableName, @NaturalLanguageText, @Pseudocode, @GeneratedCode, @CreatedBy, @CreatedAt, @UpdatedAt)
             `);
 
         return (await this.findById(id))!;

@@ -13,6 +13,7 @@ jest.mock('../src/controllers/rule.controller', () => {
         getRules: ok,
         getRuleById: ok,
         createRule: ok,
+        createRuleFromDescription: ok,
         updateRule: ok,
         deleteRule: ok,
         toggleRule: ok,
@@ -64,6 +65,7 @@ describe('rule routes authorization', () => {
 
     const mutations: Array<[string, string, unknown]> = [
         ['POST', '', validRule],
+        ['POST', '/natural-language', { FileDefinitionId: DEFINITION_ID, Request: 'Amount must be positive' }],
         ['PUT', `/${RULE_ID}`, { Name: 'Renamed' }],
         ['DELETE', `/${RULE_ID}`, null],
         ['PATCH', `/${RULE_ID}/toggle`, null],
@@ -82,5 +84,10 @@ describe('rule routes authorization', () => {
     it.each(['admin', 'user'] as const)('allows %s to read rules', async role => {
         expect((await call(role, 'GET', `/definitions/${DEFINITION_ID}`)).status).toBe(200);
         expect((await call(role, 'GET', `/${RULE_ID}`)).status).toBe(200);
+    });
+
+    it('rejects an empty natural-language request', async () => {
+        const res = await call('admin', 'POST', '/natural-language', { FileDefinitionId: DEFINITION_ID, Request: '  ' });
+        expect(res.status).toBe(400);
     });
 });

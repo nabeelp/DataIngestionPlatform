@@ -78,6 +78,46 @@ describe('definition contract snapshots', () => {
     });
 });
 
+describe('natural-language rules in the contract', () => {
+    const nlRule = (overrides: Record<string, unknown> = {}) => rule({
+        Id: 'r-nl', Name: 'Contoso email', RuleType: 'Natural Language', SqlQuery: 'CustomerId',
+        NaturalLanguageText: 'CustomerId must start with C', Pseudocode: 'IF CustomerId does not start with C: report issue',
+        GeneratedCode: 'function validateRow(row: Row, rowNumber: number): string | null { return null; }',
+        ...overrides,
+    });
+
+    it('snapshots the request, pseudocode and code of natural-language rules only', () => {
+        const snapshot = buildContractSnapshot(columns, [rule(), nlRule()]);
+        const [declarative, generated] = snapshot.rules;
+        expect(declarative).not.toHaveProperty('GeneratedCode');
+        expect(generated).toMatchObject({
+            NaturalLanguageText: 'CustomerId must start with C',
+            Pseudocode: 'IF CustomerId does not start with C: report issue',
+            GeneratedCode: expect.stringContaining('validateRow'),
+        });
+        // A published snapshot rebuilt from JSON keeps the generated content.
+        expect(buildContractSnapshot(columns, JSON.parse(JSON.stringify(snapshot.rules))).rules).toEqual(snapshot.rules);
+    });
+
+    it('treats a code change as a behaviour change, but not a pseudocode rewording', () => {
+        const active = buildContractSnapshot(columns, [nlRule()]);
+        expect(diffContracts(active, buildContractSnapshot(columns, [nlRule({ Pseudocode: 'reworded' })])).hasChanges).toBe(false);
+        expect(diffContracts(active, buildContractSnapshot(columns, [nlRule({ GeneratedCode: 'function validateRow() { return "x"; }' })])).rules.changed)
+            .toEqual(['Contoso email']);
+    });
+
+    it('refuses to publish a natural-language rule without code or columns in its table', () => {
+        expect(() => assertPublishable(buildContractSnapshot(columns, [nlRule()]))).not.toThrow();
+        expect(() => assertPublishable(buildContractSnapshot(columns, [nlRule({ GeneratedCode: '' })])))
+            .toThrow('Rule "Contoso email" is invalid: A natural-language rule needs generated code');
+        expect(() => assertPublishable(buildContractSnapshot(columns, [nlRule({ SqlQuery: '' })])))
+            .toThrow('must list the columns it reads');
+        const tables = [{ sheet: 'Orders', columns }];
+        expect(() => assertPublishable(buildContractSnapshot([], [nlRule({ TableName: 'Orders', SqlQuery: 'Email' })], tables)))
+            .toThrow('refers to column "Email", which is not in sheet "Orders"');
+    });
+});
+
 describe('sheet table contracts', () => {
     const tables = [
         { sheet: ' Orders ', columns },

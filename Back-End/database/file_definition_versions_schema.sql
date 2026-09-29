@@ -77,7 +77,10 @@ SELECT
             r.Severity,
             r.ExecutionOrder,
             r.SqlQuery,
-            r.TableName AS [Table]
+            r.TableName AS [Table],
+            r.NaturalLanguageText,
+            r.Pseudocode,
+            r.GeneratedCode
         FROM Rules r
         WHERE r.FileDefinitionId = fd.Id AND r.IsEnabled = 1
         ORDER BY r.ExecutionOrder, r.Id

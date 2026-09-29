@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Search, SlidersHorizontal, MoreVertical, Edit2, 
   Copy, Power, Shield, Database, LayoutGrid, AlertTriangle, 
-  RefreshCw, Info, ChevronRight, X, Trash2, Settings,
+  RefreshCw, Info, ChevronRight, X, Trash2, Settings, Sparkles, Check,
 } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { getFileDefinitionsAdmin } from '../services/adminApi';
+import { reviewNaturalLanguageRule, type ReviewActivity } from '../services/ruleAuthoringApi';
+import GeneratedRuleDetails from './GeneratedRuleDetails';
+import RuleReviewActivity from './RuleReviewActivity';
 
 //#region INTERFACES & TYPES
 interface Rule {
@@ -23,7 +26,15 @@ interface Rule {
   tableName: string | null;
   createdBy?: string | null;
   creatorName?: string;
+  naturalLanguageText?: string | null;
+  pseudocode?: string | null;
+  generatedCode?: string | null;
 }
+
+type GenerationResult =
+  | { outcome: 'rejected'; reason: string }
+  | { outcome: 'mapped'; reason: string; name: string; ruleType: string; expression: string; pseudocode: string }
+  | { outcome: 'natural_language'; reason: string; name: string; pseudocode: string; typescript: string; naturalLanguageText: string };
 
 interface Definition {
   id: string;
@@ -52,6 +63,9 @@ const RULE_TYPES = [
   { value: 'Range Check', label: 'Numeric range', help: 'Column and inclusive range "min..max"; either bound may be omitted.', example: 'StockQuantity: 0..10000' },
 ];
 const DEFAULT_RULE_TYPE = RULE_TYPES[0].value;
+// Also the stored rule type of rules generated from a request that no declarative type expresses without loss.
+const NATURAL_LANGUAGE_STRATEGY = 'Natural Language';
+const isGeneratedRule = (rule: Pick<Rule, 'ruleType'> | null | undefined) => rule?.ruleType === NATURAL_LANGUAGE_STRATEGY;
 const getRuleTypeMeta = (type: string) =>
   RULE_TYPES.find(t => t.value === type) || { value: type, label: type, help: 'This rule type is no longer supported. Choose a supported type.', example: '' };
 
@@ -70,6 +84,13 @@ export default function ValidationRules() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('Never');
   const [publishedVersion, setPublishedVersion] = useState<number | null>(null);
+  const [naturalLanguageRequest, setNaturalLanguageRequest] = useState('');
+  const [generatingRule, setGeneratingRule] = useState(false);
+  const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
+  const [activity, setActivity] = useState<ReviewActivity[]>([]);
+  const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const reviewAbort = useRef<AbortController | null>(null);
 
   // Search & Filter UI State
   const [searchTerm, setSearchTerm] = useState('');
@@ -94,6 +115,9 @@ export default function ValidationRules() {
   //#endregion
 
   const selectedSheets = definitions.find(def => def.id === selectedDefinitionId)?.sheets ?? [];
+  // A plain-language review saved a rule: the drawer offers Done / Create another instead of reviewing again.
+  const ruleCreated = !editingRule && formData.ruleType === NATURAL_LANGUAGE_STRATEGY
+    && generationResult !== null && generationResult.outcome !== 'rejected';
 
   //#region LIFECYCLE EFFECTS
   // Initialization: Fetch definitions
@@ -103,6 +127,7 @@ export default function ValidationRules() {
 
   // Sync rules list whenever target definition changes
   useEffect(() => {
+    setGenerationResult(null);
     if (selectedDefinitionId) {
       fetchRules(selectedDefinitionId);
     } else {
@@ -112,6 +137,9 @@ export default function ValidationRules() {
 
   // Sync Form data state when drawer toggles or swaps context
   useEffect(() => {
+    setNaturalLanguageRequest('');
+    setGenerationResult(null);
+    setActivity([]);
     if (editingRule) {
       setFormData({
         name: editingRule.name || '',
@@ -136,6 +164,16 @@ export default function ValidationRules() {
       });
     }
   }, [editingRule, isDrawerOpen]);
+
+  // Tick the review timer so the drawer visibly counts while the model works.
+  useEffect(() => {
+    if (!generatingRule) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [generatingRule]);
+
+  // Leaving the page stops a running review, so the server does not keep calling the model.
+  useEffect(() => () => reviewAbort.current?.abort(), []);
   //#endregion
 
   //#region DATA ACCESS OPERATIONS (API FETCHERS)
@@ -216,7 +254,10 @@ export default function ValidationRules() {
           isEnabled: rule.IsEnabled !== undefined ? rule.IsEnabled : rule.isEnabled,
           tableName: rule.TableName ?? rule.tableName ?? null,
           createdBy: rule.CreatedBy || rule.createdBy,
-          creatorName: rule.CreatorName || rule.creatorName
+          creatorName: rule.CreatorName || rule.creatorName,
+          naturalLanguageText: rule.NaturalLanguageText ?? rule.naturalLanguageText ?? null,
+          pseudocode: rule.Pseudocode ?? rule.pseudocode ?? null,
+          generatedCode: rule.GeneratedCode ?? rule.generatedCode ?? null,
         }));
         setRules(mappedRules);
         setPublishedVersion(data.published ? data.versionNumber ?? null : null);
@@ -244,17 +285,25 @@ export default function ValidationRules() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          FileDefinitionId: selectedDefinitionId,
-          Name: formData.name,
-          Description: formData.description,
-          RuleType: formData.ruleType,
-          Severity: formData.severity,
-          ExecutionOrder: parseInt(formData.executionOrder) || 1,
-          SqlQuery: formData.sqlQuery,
-          IsEnabled: formData.isEnabled,
-          TableName: selectedSheets.length > 0 ? formData.tableName || null : null
-        })
+        body: JSON.stringify(isGeneratedRule(editingRule)
+          // The logic of a generated rule is fixed; only its presentation and ordering can change.
+          ? {
+            Name: formData.name,
+            Description: formData.description,
+            Severity: formData.severity,
+            ExecutionOrder: parseInt(formData.executionOrder) || 1,
+          }
+          : {
+            FileDefinitionId: selectedDefinitionId,
+            Name: formData.name,
+            Description: formData.description,
+            RuleType: formData.ruleType,
+            Severity: formData.severity,
+            ExecutionOrder: parseInt(formData.executionOrder) || 1,
+            SqlQuery: formData.sqlQuery,
+            IsEnabled: formData.isEnabled,
+            TableName: selectedSheets.length > 0 ? formData.tableName || null : null
+          })
       });
 
       if (!response.ok) {
@@ -273,6 +322,69 @@ export default function ValidationRules() {
       console.error('Error saving rule:', err);
       setError(err instanceof Error ? err.message : 'Failed to save rule');
     }
+  };
+
+  const handleNaturalLanguageRule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (generatingRule || !selectedDefinitionId) return;
+    const controller = new AbortController();
+    reviewAbort.current = controller;
+    const startedAt = Date.now();
+    setGeneratingRule(true);
+    setReviewStartedAt(startedAt);
+    setNow(startedAt);
+    setError(null);
+    setGenerationResult(null);
+    setActivity([{ level: 'info', message: 'Sending the rule to the server', elapsedMs: 0 }]);
+    try {
+      const data = await reviewNaturalLanguageRule({
+        baseUrl: apiConfig.getBaseUrl(),
+        token,
+        fileDefinitionId: selectedDefinitionId,
+        request: naturalLanguageRequest.trim(),
+        signal: controller.signal,
+        onActivity: entry => setActivity(previous => [...previous, entry]),
+      });
+      if (data.outcome === 'mapped') {
+        setGenerationResult({
+          outcome: 'mapped', reason: data.reason, name: data.rule.Name, ruleType: data.rule.RuleType,
+          expression: data.rule.SqlQuery, pseudocode: data.pseudocode,
+        });
+        await fetchRules(selectedDefinitionId);
+      } else if (data.outcome === 'natural_language') {
+        setGenerationResult({
+          outcome: 'natural_language', reason: data.reason, name: data.rule.Name, pseudocode: data.pseudocode,
+          typescript: data.typescript, naturalLanguageText: data.rule.NaturalLanguageText ?? naturalLanguageRequest.trim(),
+        });
+        await fetchRules(selectedDefinitionId);
+      } else {
+        setGenerationResult({ outcome: 'rejected', reason: data.reason });
+      }
+    } catch (err) {
+      if (controller.signal.aborted) {
+        setActivity(previous => [...previous, { level: 'warning', message: 'You stopped the review', elapsedMs: Date.now() - startedAt }]);
+        // The server may have saved the rule just before it saw the stop.
+        void fetchRules(selectedDefinitionId);
+      } else {
+        const message = err instanceof Error ? err.message : 'Could not review the rule';
+        setError(`Could not create the rule: ${message}`);
+        setActivity(previous => previous.some(entry => entry.level === 'error' && entry.message === message)
+          ? previous
+          : [...previous, { level: 'error', message, elapsedMs: Date.now() - startedAt }]);
+      }
+    } finally {
+      if (reviewAbort.current === controller) reviewAbort.current = null;
+      setGeneratingRule(false);
+    }
+  };
+
+  const stopNaturalLanguageRule = () => reviewAbort.current?.abort();
+
+  const startAnotherRule = () => {
+    setNaturalLanguageRequest('');
+    setGenerationResult(null);
+    setActivity([]);
+    setError(null);
   };
 
   const handleDelete = async (ruleId: string) => {
@@ -366,6 +478,8 @@ export default function ValidationRules() {
         return { icon: Database, bg: "bg-blue-50 text-blue-600" };
       case 'enum check':
         return { icon: ({ className }: any) => <span className={`font-bold text-sm ${className}`}>Aa</span>, bg: "bg-purple-50 text-purple-600" };
+      case 'natural language':
+        return { icon: Sparkles, bg: "bg-violet-50 text-violet-600" };
       default: return { icon: LayoutGrid, bg: "bg-amber-50 text-amber-600" };
     }
   };
@@ -449,6 +563,7 @@ export default function ValidationRules() {
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Upload Definition</label>
               <div className="relative">
                 <select 
+                  disabled={generatingRule}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
                   value={selectedDefinitionId}
                   onChange={(e) => setSelectedDefinitionId(e.target.value)}
@@ -607,9 +722,11 @@ export default function ValidationRules() {
                                   <button onClick={() => { setEditingRule(rule); setIsDrawerOpen(true); setActiveMenuId(null); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700">
                                     <Edit2 className="w-3.5 h-3.5 text-slate-400" /> Edit Configuration
                                   </button>
+                                  {!isGeneratedRule(rule) && (
                                   <button onClick={() => handleClone(rule)} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700">
                                     <Copy className="w-3.5 h-3.5 text-slate-400" /> Clone Logic
                                   </button>
+                                  )}
                                   <button onClick={() => handleDelete(rule.id)} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-red-600 font-semibold border-t border-slate-100">
                                     <Trash2 className="w-3.5 h-3.5 text-red-400" /> Purge Rule
                                   </button>
@@ -619,11 +736,15 @@ export default function ValidationRules() {
                           </div>
                         </div>
 
-                        {rule.description && <p className="text-xs text-slate-500 max-w-3xl line-clamp-2">{rule.description}</p>}
+                        {rule.description && !isGeneratedRule(rule) && <p className="text-xs text-slate-500 max-w-3xl line-clamp-2">{rule.description}</p>}
                         <div className="text-xs text-slate-400 font-semibold uppercase tracking-wide">{rule.ruleType}</div>
                         
-                        {/* Database Target Expression Container */}
-                        {rule.sqlQuery && (
+                        {isGeneratedRule(rule) ? (
+                          <>
+                            {rule.sqlQuery && <p className="text-xs text-slate-500">Columns read: <span className="font-mono">{rule.sqlQuery}</span></p>}
+                            <GeneratedRuleDetails naturalLanguageText={rule.naturalLanguageText} pseudocode={rule.pseudocode} generatedCode={rule.generatedCode} />
+                          </>
+                        ) : rule.sqlQuery && (
                           <div className="bg-slate-900 border border-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 max-w-3xl overflow-x-auto shadow-inner">
                             {rule.sqlQuery}
                           </div>
@@ -663,7 +784,7 @@ export default function ValidationRules() {
                   {editingRule ? 'Edit Validation Rule' : 'New Validation Rule'}
                 </h2>
               </div>
-              <button onClick={() => setIsDrawerOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-50">
+              <button onClick={() => setIsDrawerOpen(false)} disabled={generatingRule} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-50 disabled:opacity-50">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -682,7 +803,7 @@ export default function ValidationRules() {
             </div>
 
             {/* Form Entry Field Framework */}
-            <form onSubmit={handleSaveRule} className="flex flex-col flex-1 overflow-y-auto">
+            <form onSubmit={formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? handleNaturalLanguageRule : handleSaveRule} className="flex flex-col flex-1 overflow-y-auto">
               <div className="p-6 space-y-5 flex-1">
                 {error && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" role="alert">
@@ -690,10 +811,85 @@ export default function ValidationRules() {
                   </div>
                 )}
                 <div>
-                  <h3 className="font-bold text-sm text-slate-900">System Parameters</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Define runtime parameters mapped directly to active schemas.</p>
+                  <h3 className="font-bold text-sm text-slate-900">{formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? 'Describe your rule' : 'System Parameters'}</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule
+                      ? 'The model maps your rule to an existing rule type when nothing is lost, or otherwise generates code to enforce it.'
+                      : 'Define runtime parameters mapped directly to active schemas.'}
+                  </p>
                 </div>
 
+                {!editingRule && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="ruleStrategy" className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
+                    <select
+                      id="ruleStrategy"
+                      value={formData.ruleType}
+                      disabled={generatingRule}
+                      onChange={e => {
+                        setFormData({ ...formData, ruleType: e.target.value });
+                        setGenerationResult(null);
+                        setActivity([]);
+                        setError(null);
+                      }}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 font-medium"
+                    >
+                      {RULE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                      <option value={NATURAL_LANGUAGE_STRATEGY}>Natural language</option>
+                    </select>
+                  </div>
+                )}
+
+                {formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-500">
+                      Describe one check of the file's rows. When an existing rule type (required columns or values, data type,
+                      allowed values, numeric range) expresses it exactly, that type is used. Otherwise a Natural Language rule is
+                      created with generated pseudocode and TypeScript, verified against examples, and run in a sandbox during
+                      validation. Rules are saved to the draft; review them and publish the definition version before they apply to uploads.
+                    </p>
+                    <label htmlFor="naturalLanguageRule" className="block text-xs font-bold text-slate-600">Rule to enforce <span className="text-red-500">*</span></label>
+                    <textarea
+                      id="naturalLanguageRule"
+                      required
+                      maxLength={1000}
+                      rows={4}
+                      disabled={generatingRule || ruleCreated}
+                      value={naturalLanguageRequest}
+                      onChange={e => { setNaturalLanguageRequest(e.target.value); setGenerationResult(null); }}
+                      placeholder="For example: The Amount column must be between 0 and 100"
+                      className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                    />
+                    <RuleReviewActivity entries={activity} running={generatingRule} elapsedMs={reviewStartedAt ? now - reviewStartedAt : 0} />
+                    {generationResult?.outcome === 'rejected' && (
+                      <p role="status" className="text-sm text-amber-800 bg-amber-50 p-3 rounded-lg">Cannot create rule: {generationResult.reason}</p>
+                    )}
+                    {generationResult?.outcome === 'mapped' && (
+                      <div role="status" className="space-y-2">
+                        <p className="text-sm text-emerald-700 font-medium">
+                          Created draft rule "{generationResult.name}" as {getRuleTypeMeta(generationResult.ruleType).label}: <code>{generationResult.expression}</code>
+                        </p>
+                        <p className="text-xs text-slate-500">{generationResult.reason}</p>
+                        <p className="text-xs font-semibold text-slate-600">How this rule is evaluated (pseudocode)</p>
+                        <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg text-xs whitespace-pre-wrap overflow-x-auto">{generationResult.pseudocode}</pre>
+                      </div>
+                    )}
+                    {generationResult?.outcome === 'natural_language' && (
+                      <div role="status" className="space-y-2">
+                        <p className="text-sm text-emerald-700 font-medium">Created draft Natural Language rule "{generationResult.name}"</p>
+                        <p className="text-xs text-slate-500">{generationResult.reason} Review the generated code before publishing.</p>
+                        <GeneratedRuleDetails pseudocode={generationResult.pseudocode} generatedCode={generationResult.typescript} expanded />
+                      </div>
+                    )}
+                    {ruleCreated && (
+                      <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <span className="font-semibold">Next step:</span> the rule is saved to the draft. Uploads use it after you publish a new version in{' '}
+                        <Link to="/admin/file-definitions" className="font-semibold underline">File Definitions → Versions</Link>.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
                 {/* Field: Rule Name */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-600">Rule Name <span className="text-red-500">*</span></label>
@@ -752,7 +948,7 @@ export default function ValidationRules() {
                 </div>
 
                 {/* Field: Sheet table (definitions with one table per workbook sheet) */}
-                {selectedSheets.length > 0 && (
+                {selectedSheets.length > 0 && !isGeneratedRule(editingRule) && (
                   <div className="space-y-1.5">
                     <label htmlFor="ruleTable" className="text-xs font-bold text-slate-600">Sheet Table <span className="text-red-500">*</span></label>
                     <p className="text-[11px] text-slate-500">The rule checks rows of this workbook sheet only.</p>
@@ -774,27 +970,37 @@ export default function ValidationRules() {
                   </div>
                 )}
 
-                {/* Field: Strategy / Rule Type Option Selection */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
-                  <div className="relative">
-                    <select 
+                {isGeneratedRule(editingRule) ? (
+                  <div className="space-y-2 border-t border-slate-100 pt-4">
+                    <p className="text-xs font-bold text-slate-600">Natural Language rule</p>
+                    <p className="text-[11px] text-slate-500">
+                      {editingRule!.tableName ? `Sheet ${editingRule!.tableName}. ` : ''}Columns read: <span className="font-mono">{editingRule!.sqlQuery}</span>.
+                      The generated logic cannot be edited; create a new rule to change what it checks.
+                    </p>
+                    <GeneratedRuleDetails
+                      naturalLanguageText={editingRule!.naturalLanguageText}
+                      pseudocode={editingRule!.pseudocode}
+                      generatedCode={editingRule!.generatedCode}
+                    />
+                  </div>
+                ) : (
+                  <>
+                {editingRule && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="editRuleStrategy" className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
+                    <select
+                      id="editRuleStrategy"
                       value={formData.ruleType}
-                      onChange={(e) => setFormData({ ...formData, ruleType: e.target.value })}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 font-medium shadow-xs"
+                      onChange={e => setFormData({ ...formData, ruleType: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 font-medium"
                     >
-                      {!RULE_TYPES.some(t => t.value === formData.ruleType) && (
+                      {!RULE_TYPES.some(type => type.value === formData.ruleType) && (
                         <option value={formData.ruleType} disabled>{formData.ruleType} (no longer supported)</option>
                       )}
-                      {RULE_TYPES.map(t => (
-                        <option key={t.value} value={t.value}>{t.label}</option>
-                      ))}
+                      {RULE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
                     </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
-                      <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Field: Rule expression */}
                 <div className="space-y-1.5">
@@ -811,6 +1017,10 @@ export default function ValidationRules() {
                     className="w-full border border-slate-200 rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-900 text-emerald-400 font-mono shadow-inner resize-y min-h-[100px]"
                   />
                 </div>
+                  </>
+                )}
+                  </>
+                )}
 
                 {/* Field: Status Toggle Checkbox */}
                 {/* <div className="flex items-center gap-2.5 pt-1">
@@ -835,19 +1045,43 @@ export default function ValidationRules() {
 
               {/* Sidebar Action Footer Controls */}
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
+                {ruleCreated ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={startAnotherRule}
+                      className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      Create another rule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsDrawerOpen(false)}
+                      className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
+                    >
+                      Done <Check className="w-4 h-4" />
+                    </button>
+                  </>
+                ) : (
+                  <>
                 <button 
                   type="button"
-                  onClick={() => setIsDrawerOpen(false)} 
+                  onClick={generatingRule ? stopNaturalLanguageRule : () => setIsDrawerOpen(false)}
                   className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 >
-                  Cancel
+                  {generatingRule ? 'Stop' : 'Cancel'}
                 </button>
                 <button 
                   type="submit"
-                  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
+                  disabled={generatingRule || (formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule && !naturalLanguageRequest.trim())}
+                  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
                 >
-                  {editingRule ? 'Update Parameters' : 'Save Validation Rule'} <ChevronRight className="w-4 h-4" />
+                  {generatingRule
+                    ? `Reviewing rule… ${reviewStartedAt ? Math.floor((now - reviewStartedAt) / 1000) : 0} s`
+                    : formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? 'Review and create rule' : editingRule ? 'Update Parameters' : 'Save Validation Rule'} <ChevronRight className="w-4 h-4" />
                 </button>
+                  </>
+                )}
               </div>
             </form>
 

@@ -4,6 +4,12 @@
 
 import { Request, Response, NextFunction } from 'express';
 import * as RuleService from '../services/Rule.service';
+import {
+    createNaturalLanguageRule,
+    RuleGenerationCancelledError,
+    RuleGenerationError,
+} from '../services/NaturalLanguageRule.service';
+import { DefinitionVersionError } from '../services/DefinitionVersion.service';
 import type { 
     ICreateRuleDto, 
     IUpdateRuleDto 
@@ -19,6 +25,68 @@ export interface AuthRequest extends Request {
 // A blank table name means the rule applies to a single-table definition.
 const normalizeTableName = (value: unknown): string | null =>
     typeof value === 'string' && value.trim() ? value.trim() : null;
+
+const NDJSON = 'application/x-ndjson';
+
+/** A failure of the review as the client sees it: known errors keep their message, others are logged only. */
+function describeGenerationFailure(error: unknown): { statusCode: number; message: string } {
+    if (error instanceof RuleGenerationError) return { statusCode: error.statusCode, message: error.message };
+    if (error instanceof DefinitionVersionError) return { statusCode: error.statusCode, message: error.message };
+    return { statusCode: 500, message: 'An unexpected error stopped the rule review; see the backend log for details' };
+}
+
+/**
+ * POST /rules/natural-language. With `Accept: application/x-ndjson` the response streams one JSON object per line:
+ * `{ type: 'progress', level, message, elapsedMs }` while the review runs, then a final
+ * `{ type: 'result', ... }` or `{ type: 'error', statusCode, message }`. Otherwise it returns a single JSON result.
+ */
+export const createRuleFromDescription = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const request = String(req.body.Request).trim();
+    if (!String(req.headers.accept || '').includes(NDJSON)) {
+        try {
+            const result = await createNaturalLanguageRule(req.body.FileDefinitionId, request, req.user!.userId);
+            return res.status(result.outcome === 'rejected' ? 200 : 201).json({ success: true, ...result });
+        } catch (error) {
+            logger.error('[RULE_CONTROLLER] Error creating rule from description:', error);
+            if (error instanceof RuleGenerationError || error instanceof DefinitionVersionError) {
+                return res.status(error.statusCode).json({ success: false, message: error.message });
+            }
+            return next(error);
+        }
+    }
+
+    res.status(200);
+    res.setHeader('Content-Type', `${NDJSON}; charset=utf-8`);
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    // Closing the drawer or navigating away closes the connection: stop the model call and save nothing.
+    const abort = new AbortController();
+    res.on('close', () => {
+        if (!res.writableEnded) abort.abort();
+    });
+    const send = (payload: object) => {
+        if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(payload)}\n`);
+    };
+
+    try {
+        const result = await createNaturalLanguageRule(req.body.FileDefinitionId, request, req.user!.userId, {
+            signal: abort.signal,
+            onProgress: event => send({ type: 'progress', ...event }),
+        });
+        send({ type: 'result', success: true, ...result });
+    } catch (error) {
+        if (error instanceof RuleGenerationCancelledError) {
+            logger.info('[RULE_CONTROLLER] Natural-language rule review stopped by the client');
+        } else {
+            logger.error('[RULE_CONTROLLER] Error creating rule from description:', error);
+            send({ type: 'error', success: false, ...describeGenerationFailure(error) });
+        }
+    } finally {
+        res.end();
+    }
+};
 
 /**
  * Get all rules for a specific file definition
@@ -361,4 +429,3 @@ export const toggleRule = async (req: AuthRequest, res: Response, next: NextFunc
         next(error);
     }
 };
-

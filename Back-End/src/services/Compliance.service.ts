@@ -4,7 +4,7 @@
 // =============================================================================
 
 import { getConnection } from '../config/database';
-import { SUPPORTED_RULE_TYPES } from './validation/ValidationEngine';
+import { CONTRACT_RULE_TYPES } from './validation/ValidationEngine';
 
 export type ControlStatus = 'Pass' | 'Review' | 'Info';
 
@@ -50,7 +50,7 @@ export class ComplianceService {
         const from = new Date(now.getTime() - days * 86400000);
         const dormantSince = new Date(now.getTime() - DORMANT_DAYS * 86400000);
         const staleSince = new Date(now.getTime() - STALE_PROCESSING_HOURS * 3600000);
-        const supportedTypes = SUPPORTED_RULE_TYPES.map(type => `'${type}'`).join(', ');
+        const supportedTypes = CONTRACT_RULE_TYPES.map(type => `'${type}'`).join(', ');
 
         const pool = await getConnection();
         const bind = () => pool.request()

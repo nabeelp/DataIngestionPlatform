@@ -266,6 +266,7 @@ const mapVersion = (version: IFileDefinitionVersion) => ({
         executionOrder: rule.ExecutionOrder,
         expression: rule.SqlQuery,
         table: rule.Table,
+        naturalLanguageText: rule.NaturalLanguageText ?? null,
     })),
     changeNote: version.ChangeNote,
     createdByName: version.CreatedByName,

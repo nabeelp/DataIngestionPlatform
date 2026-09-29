@@ -8,8 +8,9 @@
  * - Type Check: "Column: integer|decimal|datetime|boolean|string"
  * - Enum Check: "Column: ValueA, ValueB"
  * - Range Check: "Column: min..max" (either bound may be omitted)
+ * - Natural Language: "ColumnA, ColumnB" (the columns its generated code reads)
  */
-export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check';
+export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check' | 'Natural Language';
 
 /**
  * Severity options for rules
@@ -31,6 +32,12 @@ export interface IRule {
     IsEnabled: boolean;
     /** Sheet table the rule applies to (definitions with one table per sheet); null otherwise. */
     TableName?: string | null;
+    /** Natural Language rules only: the request the rule was created from. */
+    NaturalLanguageText?: string | null;
+    /** Natural Language rules only: model-generated pseudocode of the implementation. */
+    Pseudocode?: string | null;
+    /** Natural Language rules only: model-generated TypeScript run by the validation engine. */
+    GeneratedCode?: string | null;
     CreatedBy: string | null;
     CreatedAt: Date;
     UpdatedAt: Date;
@@ -49,6 +56,9 @@ export interface ICreateRuleDto {
     SqlQuery: string;
     IsEnabled?: boolean;
     TableName?: string | null;
+    NaturalLanguageText?: string | null;
+    Pseudocode?: string | null;
+    GeneratedCode?: string | null;
 }
 
 /**

@@ -9,7 +9,15 @@
 //   `columns` is empty, and every rule names the table it applies to.
 // =============================================================================
 
-import { SUPPORTED_RULE_TYPES, parseRuleExpression, sameSheet, type DefinitionColumn, type ParsedRule } from './ValidationEngine';
+import {
+    NATURAL_LANGUAGE_RULE_TYPE,
+    SUPPORTED_RULE_TYPES,
+    parseRuleExpression,
+    sameSheet,
+    splitList,
+    type DefinitionColumn,
+    type ParsedRule,
+} from './ValidationEngine';
 
 export { sameSheet };
 
@@ -31,6 +39,12 @@ export interface ContractRule {
     SqlQuery: string;
     /** Sheet table the rule applies to; null for single-table definitions. */
     Table: string | null;
+    /** Natural-language rules only: the request the rule was created from. */
+    NaturalLanguageText?: string;
+    /** Natural-language rules only: model-generated pseudocode describing the code. */
+    Pseudocode?: string;
+    /** Natural-language rules only: the TypeScript the validation engine runs. */
+    GeneratedCode?: string;
 }
 
 export interface ContractSnapshot {
@@ -70,6 +84,9 @@ interface SourceRule {
     TableName?: string | null;
     /** Snapshot property (published versions). */
     Table?: string | null;
+    NaturalLanguageText?: string | null;
+    Pseudocode?: string | null;
+    GeneratedCode?: string | null;
 }
 
 export class ContractValidationError extends Error {}
@@ -95,6 +112,12 @@ const tableOf = (rule: SourceRule): string | null => {
     return typeof table === 'string' && table.trim() ? table.trim() : null;
 };
 
+// Only natural-language rules carry generated content, so snapshots of declarative rules keep their shape.
+const generatedContent = (rule: SourceRule): Pick<ContractRule, 'NaturalLanguageText' | 'Pseudocode' | 'GeneratedCode'> =>
+    rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE
+        ? { NaturalLanguageText: rule.NaturalLanguageText || '', Pseudocode: rule.Pseudocode || '', GeneratedCode: rule.GeneratedCode || '' }
+        : {};
+
 /**
  * Build the contract for a definition from its columns, sheet tables and rules. Disabled rules are not part of
  * the contract. When sheet tables are present they replace the single-table columns.
@@ -114,6 +137,7 @@ export function buildContractSnapshot(columns: unknown, rules: SourceRule[], tab
             ExecutionOrder: Number(rule.ExecutionOrder ?? 0),
             SqlQuery: rule.SqlQuery,
             Table: tableOf(rule),
+            ...generatedContent(rule),
         }))
         .sort((a, b) => a.ExecutionOrder - b.ExecutionOrder || a.Id.localeCompare(b.Id));
 
@@ -134,6 +158,23 @@ export const schemaCheckName = (sheet: string | null): string =>
 
 /** Columns a parsed rule refers to. */
 export const ruleColumns = (parsed: ParsedRule): string[] => ('columns' in parsed ? parsed.columns : [parsed.column]);
+
+/**
+ * Columns any contract rule refers to; throws for an invalid rule. A natural-language rule's expression lists the
+ * columns its code reads, and the rule needs generated code.
+ */
+export function contractRuleColumns(rule: Pick<ContractRule, 'RuleType' | 'SqlQuery' | 'GeneratedCode'>): string[] {
+    if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
+        const columns = splitList(rule.SqlQuery || '');
+        if (columns.length === 0) throw new Error('A natural-language rule must list the columns it reads');
+        if (!rule.GeneratedCode?.trim()) throw new Error('A natural-language rule needs generated code');
+        return columns;
+    }
+    if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
+        throw new Error(`Unsupported rule type: ${rule.RuleType}`);
+    }
+    return ruleColumns(parseRuleExpression(rule.RuleType, rule.SqlQuery));
+}
 
 function diffBy<T>(previous: T[], next: T[], key: (item: T) => string, label: (item: T) => string, behaviour: (item: T) => string): ContractChanges {
     const previousByKey = new Map(previous.map(item => [key(item), item]));
@@ -182,7 +223,10 @@ function columnEntries(contract: ContractSnapshot): ColumnEntry[] {
 
 // Description is documentation only; everything else changes how a file is validated or reported.
 const ruleBehaviour = (rule: ContractRule): string =>
-    JSON.stringify([rule.Name, rule.RuleType, rule.Severity, rule.ExecutionOrder, rule.SqlQuery, rule.Table ? sheetKey(rule.Table) : null]);
+    JSON.stringify([
+        rule.Name, rule.RuleType, rule.Severity, rule.ExecutionOrder, rule.SqlQuery, rule.Table ? sheetKey(rule.Table) : null,
+        ...(rule.GeneratedCode === undefined ? [] : [rule.GeneratedCode]),
+    ]);
 
 /**
  * Describe what publishing `draft` would change compared with the `active` contract (null when none is published).
@@ -218,12 +262,9 @@ export function assertPublishable(contract: ContractSnapshot): void {
     }
 
     for (const rule of contract.rules) {
-        let parsed: ParsedRule;
+        let columns: string[];
         try {
-            if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
-                throw new Error(`Unsupported rule type: ${rule.RuleType}`);
-            }
-            parsed = parseRuleExpression(rule.RuleType, rule.SqlQuery);
+            columns = contractRuleColumns(rule);
         } catch (error) {
             throw new ContractValidationError(`Rule "${rule.Name}" is invalid: ${(error as Error).message}`);
         }
@@ -242,7 +283,7 @@ export function assertPublishable(contract: ContractSnapshot): void {
             throw new ContractValidationError(`Rule "${rule.Name}" is for sheet "${rule.Table}", which is not defined`);
         }
         const names = new Set(table.columns.map(column => column.name));
-        const missing = ruleColumns(parsed).find(column => !names.has(column));
+        const missing = columns.find(column => !names.has(column));
         if (missing) {
             throw new ContractValidationError(`Rule "${rule.Name}" refers to column "${missing}", which is not in sheet "${table.sheet}"`);
         }

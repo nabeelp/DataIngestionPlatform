@@ -74,7 +74,9 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
               <li key={rule.id}>
                 <span className="font-medium">{rule.name}</span>{' '}
                 {rule.table && <span className="text-xs text-gray-500">[{rule.table}] </span>}
-                <span className="text-gray-500">{rule.ruleType} ({rule.severity}): <code>{rule.expression}</code></span>
+                <span className="text-gray-500">
+                  {rule.ruleType} ({rule.severity}): {rule.naturalLanguageText ? <q>{rule.naturalLanguageText}</q> : <code>{rule.expression}</code>}
+                </span>
               </li>
             ))}
           </ul>

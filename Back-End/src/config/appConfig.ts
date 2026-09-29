@@ -102,10 +102,20 @@ export const appConfig = {
         // Job timeout configuration (in milliseconds)
         // Jobs running longer than this will be failed
         jobTimeout: parseInt(process.env.JOB_TIMEOUT_MS || '60000'), // default 1 minute
+        // Sandbox limits for the generated code of each Natural Language rule, per upload.
+        ruleSandbox: {
+            timeLimitMs: parseInt(process.env.RULE_SANDBOX_TIME_LIMIT_MS || '20000'),
+            memoryLimitBytes: parseInt(process.env.RULE_SANDBOX_MEMORY_LIMIT_MB || '64') * 1024 * 1024,
+        },
     },
 
     // Azure Storage Configuration
     azure: {
+        foundry: {
+            resource: process.env.AZURE_FOUNDRY_RESOURCE || 'aif-zlyway6g7icoy-0',
+            project: process.env.AZURE_FOUNDRY_PROJECT || 'citadel-governance-project',
+            model: process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.6-luna',
+        },
         storage: {
             connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',
             containerName: process.env.AZURE_STORAGE_CONTAINER || 'uploads',

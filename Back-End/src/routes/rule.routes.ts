@@ -41,6 +41,18 @@ router.get(
     RuleController.getRuleById
 );
 
+router.post(
+    '/natural-language',
+    authenticate,
+    authorize('admin'),
+    [
+        body('FileDefinitionId').isUUID(),
+        body('Request').isString().trim().isLength({ min: 1, max: 1000 }),
+    ],
+    validateRequest,
+    RuleController.createRuleFromDescription
+);
+
 /**
  * POST /api/rules
  * Create a new rule
@@ -113,4 +125,3 @@ router.patch(
 );
 
 export default router;
-

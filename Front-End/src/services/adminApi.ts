@@ -352,6 +352,8 @@ export interface DefinitionVersionRule {
   expression: string;
   /** Sheet table the rule applies to; null for single-table definitions. */
   table?: string | null;
+  /** Natural Language rules only: the request the rule was created from. */
+  naturalLanguageText?: string | null;
 }
 
 export interface DefinitionVersion {

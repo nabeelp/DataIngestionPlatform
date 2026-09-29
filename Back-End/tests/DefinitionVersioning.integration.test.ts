@@ -272,5 +272,35 @@ describeDb('definition versioning (SQL Server)', () => {
             expect(result.upload.FileDefinitionVersionId).toBe(result.definitionVersion!.id);
             expect(result.upload.Status).toBe('VALIDATED');
         });
+
+        it('runs the published TypeScript of a Natural Language rule in the sandbox', async () => {
+            const definition = await newDefinition([{ name: 'Email', type: 'string', required: true }]);
+            const ruleModel = (require('../src/models/Rule.model') as typeof import('../src/models/Rule.model')).Rule;
+            await ruleModel.create({
+                FileDefinitionId: definition.Id,
+                Name: 'Contoso email',
+                Description: 'Email must end with @contoso.example',
+                RuleType: 'Natural Language',
+                SqlQuery: 'Email',
+                NaturalLanguageText: 'Email must end with @contoso.example',
+                Pseudocode: 'IF Email does not end with "@contoso.example": report issue',
+                GeneratedCode: `function validateRow(row: Row, rowNumber: number): string | null {
+                    return String(row['Email'] ?? '').endsWith('@contoso.example') ? null : 'Email must end with @contoso.example';
+                }`,
+            }, adminId);
+            const published = await m.versions.DefinitionVersionService.publish(definition.Id, adminId, 'Contoso emails');
+            expect(published.Rules[0]).toMatchObject({ RuleType: 'Natural Language', GeneratedCode: expect.stringContaining('validateRow') });
+
+            const valid = await validate((await uploadCsv(definition.Id, 'Email\na@contoso.example\n')).Id);
+            const invalid = await validate((await uploadCsv(definition.Id, 'Email\na@contoso.example\nb@example.org\n')).Id);
+
+            expect(valid.upload.Status).toBe('VALIDATED');
+            expect(invalid.upload.Status).toBe('VALIDATION_FAILED');
+            const detail = invalid.ruleDetails.find(r => r.RuleName === 'Contoso email')!;
+            expect(detail).toMatchObject({ Status: 'FAILED', ErrorCount: 1 });
+            expect(JSON.parse(detail.FailedRows as unknown as string)).toEqual([
+                { row: 3, column: 'Email', value: 'b@example.org', error: 'Email must end with @contoso.example' },
+            ]);
+        });
     });
 });
