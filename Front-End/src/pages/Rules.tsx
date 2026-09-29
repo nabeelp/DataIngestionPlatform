@@ -833,19 +833,6 @@ export default function ValidationRules() {
               </button>
             </div>
 
-            {/* Configured Architecture Progress Stepper Component */}
-            <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between text-xs font-semibold">
-              <div className="flex flex-col items-center gap-1 flex-1">
-                <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[11px]">1</div>
-                <span className="text-blue-600">Parameters</span>
-              </div>
-              <div className="h-px bg-slate-200 flex-1 -mt-4"></div>
-              <div className="flex flex-col items-center gap-1 flex-1">
-                <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[11px]">2</div>
-                <span className="text-blue-600">Engine Profile</span>
-              </div>
-            </div>
-
             {/* Form Entry Field Framework */}
             <form onSubmit={formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? handleNaturalLanguageRule : handleSaveRule} className="flex flex-col flex-1 overflow-y-auto">
               <div className="p-6 space-y-5 flex-1">
@@ -1147,7 +1134,7 @@ export default function ValidationRules() {
                 >
                   {generatingRule
                     ? `Reviewing rule… ${reviewStartedAt ? Math.floor((now - reviewStartedAt) / 1000) : 0} s`
-                    : formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? 'Review and create rule' : editingRule ? 'Update Parameters' : 'Save Validation Rule'} <ChevronRight className="w-4 h-4" />
+                    : formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? 'Review and create rule' : editingRule ? 'Update Rule' : 'Save Validation Rule'} <ChevronRight className="w-4 h-4" />
                 </button>
                   </>
                 )}

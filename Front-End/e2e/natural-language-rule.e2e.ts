@@ -223,7 +223,7 @@ test('natural-language rules map to existing types or keep generated code, and a
   // Presentation-only updates remain available without another model call.
   await card.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByPlaceholder('e.g., Amount Cannot Be Negative').fill('Contoso email only');
-  await page.getByRole('button', { name: 'Update Parameters' }).click();
+  await page.getByRole('button', { name: 'Update Rule' }).click();
   await expect.poll(() => updates).toEqual([{ Name: 'Contoso email only', Description: 'Email must end with @contoso.example and be lowercase', Severity: 'Error', ExecutionOrder: 2 }]);
 
   // Generated rules cannot be cloned into a manual rule.
