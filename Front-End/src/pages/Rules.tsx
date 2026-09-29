@@ -8,7 +8,7 @@ import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { getFileDefinitionsAdmin } from '../services/adminApi';
-import { reviewNaturalLanguageRule, type ReviewActivity } from '../services/ruleAuthoringApi';
+import { regenerateNaturalLanguageRule, reviewNaturalLanguageRule, type ReviewActivity } from '../services/ruleAuthoringApi';
 import GeneratedRuleDetails from './GeneratedRuleDetails';
 import RuleReviewActivity from './RuleReviewActivity';
 
@@ -137,7 +137,7 @@ export default function ValidationRules() {
 
   // Sync Form data state when drawer toggles or swaps context
   useEffect(() => {
-    setNaturalLanguageRequest('');
+    setNaturalLanguageRequest(editingRule?.naturalLanguageText ?? editingRule?.description ?? '');
     setGenerationResult(null);
     setActivity([]);
     if (editingRule) {
@@ -368,6 +368,50 @@ export default function ValidationRules() {
       } else {
         const message = err instanceof Error ? err.message : 'Could not review the rule';
         setError(`Could not create the rule: ${message}`);
+        setActivity(previous => previous.some(entry => entry.level === 'error' && entry.message === message)
+          ? previous
+          : [...previous, { level: 'error', message, elapsedMs: Date.now() - startedAt }]);
+      }
+    } finally {
+      if (reviewAbort.current === controller) reviewAbort.current = null;
+      setGeneratingRule(false);
+    }
+  };
+
+  const handleRegenerateRule = async () => {
+    if (generatingRule || !editingRule || !naturalLanguageRequest.trim()) return;
+    const controller = new AbortController();
+    reviewAbort.current = controller;
+    const startedAt = Date.now();
+    setGeneratingRule(true);
+    setReviewStartedAt(startedAt);
+    setNow(startedAt);
+    setError(null);
+    setGenerationResult(null);
+    setActivity([{ level: 'info', message: 'Sending the revised rule to the server', elapsedMs: 0 }]);
+    try {
+      const data = await regenerateNaturalLanguageRule({
+        baseUrl: apiConfig.getBaseUrl(),
+        token,
+        ruleId: editingRule.id,
+        request: naturalLanguageRequest.trim(),
+        signal: controller.signal,
+        onActivity: entry => setActivity(previous => [...previous, entry]),
+      });
+      if (data.outcome === 'rejected') {
+        setGenerationResult(data);
+        return;
+      }
+      await fetchRules(selectedDefinitionId);
+      setIsDrawerOpen(false);
+      setEditingRule(null);
+    } catch (err) {
+      if (controller.signal.aborted) {
+        setActivity(previous => [...previous, { level: 'warning', message: 'You stopped the regeneration', elapsedMs: Date.now() - startedAt }]);
+        void fetchRules(selectedDefinitionId);
+      } else {
+        const message = err instanceof Error ? err.message : 'Could not regenerate the rule';
+        setError(`Could not regenerate the rule: ${message}`);
         setActivity(previous => previous.some(entry => entry.level === 'error' && entry.message === message)
           ? previous
           : [...previous, { level: 'error', message, elapsedMs: Date.now() - startedAt }]);
@@ -971,14 +1015,39 @@ export default function ValidationRules() {
                 )}
 
                 {isGeneratedRule(editingRule) ? (
-                  <div className="space-y-2 border-t border-slate-100 pt-4">
+                  <div className="space-y-3 border-t border-slate-100 pt-4">
                     <p className="text-xs font-bold text-slate-600">Natural Language rule</p>
                     <p className="text-[11px] text-slate-500">
                       {editingRule!.tableName ? `Sheet ${editingRule!.tableName}. ` : ''}Columns read: <span className="font-mono">{editingRule!.sqlQuery}</span>.
-                      The generated logic cannot be edited; create a new rule to change what it checks.
+                      Edit the original request and regenerate to change what the rule checks. The current rule remains unchanged if regeneration fails or is stopped.
                     </p>
+                    <label htmlFor="regenerateNaturalLanguageRule" className="block text-xs font-bold text-slate-600">Original request <span className="text-red-500">*</span></label>
+                    <textarea
+                      id="regenerateNaturalLanguageRule"
+                      required
+                      maxLength={1000}
+                      rows={4}
+                      disabled={generatingRule}
+                      value={naturalLanguageRequest}
+                      onChange={e => { setNaturalLanguageRequest(e.target.value); setGenerationResult(null); }}
+                      className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                    />
+                    <button
+                      type="button"
+                      disabled={generatingRule || !naturalLanguageRequest.trim() || naturalLanguageRequest.trim() === (editingRule!.naturalLanguageText ?? editingRule!.description ?? '').trim()}
+                      onClick={handleRegenerateRule}
+                      className="w-full flex items-center justify-center gap-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {generatingRule
+                        ? `Regenerating rule… ${reviewStartedAt ? Math.floor((now - reviewStartedAt) / 1000) : 0} s`
+                        : 'Regenerate from request'}
+                    </button>
+                    <RuleReviewActivity entries={activity} running={generatingRule} elapsedMs={reviewStartedAt ? now - reviewStartedAt : 0} />
+                    {generationResult?.outcome === 'rejected' && (
+                      <p role="status" className="text-sm text-amber-800 bg-amber-50 p-3 rounded-lg">Cannot regenerate rule: {generationResult.reason}</p>
+                    )}
                     <GeneratedRuleDetails
-                      naturalLanguageText={editingRule!.naturalLanguageText}
                       pseudocode={editingRule!.pseudocode}
                       generatedCode={editingRule!.generatedCode}
                     />

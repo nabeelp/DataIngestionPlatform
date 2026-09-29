@@ -53,6 +53,17 @@ router.post(
     RuleController.createRuleFromDescription
 );
 
+router.post(
+    '/:id/regenerate',
+    authenticate,
+    authorize('admin'),
+    [
+        body('Request').isString().trim().isLength({ min: 1, max: 1000 }),
+    ],
+    validateRequest,
+    RuleController.regenerateRuleFromDescription
+);
+
 /**
  * POST /api/rules
  * Create a new rule

@@ -1,6 +1,7 @@
 import {
     MAX_WHITESPACE_RUN,
     createNaturalLanguageRule,
+    regenerateNaturalLanguageRule,
     describeClientError,
     readProposal,
     RuleGenerationCancelledError,
@@ -20,7 +21,13 @@ jest.mock('@azure/ai-projects', () => ({
 }));
 jest.mock('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.mock('../src/models/Rule.model', () => ({
-    Rule: { hasAccessToFileDefinition: jest.fn(), create: jest.fn() },
+    Rule: {
+        hasAccessToFileDefinition: jest.fn(),
+        hasAccessToRule: jest.fn(),
+        findById: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+    },
 }));
 jest.mock('../src/services/DefinitionVersion.service', () => ({
     DefinitionVersionService: { getDraftState: jest.fn() },
@@ -68,6 +75,13 @@ const request = 'Email must end with @contoso.example';
 describe('natural-language rule authoring', () => {
     beforeEach(() => {
         jest.mocked(Rule.hasAccessToFileDefinition).mockResolvedValue(true);
+        jest.mocked(Rule.hasAccessToRule).mockResolvedValue(true);
+        jest.mocked(Rule.findById).mockResolvedValue({
+            Id: 'rule-1',
+            FileDefinitionId: definitionId,
+            RuleType: 'Natural Language',
+            NaturalLanguageText: request,
+        } as never);
         jest.mocked(DefinitionVersionService.getDraftState).mockResolvedValue({
             activeVersion: null,
             diff: {} as never,
@@ -78,6 +92,7 @@ describe('natural-language rule authoring', () => {
             },
         });
         jest.mocked(Rule.create).mockImplementation(async dto => ({ Id: 'rule-1', ...dto }) as never);
+        jest.mocked(Rule.update).mockImplementation(async (id, updates) => ({ Id: id, FileDefinitionId: definitionId, ...updates }) as never);
         createResponse.mockResolvedValue(response(mapped));
     });
 
@@ -113,6 +128,36 @@ describe('natural-language rule authoring', () => {
             Pseudocode: naturalLanguage.pseudocode,
             GeneratedCode: SUFFIX_CODE,
         }, 'admin');
+    });
+
+    it('regenerates an existing Natural Language rule in place after the replacement passes all checks', async () => {
+        const revisedRequest = 'Email must end with @contoso.example and be lowercase';
+        createResponse.mockResolvedValue(response(naturalLanguage));
+
+        await expect(regenerateNaturalLanguageRule('rule-1', revisedRequest, 'admin'))
+            .resolves.toMatchObject({ outcome: 'natural_language', rule: { Id: 'rule-1' } });
+
+        expect(Rule.create).not.toHaveBeenCalled();
+        expect(Rule.update).toHaveBeenCalledWith('rule-1', {
+            Name: 'Contoso email',
+            Description: revisedRequest,
+            RuleType: 'Natural Language',
+            Severity: 'Error',
+            SqlQuery: 'Email',
+            TableName: 'Orders',
+            NaturalLanguageText: revisedRequest,
+            Pseudocode: naturalLanguage.pseudocode,
+            GeneratedCode: SUFFIX_CODE,
+        });
+    });
+
+    it('leaves the existing rule unchanged when regeneration is rejected', async () => {
+        createResponse.mockResolvedValue(response({ ...mapped, decision: 'rejected', reason: 'Needs CRM data' }));
+
+        await expect(regenerateNaturalLanguageRule('rule-1', 'Customer must exist in CRM', 'admin'))
+            .resolves.toEqual({ outcome: 'rejected', reason: 'Needs CRM data' });
+
+        expect(Rule.update).not.toHaveBeenCalled();
     });
 
     it('uses the single-table draft without a sheet name', async () => {

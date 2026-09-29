@@ -73,6 +73,9 @@ export interface IUpdateRuleDto {
     SqlQuery?: string;
     IsEnabled?: boolean;
     TableName?: string | null;
+    NaturalLanguageText?: string | null;
+    Pseudocode?: string | null;
+    GeneratedCode?: string | null;
 }
 
 /**
@@ -91,4 +94,3 @@ export interface IRuleResponse {
     success: boolean;
     rule: IRule;
 }
-

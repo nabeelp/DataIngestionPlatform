@@ -6,6 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as RuleService from '../services/Rule.service';
 import {
     createNaturalLanguageRule,
+    regenerateNaturalLanguageRule,
     RuleGenerationCancelledError,
     RuleGenerationError,
 } from '../services/NaturalLanguageRule.service';
@@ -81,6 +82,54 @@ export const createRuleFromDescription = async (req: AuthRequest, res: Response,
             logger.info('[RULE_CONTROLLER] Natural-language rule review stopped by the client');
         } else {
             logger.error('[RULE_CONTROLLER] Error creating rule from description:', error);
+            send({ type: 'error', success: false, ...describeGenerationFailure(error) });
+        }
+    } finally {
+        res.end();
+    }
+};
+
+export const regenerateRuleFromDescription = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const request = String(req.body.Request).trim();
+    const ruleId = req.params.id as string;
+    if (!String(req.headers.accept || '').includes(NDJSON)) {
+        try {
+            const result = await regenerateNaturalLanguageRule(ruleId, request, req.user!.userId);
+            return res.status(200).json({ success: true, ...result });
+        } catch (error) {
+            logger.error('[RULE_CONTROLLER] Error regenerating rule from description:', error);
+            if (error instanceof RuleGenerationError || error instanceof DefinitionVersionError) {
+                return res.status(error.statusCode).json({ success: false, message: error.message });
+            }
+            return next(error);
+        }
+    }
+
+    res.status(200);
+    res.setHeader('Content-Type', `${NDJSON}; charset=utf-8`);
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const abort = new AbortController();
+    res.on('close', () => {
+        if (!res.writableEnded) abort.abort();
+    });
+    const send = (payload: object) => {
+        if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(payload)}\n`);
+    };
+
+    try {
+        const result = await regenerateNaturalLanguageRule(ruleId, request, req.user!.userId, {
+            signal: abort.signal,
+            onProgress: event => send({ type: 'progress', ...event }),
+        });
+        send({ type: 'result', success: true, ...result });
+    } catch (error) {
+        if (error instanceof RuleGenerationCancelledError) {
+            logger.info('[RULE_CONTROLLER] Natural-language rule regeneration stopped by the client');
+        } else {
+            logger.error('[RULE_CONTROLLER] Error regenerating rule from description:', error);
             send({ type: 'error', success: false, ...describeGenerationFailure(error) });
         }
     } finally {

@@ -92,6 +92,7 @@ test('natural-language rules map to existing types or keep generated code, and a
   const requests: string[] = [];
   const manualRules: Array<{ RuleType: string; SqlQuery: string }> = [];
   const updates: object[] = [];
+  const regenerations: string[] = [];
   await page.addInitScript(() => {
     localStorage.setItem('token', 'header.payload.signature');
     localStorage.setItem('user', JSON.stringify({ id: 'admin', email: 'admin@example.com', Role: 'admin' }));
@@ -132,6 +133,19 @@ test('natural-language rules map to existing types or keep generated code, and a
       manualRules.push(route.request().postDataJSON());
       status = 201;
       body = { success: true, rule: { Name: 'Manual range' } };
+    } else if (path.endsWith('/rules/rule-nl/regenerate') && method === 'POST') {
+      const { Request } = route.request().postDataJSON() as { Request: string };
+      regenerations.push(Request);
+      generatedRule.NaturalLanguageText = Request;
+      generatedRule.Description = Request;
+      body = {
+        success: true,
+        outcome: 'natural_language',
+        reason: 'The revised request still needs generated code.',
+        rule: generatedRule,
+        pseudocode: PSEUDOCODE,
+        typescript: GENERATED_CODE,
+      };
     } else if (path.endsWith('/rules/rule-nl') && method === 'PUT') {
       updates.push(route.request().postDataJSON());
       body = { success: true, rule: generatedRule };
@@ -194,14 +208,23 @@ test('natural-language rules map to existing types or keep generated code, and a
   await card.getByText('TypeScript implementation', { exact: true }).click();
   await expect(card.getByLabel('TypeScript implementation')).toContainText("endsWith('@contoso.example')");
 
-  // Editing a generated rule keeps its logic read-only and only sends non-logic fields.
+  // Editing a generated rule allows its original request to be revised and safely regenerated.
   await card.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByLabel('Rule Expression')).toHaveCount(0);
   await expect(page.getByLabel('Evaluation Strategy')).toHaveCount(0);
-  await expect(page.getByText('The generated logic cannot be edited')).toBeVisible();
+  const originalRequest = page.getByLabel('Original request');
+  await expect(originalRequest).toHaveValue('Email must end with @contoso.example');
+  await expect(page.getByRole('button', { name: 'Regenerate from request' })).toBeDisabled();
+  await originalRequest.fill('Email must end with @contoso.example and be lowercase');
+  await page.getByRole('button', { name: 'Regenerate from request' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Validation Rule' })).toHaveCount(0);
+  expect(regenerations).toEqual(['Email must end with @contoso.example and be lowercase']);
+
+  // Presentation-only updates remain available without another model call.
+  await card.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByPlaceholder('e.g., Amount Cannot Be Negative').fill('Contoso email only');
   await page.getByRole('button', { name: 'Update Parameters' }).click();
-  await expect.poll(() => updates).toEqual([{ Name: 'Contoso email only', Description: 'Email must end with @contoso.example', Severity: 'Error', ExecutionOrder: 2 }]);
+  await expect.poll(() => updates).toEqual([{ Name: 'Contoso email only', Description: 'Email must end with @contoso.example and be lowercase', Severity: 'Error', ExecutionOrder: 2 }]);
 
   // Generated rules cannot be cloned into a manual rule.
   await card.getByRole('button').first().click();

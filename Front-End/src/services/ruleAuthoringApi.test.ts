@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readNdjson, reviewNaturalLanguageRule, type ReviewActivity } from './ruleAuthoringApi';
+import { readNdjson, regenerateNaturalLanguageRule, reviewNaturalLanguageRule, type ReviewActivity } from './ruleAuthoringApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -85,5 +85,21 @@ describe('reviewNaturalLanguageRule', () => {
     const controller = new AbortController();
     await review(undefined, controller.signal);
     expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+
+  it('regenerates an existing rule from revised natural-language text', async () => {
+    const fetchMock = stubStream(['{"type":"result","success":true,"outcome":"natural_language","reason":"revised","rule":{"Name":"Revised","RuleType":"Natural Language","SqlQuery":"Email"},"pseudocode":"p","typescript":"t"}\n']);
+
+    await regenerateNaturalLanguageRule({
+      baseUrl: '/api/v1',
+      token: 'tkn',
+      ruleId: 'rule-1',
+      request: 'Email must be lowercase',
+      onActivity: () => undefined,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/v1/rules/rule-1/regenerate');
+    expect(JSON.parse(init.body)).toEqual({ Request: 'Email must be lowercase' });
   });
 });

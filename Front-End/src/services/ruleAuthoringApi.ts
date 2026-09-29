@@ -65,6 +65,10 @@ interface ReviewOptions {
   onActivity: (activity: ReviewActivity) => void;
 }
 
+interface RegenerateOptions extends Omit<ReviewOptions, 'fileDefinitionId'> {
+  ruleId: string;
+}
+
 const errorMessage = async (response: Response): Promise<string> => {
   const data = await response.json().catch(() => ({}));
   return data.message || data.errors?.[0]?.msg || `The server returned ${response.status} ${response.statusText}`.trim();
@@ -75,10 +79,24 @@ const errorMessage = async (response: Response): Promise<string> => {
  * rejects with the server's explanation when the review fails. Aborting the signal stops the review on the server.
  */
 export async function reviewNaturalLanguageRule({ baseUrl, token, fileDefinitionId, request, signal, onActivity }: ReviewOptions): Promise<ReviewResult> {
-  const response = await fetch(`${baseUrl}/rules/natural-language`, {
+  return submitNaturalLanguageRule(`${baseUrl}/rules/natural-language`, token, signal, onActivity, { FileDefinitionId: fileDefinitionId, Request: request });
+}
+
+export async function regenerateNaturalLanguageRule({ baseUrl, token, ruleId, request, signal, onActivity }: RegenerateOptions): Promise<ReviewResult> {
+  return submitNaturalLanguageRule(`${baseUrl}/rules/${ruleId}/regenerate`, token, signal, onActivity, { Request: request });
+}
+
+async function submitNaturalLanguageRule(
+  url: string,
+  token: string | null,
+  signal: AbortSignal | undefined,
+  onActivity: (activity: ReviewActivity) => void,
+  payload: Record<string, string>,
+): Promise<ReviewResult> {
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: NDJSON, Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ FileDefinitionId: fileDefinitionId, Request: request }),
+    body: JSON.stringify(payload),
     signal,
   });
   if (!response.ok) throw new Error(await errorMessage(response));

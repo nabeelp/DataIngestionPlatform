@@ -621,6 +621,57 @@ export async function createNaturalLanguageRule(
     userId: string,
     options: NaturalLanguageRuleOptions = {},
 ): Promise<NaturalLanguageRuleResult> {
+    if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
+        throw new RuleGenerationError('Access denied to this file definition', 403);
+    }
+    return reviewAndSaveNaturalLanguageRule(fileDefinitionId, request, options, async checked =>
+        Rule.create(checked.dto, userId), 'Saved');
+}
+
+export async function regenerateNaturalLanguageRule(
+    ruleId: string,
+    request: string,
+    userId: string,
+    options: NaturalLanguageRuleOptions = {},
+): Promise<NaturalLanguageRuleResult> {
+    if (!await Rule.hasAccessToRule(ruleId, userId)) {
+        throw new RuleGenerationError('Access denied to this rule', 403);
+    }
+    const existing = await Rule.findById(ruleId);
+    if (!existing) {
+        throw new RuleGenerationError('Rule not found', 404);
+    }
+    if (existing.RuleType !== NATURAL_LANGUAGE_RULE_TYPE) {
+        throw new RuleGenerationError('Only Natural Language rules can be regenerated', 400);
+    }
+
+    return reviewAndSaveNaturalLanguageRule(existing.FileDefinitionId, request, options, async checked => {
+        const dto = checked.dto;
+        const updated = await Rule.update(ruleId, {
+            Name: dto.Name,
+            Description: dto.Description ?? '',
+            RuleType: dto.RuleType,
+            Severity: dto.Severity ?? 'Error',
+            SqlQuery: dto.SqlQuery,
+            TableName: dto.TableName ?? null,
+            NaturalLanguageText: dto.NaturalLanguageText ?? null,
+            Pseudocode: dto.Pseudocode ?? null,
+            GeneratedCode: dto.GeneratedCode ?? null,
+        });
+        if (!updated) {
+            throw new RuleGenerationError('Rule not found', 404);
+        }
+        return updated;
+    }, 'Regenerated');
+}
+
+async function reviewAndSaveNaturalLanguageRule(
+    fileDefinitionId: string,
+    request: string,
+    options: NaturalLanguageRuleOptions,
+    save: (checked: Exclude<CheckedProposal, { problem: string }>) => Promise<IRule>,
+    savedVerb: 'Saved' | 'Regenerated',
+): Promise<NaturalLanguageRuleResult> {
     const started = Date.now();
     const report: Report = (level, message) => {
         try {
@@ -633,9 +684,6 @@ export async function createNaturalLanguageRule(
         if (options.signal?.aborted) throw new RuleGenerationCancelledError();
     };
 
-    if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
-        throw new RuleGenerationError('Access denied to this file definition', 403);
-    }
     const { draft } = await DefinitionVersionService.getDraftState(fileDefinitionId);
     const tables = validationTables(draft);
     const columnCount = tables.reduce((total, table) => total + table.columns.length, 0);
@@ -681,8 +729,8 @@ export async function createNaturalLanguageRule(
         }
 
         assertNotCancelled();
-        const rule = await Rule.create(checked.dto, userId);
-        report('success', `Saved draft rule "${rule.Name}"`);
+        const rule = await save(checked);
+        report('success', `${savedVerb} draft rule "${rule.Name}"`);
         return checked.outcome === 'mapped'
             ? { outcome: 'mapped', reason: proposal.reason, rule, pseudocode: checked.pseudocode }
             : { outcome: 'natural_language', reason: proposal.reason, rule, pseudocode: checked.pseudocode, typescript: checked.typescript };

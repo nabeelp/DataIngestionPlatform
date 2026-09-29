@@ -3,13 +3,18 @@ import type { Server } from 'http';
 import express from 'express';
 
 const createNaturalLanguageRule = jest.fn();
+const regenerateNaturalLanguageRule = jest.fn();
 jest.mock('../src/services/NaturalLanguageRule.service', () => {
     const actual = jest.requireActual('../src/services/NaturalLanguageRule.service');
-    return { ...actual, createNaturalLanguageRule: (...args: unknown[]) => createNaturalLanguageRule(...args) };
+    return {
+        ...actual,
+        createNaturalLanguageRule: (...args: unknown[]) => createNaturalLanguageRule(...args),
+        regenerateNaturalLanguageRule: (...args: unknown[]) => regenerateNaturalLanguageRule(...args),
+    };
 });
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { createRuleFromDescription } = require('../src/controllers/rule.controller') as typeof import('../src/controllers/rule.controller');
+const { createRuleFromDescription, regenerateRuleFromDescription } = require('../src/controllers/rule.controller') as typeof import('../src/controllers/rule.controller');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { RuleGenerationError, RuleGenerationCancelledError } = require('../src/services/NaturalLanguageRule.service') as typeof import('../src/services/NaturalLanguageRule.service');
 
@@ -19,6 +24,7 @@ const readLines = async (response: globalThis.Response) => (await response.text(
 describe('natural-language rule endpoint', () => {
     let server: Server;
     let url: string;
+    let regenerateUrl: string;
 
     beforeAll(async () => {
         const app = express();
@@ -27,8 +33,13 @@ describe('natural-language rule endpoint', () => {
             (req as { user?: unknown }).user = { userId: 'admin-id', role: 'admin' };
             next();
         }, createRuleFromDescription);
+        app.post('/rules/:id/regenerate', (req, _res, next) => {
+            (req as { user?: unknown }).user = { userId: 'admin-id', role: 'admin' };
+            next();
+        }, regenerateRuleFromDescription);
         await new Promise<void>(resolve => { server = app.listen(0, () => resolve()); });
         url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/rules/natural-language`;
+        regenerateUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/rules/rule-1/regenerate`;
     });
 
     afterAll(async () => {
@@ -40,6 +51,12 @@ describe('natural-language rule endpoint', () => {
         headers: { 'Content-Type': 'application/json', Accept: accept },
         body: JSON.stringify(body),
         signal,
+    });
+
+    const postRegenerate = (accept: string) => fetch(regenerateUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: accept },
+        body: JSON.stringify({ Request: ' Revised request ' }),
     });
 
     it('streams progress and then the result as NDJSON', async () => {
@@ -111,5 +128,20 @@ describe('natural-language rule endpoint', () => {
         const failed = await post('application/json');
         expect(failed.status).toBe(502);
         expect(await failed.json()).toEqual({ success: false, message: 'Foundry denied access (403): nope' });
+    });
+
+    it('streams regeneration progress and updates the requested rule', async () => {
+        regenerateNaturalLanguageRule.mockImplementation(async (_id, _request, _user, options) => {
+            options.onProgress({ level: 'success', message: 'Regenerated draft rule "Revised"', elapsedMs: 1200 });
+            return { outcome: 'natural_language', reason: 'Revised', rule: { Id: 'rule-1', Name: 'Revised' }, pseudocode: 'p2', typescript: 't2' };
+        });
+
+        const response = await postRegenerate('application/x-ndjson');
+
+        expect(await readLines(response)).toEqual([
+            { type: 'progress', level: 'success', message: 'Regenerated draft rule "Revised"', elapsedMs: 1200 },
+            { type: 'result', success: true, outcome: 'natural_language', reason: 'Revised', rule: { Id: 'rule-1', Name: 'Revised' }, pseudocode: 'p2', typescript: 't2' },
+        ]);
+        expect(regenerateNaturalLanguageRule).toHaveBeenCalledWith('rule-1', 'Revised request', 'admin-id', expect.anything());
     });
 });

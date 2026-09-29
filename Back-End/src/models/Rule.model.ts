@@ -171,6 +171,18 @@ export class Rule {
             setClauses.push('TableName = @TableName');
             request.input('TableName', updates.TableName);
         }
+        if (updates.NaturalLanguageText !== undefined) {
+            setClauses.push('NaturalLanguageText = @NaturalLanguageText');
+            request.input('NaturalLanguageText', updates.NaturalLanguageText);
+        }
+        if (updates.Pseudocode !== undefined) {
+            setClauses.push('Pseudocode = @Pseudocode');
+            request.input('Pseudocode', updates.Pseudocode);
+        }
+        if (updates.GeneratedCode !== undefined) {
+            setClauses.push('GeneratedCode = @GeneratedCode');
+            request.input('GeneratedCode', updates.GeneratedCode);
+        }
 
         await request.query(`
             UPDATE ${this.TABLE_NAME} 
@@ -212,4 +224,3 @@ export class Rule {
         return await FileDefinition.hasAccess(fileDefinitionId, userId);
     }
 }
-
