@@ -48,7 +48,7 @@ const openNaturalLanguageDrawer = async (page: Page) => {
 test('a failed review shows the detailed reason and the activity leading up to it', async ({ page }) => {
   await signIn(page);
   await mockApi(page, route => route.fulfill({ status: 200, contentType: 'application/x-ndjson', body: ndjson([
-    { type: 'progress', level: 'info', message: 'Asking gpt-5.6-luna in Foundry project citadel-governance-project to review the rule (attempt 1 of 2)', elapsedMs: 30 },
+    { type: 'progress', level: 'info', message: 'Asking gpt-5.3-codex in Foundry project citadel-governance-project to review the rule (attempt 1 of 2)', elapsedMs: 30 },
     { type: 'progress', level: 'warning', message: 'The model reached its output limit of 16000 tokens before finishing the proposal. Retrying', elapsedMs: 61000 },
     { type: 'progress', level: 'error', message: 'The model reached its output limit of 16000 tokens before finishing the proposal (16000 output tokens, 15800 of them reasoning) [response resp_2]', elapsedMs: 122000 },
     { type: 'error', success: false, statusCode: 502, message: 'The model reached its output limit of 16000 tokens before finishing the proposal (16000 output tokens, 15800 of them reasoning) [response resp_2]' },
@@ -122,7 +122,7 @@ test('natural-language rules map to existing types or keep generated code, and a
       }
       // The review streams its activity as NDJSON, ending with the result.
       await route.fulfill({ status: 200, contentType: 'application/x-ndjson; charset=utf-8', body: ndjson([
-        { type: 'progress', level: 'info', message: 'Asking gpt-5.6-luna in Foundry project citadel-governance-project to review the rule (attempt 1 of 2)', elapsedMs: 40 },
+        { type: 'progress', level: 'info', message: 'Asking gpt-5.3-codex in Foundry project citadel-governance-project to review the rule (attempt 1 of 2)', elapsedMs: 40 },
         { type: 'progress', level: 'info', message: 'The model is still reasoning about the rule (5.0 s)', elapsedMs: 5040 },
         { type: 'progress', level: 'success', message: 'Saved draft rule', elapsedMs: 9100 },
         { type: 'result', ...result },

@@ -114,7 +114,7 @@ export const appConfig = {
         foundry: {
             resource: process.env.AZURE_FOUNDRY_RESOURCE || 'aif-zlyway6g7icoy-0',
             project: process.env.AZURE_FOUNDRY_PROJECT || 'citadel-governance-project',
-            model: process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.6-luna',
+            model: process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.3-codex',
         },
         storage: {
             connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',

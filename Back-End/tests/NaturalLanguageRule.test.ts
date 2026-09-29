@@ -91,7 +91,7 @@ describe('natural-language rule authoring', () => {
         expect(createResponse).toHaveBeenCalledWith(expect.objectContaining({
             store: false,
             stream: true,
-            model: 'gpt-5.6-luna',
+            model: 'gpt-5.3-codex',
             text: expect.objectContaining({ format: expect.objectContaining({ type: 'json_schema', strict: true }) }),
             input: expect.stringContaining('"sheet":"Orders"'),
         }), { signal: expect.any(AbortSignal) });
@@ -233,8 +233,8 @@ describe('natural-language rule authoring', () => {
         const apiError = (status: number | undefined, name: string, message: string) => Object.assign(new Error(message), { status, name });
         it.each([
             [apiError(403, 'PermissionDeniedError', '403 Identity does not have permissions for agents/write'), 1, 'Foundry denied access (403): 403 Identity does not have permissions for agents/write. Check that the backend\'s Azure identity has the Azure AI User role on project "citadel-governance-project"'],
-            [apiError(404, 'NotFoundError', 'Deployment not found'), 1, 'Foundry could not find model deployment "gpt-5.6-luna" in project "citadel-governance-project" (404)'],
-            [apiError(429, 'RateLimitError', 'Too many requests'), 3, 'Foundry is rate-limiting requests to "gpt-5.6-luna" (429): Too many requests'],
+            [apiError(404, 'NotFoundError', 'Deployment not found'), 1, 'Foundry could not find model deployment "gpt-5.3-codex" in project "citadel-governance-project" (404)'],
+            [apiError(429, 'RateLimitError', 'Too many requests'), 3, 'Foundry is rate-limiting requests to "gpt-5.3-codex" (429): Too many requests'],
             [apiError(503, 'InternalServerError', 'Service unavailable'), 3, 'Foundry returned an error (503): Service unavailable'],
             [apiError(undefined, 'APIConnectionTimeoutError', 'Request timed out.'), 3, 'The model did not respond within 120 seconds'],
             [apiError(undefined, 'APIConnectionError', 'Connection error.'), 3, 'Could not connect to Foundry: Connection error.'],
@@ -252,7 +252,7 @@ describe('natural-language rule authoring', () => {
             expect(describeClientError(new Error('first\nsecond'), { model: 'm', project: 'p' }).message).toBe('The call to the model failed: first');
         });
 
-        // Captured from gpt-5.6-luna: valid JSON up to "pseudocode", then whitespace until the 16,000-token limit.
+        // Captured from gpt-5.3-codex: valid JSON up to "pseudocode", then whitespace until the 16,000-token limit.
         const WHITESPACE = '  \t\n    \n';
         const runaway = (sent: { deltas: number }) => async (_body: unknown, options: { signal: AbortSignal }) => ({
             async *[Symbol.asyncIterator]() {
@@ -312,7 +312,7 @@ describe('natural-language rule authoring', () => {
             await createNaturalLanguageRule(definitionId, request, 'admin', { onProgress: event => progress.push(event) });
             expect(progress.map(event => event.message)).toEqual([
                 'Read the draft schema: 1 sheet table(s), 2 column(s)',
-                'Asking gpt-5.6-luna in Foundry project citadel-governance-project to review the rule (attempt 1 of 3)',
+                'Asking gpt-5.3-codex in Foundry project citadel-governance-project to review the rule (attempt 1 of 3)',
                 expect.stringMatching(/^Foundry accepted the request after \d+\.\d s \(response resp_1\)$/),
                 'The model is reasoning about how to enforce the rule',
                 'The model is writing its proposal',
