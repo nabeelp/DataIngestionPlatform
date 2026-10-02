@@ -1,6 +1,6 @@
 // =============================================================================
 // Natural Language Rule Runtime - compile and sandbox model-generated rule code
-// A natural-language rule's TypeScript defines `validateRow(row, rowNumber)`. It is type-checked when the rule is
+// A natural-language rule's TypeScript defines `validateRow(row, rowNumber, sheet?)`. It is type-checked when the rule is
 // authored, then transpiled and run in a QuickJS (WebAssembly) sandbox for every upload: the code has no access to
 // Node.js, the file system, the network or environment variables, and is bounded by time and memory limits.
 // =============================================================================
@@ -15,7 +15,7 @@ import {
     type QuickJSWASMModule,
 } from 'quickjs-emscripten-core';
 import releaseSyncVariant from '@jitl/quickjs-wasmfile-release-sync';
-import { IssueCollector, displayValue, withSheet, type EvaluationResult, type RowEvaluator } from './ValidationEngine';
+import { IssueCollector, displayValue, sameSheet, withSheet, type EvaluationResult, type RowEvaluator } from './ValidationEngine';
 
 export class RuleCodeError extends Error {
     constructor(message: string) {
@@ -37,7 +37,7 @@ const BATCH_SIZE = 500;
 const MAX_STACK_BYTES = 1024 * 1024;
 const MAX_MESSAGE_LENGTH = 500;
 
-/** Types the engine provides to rule code (documented to the model and used to type-check its output). */
+/** Types and function contracts provided to model-generated rule code. */
 export const RULE_CODE_ENVIRONMENT = `type CellValue = string | number | boolean | null;
 type Row = Readonly<Record<string, CellValue>>;
 `;
@@ -49,7 +49,8 @@ type Row = Readonly<Record<string, CellValue>>;
 const ENV_FILE = '/rule/env.d.ts';
 const RULE_FILE = '/rule/rule.ts';
 const CHECK_FILE = '/rule/check.ts';
-const SIGNATURE_CHECK = 'const __validateRowSignature: (row: Row, rowNumber: number) => string | null = validateRow;\n';
+const SIGNATURE_CHECK = `const __validateRowSignature: (row: Row, rowNumber: number, sheet?: string) => string | null = validateRow;
+`;
 
 const COMPILER_OPTIONS: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2020,
@@ -84,12 +85,20 @@ const assertScript = (source: string): void => {
 };
 
 /**
- * Type-check rule code against the engine contract (`validateRow(row: Row, rowNumber: number): string | null`).
+ * Type-check rule code against the row contract and, when present, the whole-file validator contract.
  * Throws a RuleCodeError describing the first problems.
  */
 export function typeCheckRuleCode(source: string): void {
     assertScript(source);
-    const virtualFiles = new Map([[ENV_FILE, RULE_CODE_ENVIRONMENT], [RULE_FILE, source], [CHECK_FILE, SIGNATURE_CHECK]]);
+    const ruleFile = ts.createSourceFile(RULE_FILE, source, ts.ScriptTarget.ES2020, true);
+    const declaresFileValidator = ruleFile.statements.some(statement =>
+        (ts.isFunctionDeclaration(statement) && statement.name?.text === 'validateFile') ||
+        (ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration =>
+            ts.isIdentifier(declaration.name) && declaration.name.text === 'validateFile')));
+    const checkFile = SIGNATURE_CHECK + (declaresFileValidator
+        ? 'const __validateFileSignature: () => string | null = validateFile;\n'
+        : '');
+    const virtualFiles = new Map([[ENV_FILE, RULE_CODE_ENVIRONMENT], [RULE_FILE, source], [CHECK_FILE, checkFile]]);
     const host = ts.createCompilerHost(COMPILER_OPTIONS, true);
     const readLibFile = host.getSourceFile.bind(host);
     const fileExists = host.fileExists.bind(host);
@@ -163,7 +172,7 @@ const PRELUDE = `(function () {
     const failures = [];
     for (let i = 0; i < batch.length; i++) {
       let result;
-      try { result = validateRow(freeze(batch[i][1]), batch[i][0]); }
+      try { result = validateRow(freeze(batch[i][1]), batch[i][0], batch[i][2]); }
       catch (e) {
         if (e instanceof InternalError && (e.message === 'out of memory' || e.message === 'interrupted')) throw e;
         return stringify({ error: 'validateRow threw on row ' + batch[i][0] + ': ' + describe(e) });
@@ -173,6 +182,18 @@ const PRELUDE = `(function () {
       failures.push([i, result]);
     }
     return stringify({ failures: failures });
+  } });
+  Object.defineProperty(globalThis, '__finishRule', { value: function () {
+    if (typeof validateFile !== 'function') return stringify({ failure: null });
+    let result;
+    try { result = validateFile(); }
+    catch (e) {
+      if (e instanceof InternalError && (e.message === 'out of memory' || e.message === 'interrupted')) throw e;
+      return stringify({ error: 'validateFile threw: ' + describe(e) });
+    }
+    if (result === null || result === undefined) return stringify({ failure: null });
+    if (typeof result !== 'string') return stringify({ error: 'validateFile must return a string or null' });
+    return stringify({ failure: result });
   } });
 })();`;
 
@@ -190,6 +211,7 @@ interface PendingRow {
     rowNumber: number;
     values: Record<string, CellValue>;
     sheet?: string;
+    ruleSheet?: string;
 }
 
 export interface SandboxedRowEvaluator extends RowEvaluator {
@@ -207,6 +229,7 @@ export function createNaturalLanguageRuleEvaluator(
     source: string,
     columns: string[],
     limits: SandboxLimits = DEFAULT_SANDBOX_LIMITS,
+    columnsBySheet?: Record<string, string[]>,
 ): SandboxedRowEvaluator {
     const issues = new IssueCollector();
     let runtime: QuickJSRuntime | null = null;
@@ -217,6 +240,7 @@ export function createNaturalLanguageRuleEvaluator(
     let stopped = false;
     let columnsPresent = true;
     let pending: PendingRow[] = [];
+    let lastRow: PendingRow | null = null;
     let finalResult: EvaluationResult | null = null;
 
     const dispose = () => {
@@ -281,7 +305,7 @@ export function createNaturalLanguageRuleEvaluator(
         pending = [];
         const start = Date.now();
         deadline = start + Math.max(limits.timeLimitMs - usedMs, 0);
-        const argument = context.newString(JSON.stringify(rows.map(row => [row.rowNumber, row.values])));
+        const argument = context.newString(JSON.stringify(rows.map(row => [row.rowNumber, row.values, row.ruleSheet ?? row.sheet ?? ''])));
         const result = context.callFunction(runBatch, context.undefined, argument);
         argument.dispose();
         usedMs += Date.now() - start;
@@ -312,12 +336,44 @@ export function createNaturalLanguageRuleEvaluator(
         }
     };
 
+    const finish = () => {
+        if (stopped || !context) return;
+        const start = Date.now();
+        deadline = start + Math.max(limits.timeLimitMs - usedMs, 0);
+        const finishRule = context.getProp(context.global, '__finishRule');
+        const result = context.callFunction(finishRule, context.undefined);
+        finishRule.dispose();
+        usedMs += Date.now() - start;
+        if (result.error) {
+            stop(sandboxMessage(context, result.error));
+            return;
+        }
+        const text = context.getString(result.value);
+        result.value.dispose();
+        try {
+            const output = JSON.parse(text) as { error?: unknown; failure?: unknown };
+            if (typeof output.error === 'string') {
+                stop(`Rule execution error: ${output.error.slice(0, MAX_MESSAGE_LENGTH)}`);
+            } else if (typeof output.failure === 'string' && output.failure.trim()) {
+                const issue = { error: output.failure.slice(0, MAX_MESSAGE_LENGTH).trim() };
+                issues.add(lastRow ? withSheet({ ...issue, row: lastRow.rowNumber }, lastRow.sheet) : issue);
+            }
+        } catch {
+            stop('Rule execution error: the sandbox returned an invalid final result');
+        }
+    };
+
     return {
         onHeaders(headers, sheet) {
             if (stopped) return;
             flush();
+            const selection = columnsBySheet
+                ? Object.entries(columnsBySheet).find(([name]) => sheet !== undefined && sameSheet(name, sheet))
+                : undefined;
+            const selected = columnsBySheet ? selection?.[1] : columns;
+            if (!selected) return;
             const headerSet = new Set(headers);
-            const missing = columns.filter(column => !headerSet.has(column));
+            const missing = selected.filter(column => !headerSet.has(column));
             for (const column of missing) {
                 issues.add(withSheet({ column, value: null, error: `Column "${column}" not found` }, sheet));
             }
@@ -325,14 +381,22 @@ export function createNaturalLanguageRuleEvaluator(
         },
         onRow(row, rowNumber, sheet) {
             if (stopped || !columnsPresent) return;
+            const selection = columnsBySheet
+                ? Object.entries(columnsBySheet).find(([name]) => sheet !== undefined && sameSheet(name, sheet))
+                : undefined;
+            const selected = columnsBySheet ? selection?.[1] : columns;
+            if (!selected) return;
             const values: Record<string, CellValue> = {};
-            for (const column of columns) values[column] = toCell(row[column]);
-            pending.push({ rowNumber, values, sheet });
+            for (const column of selected) values[column] = toCell(row[column]);
+            const accepted = { rowNumber, values, sheet, ruleSheet: selection?.[0] };
+            lastRow = accepted;
+            pending.push(accepted);
             if (pending.length >= BATCH_SIZE) flush();
         },
         result() {
             if (!finalResult) {
                 flush();
+                finish();
                 dispose();
                 finalResult = issues.result();
             }
@@ -345,6 +409,7 @@ export function createNaturalLanguageRuleEvaluator(
 export interface RuleExample {
     values: Record<string, string | null>;
     expectedValid: boolean;
+    sheet?: string;
 }
 
 /**
@@ -356,10 +421,17 @@ export function findExampleMismatch(
     columns: string[],
     examples: RuleExample[],
     limits: SandboxLimits = { ...DEFAULT_SANDBOX_LIMITS, timeLimitMs: 5_000 },
+    columnsBySheet?: Record<string, string[]>,
 ): string | null {
-    const evaluator = createNaturalLanguageRuleEvaluator(quickjs, source, columns, limits);
-    evaluator.onHeaders(columns);
-    examples.forEach((example, index) => evaluator.onRow(example.values, index + 1));
+    const evaluator = createNaturalLanguageRuleEvaluator(quickjs, source, columns, limits, columnsBySheet);
+    examples.forEach((example, index) => {
+        const sheet = example.sheet || undefined;
+        const headers = columnsBySheet
+            ? Object.entries(columnsBySheet).find(([name]) => sheet !== undefined && sameSheet(name, sheet))?.[1] ?? []
+            : columns;
+        evaluator.onHeaders(headers, sheet);
+        evaluator.onRow(example.values, index + 1, sheet);
+    });
     const result = evaluator.result();
 
     const general = result.errors.find(issue => issue.row === undefined);

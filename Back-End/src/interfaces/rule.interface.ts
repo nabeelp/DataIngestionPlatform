@@ -8,7 +8,8 @@
  * - Type Check: "Column: integer|decimal|datetime|boolean|string"
  * - Enum Check: "Column: ValueA, ValueB"
  * - Range Check: "Column: min..max" (either bound may be omitted)
- * - Natural Language: "ColumnA, ColumnB" (the columns its generated code reads)
+ * - Natural Language: "ColumnA, ColumnB" (the columns its generated code reads), or a sheet-qualified
+ *   manifest for cross-sheet rules
  */
 export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check' | 'Natural Language';
 
@@ -30,7 +31,7 @@ export interface IRule {
     ExecutionOrder: number;
     SqlQuery: string;
     IsEnabled: boolean;
-    /** Sheet table the rule applies to (definitions with one table per sheet); null otherwise. */
+    /** One target sheet, or null for a single-table definition or a cross-sheet Natural Language rule. */
     TableName?: string | null;
     /** Natural Language rules only: the request the rule was created from. */
     NaturalLanguageText?: string | null;

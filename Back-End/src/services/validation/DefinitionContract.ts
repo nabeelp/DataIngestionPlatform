@@ -6,7 +6,8 @@
 // Layouts:
 // - Single table: `columns` apply to a CSV file and to every sheet of a workbook; `tables` is empty.
 // - Sheet tables: each entry of `tables` applies to the workbook sheet with that name (case-insensitive);
-//   `columns` is empty, and every rule names the table it applies to.
+//   `columns` is empty; ordinary rules name one table, while cross-sheet Natural Language rules name their
+//   sheet-specific columns in a manifest stored in SqlQuery.
 // =============================================================================
 
 import {
@@ -23,6 +24,7 @@ export { sameSheet };
 
 /** Excel's limit on worksheet name length. */
 export const MAX_SHEET_NAME_LENGTH = 31;
+const SHEET_COLUMNS_PREFIX = '@sheet-columns:';
 
 export interface ContractTable {
     sheet: string;
@@ -161,11 +163,14 @@ export const ruleColumns = (parsed: ParsedRule): string[] => ('columns' in parse
 
 /**
  * Columns any contract rule refers to; throws for an invalid rule. A natural-language rule's expression lists the
- * columns its code reads, and the rule needs generated code.
+ * columns it reads (sheet-qualified for cross-sheet rules), and the rule needs generated code.
  */
 export function contractRuleColumns(rule: Pick<ContractRule, 'RuleType' | 'SqlQuery' | 'GeneratedCode'>): string[] {
     if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
-        const columns = splitList(rule.SqlQuery || '');
+        const sheetColumns = naturalLanguageColumnsBySheet(rule.SqlQuery || '');
+        const columns = sheetColumns
+            ? [...new Set(Object.values(sheetColumns).flat())]
+            : splitList(rule.SqlQuery || '');
         if (columns.length === 0) throw new Error('A natural-language rule must list the columns it reads');
         if (!rule.GeneratedCode?.trim()) throw new Error('A natural-language rule needs generated code');
         return columns;
@@ -175,6 +180,44 @@ export function contractRuleColumns(rule: Pick<ContractRule, 'RuleType' | 'SqlQu
     }
     return ruleColumns(parseRuleExpression(rule.RuleType, rule.SqlQuery));
 }
+
+/** Parse the sheet-qualified column manifest stored in SqlQuery for cross-sheet natural-language rules. */
+export function naturalLanguageColumnsBySheet(sqlQuery: string): Record<string, string[]> | null {
+    if (!sqlQuery.startsWith(SHEET_COLUMNS_PREFIX)) return null;
+    let value: unknown;
+    try {
+        value = JSON.parse(sqlQuery.slice(SHEET_COLUMNS_PREFIX.length));
+    } catch {
+        throw new Error('The cross-sheet column manifest is invalid JSON');
+    }
+    if (!value || typeof value !== 'object' || !('sheets' in value) || !Array.isArray(value.sheets)) {
+        throw new Error('The cross-sheet column manifest is invalid');
+    }
+    const columnsBySheet = Object.create(null) as Record<string, string[]>;
+    for (const entry of (value as { sheets: unknown[] }).sheets) {
+        if (!entry || typeof entry !== 'object' || !('sheet' in entry) || !('columns' in entry)) {
+            throw new Error('The cross-sheet column manifest is invalid');
+        }
+        const { sheet, columns } = entry as { sheet: unknown; columns: unknown };
+        if (typeof sheet !== 'string' || !sheet.trim() || !Array.isArray(columns) ||
+            columns.length === 0 || columns.some(column => typeof column !== 'string' || !column.trim())) {
+            throw new Error('The cross-sheet column manifest is invalid');
+        }
+        if (Object.keys(columnsBySheet).some(name => sameSheet(name, sheet))) {
+            throw new Error(`The cross-sheet column manifest names sheet "${sheet}" more than once`);
+        }
+        columnsBySheet[sheet.trim()] = [...new Set(columns as string[])];
+    }
+    if (Object.keys(columnsBySheet).length < 2) {
+        throw new Error('A cross-sheet natural-language rule must name at least two sheets');
+    }
+    return columnsBySheet;
+}
+
+export const serializeNaturalLanguageColumnsBySheet = (columnsBySheet: Record<string, string[]>): string =>
+    `${SHEET_COLUMNS_PREFIX}${JSON.stringify({
+        sheets: Object.entries(columnsBySheet).map(([sheet, columns]) => ({ sheet, columns })),
+    })}`;
 
 function diffBy<T>(previous: T[], next: T[], key: (item: T) => string, label: (item: T) => string, behaviour: (item: T) => string): ContractChanges {
     const previousByKey = new Map(previous.map(item => [key(item), item]));
@@ -267,6 +310,30 @@ export function assertPublishable(contract: ContractSnapshot): void {
             columns = contractRuleColumns(rule);
         } catch (error) {
             throw new ContractValidationError(`Rule "${rule.Name}" is invalid: ${(error as Error).message}`);
+        }
+
+        if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
+            const columnsBySheet = naturalLanguageColumnsBySheet(rule.SqlQuery);
+            if (columnsBySheet) {
+                if (!sheetTables) {
+                    throw new ContractValidationError(`Rule "${rule.Name}" names sheet tables, but this definition has a single table`);
+                }
+                if (rule.Table) {
+                    throw new ContractValidationError(`Cross-sheet rule "${rule.Name}" cannot be assigned to only sheet "${rule.Table}"`);
+                }
+                for (const [sheet, sheetColumns] of Object.entries(columnsBySheet)) {
+                    const table = contract.tables.find(candidate => sameSheet(candidate.sheet, sheet));
+                    if (!table) {
+                        throw new ContractValidationError(`Rule "${rule.Name}" refers to sheet "${sheet}", which is not defined`);
+                    }
+                    const names = new Set(table.columns.map(column => column.name));
+                    const missing = sheetColumns.find(column => !names.has(column));
+                    if (missing) {
+                        throw new ContractValidationError(`Rule "${rule.Name}" refers to column "${missing}", which is not in sheet "${table.sheet}"`);
+                    }
+                }
+                continue;
+            }
         }
 
         if (!sheetTables) {

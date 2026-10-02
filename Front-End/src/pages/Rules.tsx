@@ -66,6 +66,25 @@ const DEFAULT_RULE_TYPE = RULE_TYPES[0].value;
 // Also the stored rule type of rules generated from a request that no declarative type expresses without loss.
 const NATURAL_LANGUAGE_STRATEGY = 'Natural Language';
 const isGeneratedRule = (rule: Pick<Rule, 'ruleType'> | null | undefined) => rule?.ruleType === NATURAL_LANGUAGE_STRATEGY;
+const sheetColumnsManifest = (sqlQuery: string): { sheet: string; columns: string[] }[] | null => {
+  const prefix = '@sheet-columns:';
+  if (!sqlQuery.startsWith(prefix)) return null;
+  try {
+    const value: unknown = JSON.parse(sqlQuery.slice(prefix.length));
+    if (!value || typeof value !== 'object' || !('sheets' in value) || !Array.isArray(value.sheets)) return null;
+    return value.sheets.filter((entry): entry is { sheet: string; columns: string[] } =>
+      Boolean(entry) && typeof entry === 'object' && 'sheet' in entry && typeof entry.sheet === 'string'
+      && 'columns' in entry && Array.isArray(entry.columns) && entry.columns.every((column: unknown) => typeof column === 'string'));
+  } catch {
+    return null;
+  }
+};
+const displayedRuleColumns = (rule: Pick<Rule, 'sqlQuery'>): string => {
+  const manifest = sheetColumnsManifest(rule.sqlQuery);
+  return manifest
+    ? manifest.map(entry => `${entry.sheet}: ${entry.columns.join(', ')}`).join(' | ')
+    : rule.sqlQuery;
+};
 const getRuleTypeMeta = (type: string) =>
   RULE_TYPES.find(t => t.value === type) || { value: type, label: type, help: 'This rule type is no longer supported. Choose a supported type.', example: '' };
 
@@ -728,9 +747,11 @@ export default function ValidationRules() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-semibold text-slate-900">{rule.name}</h3>
-                            {rule.tableName && (
+                            {(rule.tableName || sheetColumnsManifest(rule.sqlQuery)) && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200" title="Sheet table">
-                                Sheet: {rule.tableName}
+                                {rule.tableName
+                                  ? `Sheet: ${rule.tableName}`
+                                  : `Sheets: ${sheetColumnsManifest(rule.sqlQuery)?.map(entry => entry.sheet).join(', ')}`}
                               </span>
                             )}
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
@@ -785,7 +806,7 @@ export default function ValidationRules() {
                         
                         {isGeneratedRule(rule) ? (
                           <>
-                            {rule.sqlQuery && <p className="text-xs text-slate-500">Columns read: <span className="font-mono">{rule.sqlQuery}</span></p>}
+                            {rule.sqlQuery && <p className="text-xs text-slate-500">Columns read: <span className="font-mono">{displayedRuleColumns(rule)}</span></p>}
                             <GeneratedRuleDetails naturalLanguageText={rule.naturalLanguageText} pseudocode={rule.pseudocode} generatedCode={rule.generatedCode} />
                           </>
                         ) : rule.sqlQuery && (
@@ -1005,7 +1026,12 @@ export default function ValidationRules() {
                   <div className="space-y-3 border-t border-slate-100 pt-4">
                     <p className="text-xs font-bold text-slate-600">Natural Language rule</p>
                     <p className="text-[11px] text-slate-500">
-                      {editingRule!.tableName ? `Sheet ${editingRule!.tableName}. ` : ''}Columns read: <span className="font-mono">{editingRule!.sqlQuery}</span>.
+                      {editingRule!.tableName
+                        ? `Sheet ${editingRule!.tableName}. `
+                        : sheetColumnsManifest(editingRule!.sqlQuery)
+                          ? `Sheets ${sheetColumnsManifest(editingRule!.sqlQuery)?.map(entry => entry.sheet).join(', ')}. `
+                          : ''}
+                      Columns read: <span className="font-mono">{displayedRuleColumns(editingRule!)}</span>.
                       Edit the original request and regenerate to change what the rule checks. The current rule remains unchanged if regeneration fails or is stopped.
                     </p>
                     <label htmlFor="regenerateNaturalLanguageRule" className="block text-xs font-bold text-slate-600">Original request <span className="text-red-500">*</span></label>

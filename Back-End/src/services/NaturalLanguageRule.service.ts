@@ -15,7 +15,12 @@ import type { ICreateRuleDto, IRule, RuleSeverity, RuleType } from '../interface
 import { logger } from '../utils/logger';
 import { DefinitionVersionService } from './DefinitionVersion.service';
 import { assertValidRule } from './Rule.service';
-import { ruleColumns, validationTables, type ValidationTable } from './validation/DefinitionContract';
+import {
+    ruleColumns,
+    serializeNaturalLanguageColumnsBySheet,
+    validationTables,
+    type ValidationTable,
+} from './validation/DefinitionContract';
 import { NATURAL_LANGUAGE_RULE_TYPE, parseRuleExpression, sameSheet, type ParsedRule } from './validation/ValidationEngine';
 import {
     MAX_RULE_CODE_LENGTH,
@@ -35,6 +40,7 @@ interface Proposal {
     name: string;
     severity: string;
     tableName: string;
+    tables: { sheet: string; columns: string[] }[];
     ruleType: string;
     expression: string;
     columns: string[];
@@ -112,17 +118,25 @@ and examples empty.
 Write TypeScript that the validation engine runs for every data row:
 - A script: no import, export, require, async code, or module syntax. ES2020, strict TypeScript.
 - The engine already declares these types; use them but do NOT declare them again: ${RULE_CODE_ENVIRONMENT.replace(/\n/g, ' ').trim()}
-- Define exactly: function validateRow(row: Row, rowNumber: number): string | null
+- Define exactly: function validateRow(row: Row, rowNumber: number, sheet?: string): string | null
   Return null when the row satisfies the rule, otherwise a short error message for the person who uploaded the file.
 - row contains only the columns you list. CSV values are strings; Excel values may be numbers or booleans; dates are ISO
   strings; empty cells are null or "". Handle every one of these. Decide explicitly how empty values behave, following
   the request (if the request does not require a value, empty values pass).
-- validateRow is called once per data row, in file order. Top-level variables may keep state for cross-row checks
-  such as uniqueness. There is no file, network or console access. Do not use randomness. Use the current date only
+- validateRow is called once per data row, in file order. Top-level variables may keep state for cross-row checks.
+  For a check correlating multiple sheets or comparing sheet totals, collect values in validateRow and define
+  function validateFile(): string | null; it runs once after every selected sheet has been read, independent of
+  workbook sheet order. Return null on success or one concise whole-file error message on failure.
+  The optional sheet argument is the exact workbook sheet name (empty for CSV/single-table files).
+  There is no file, network or console access. Do not use randomness. Use the current date only
   when the request explicitly requires it.
 - columns: the exact names of every column the code reads.
 - pseudocode: short, readable pseudocode that matches the TypeScript exactly.
-- examples: REQUIRED, never empty. 3 to 10 rows evaluated in order as one file. Each row gives a value (a string, or
+- tables: for a natural_language rule spanning sheets, list each exact sheet and only the columns read from it.
+  Set tableName to "" for that case. For a single-sheet rule, tables must be [] and tableName names its sheet
+  (or "" for a single-table definition).
+- examples: REQUIRED, never empty. 3 to 10 rows evaluated in order as one file. Each row gives its exact sheet name
+  (use "" for a single-table definition) and value (a string, or
   null for an empty cell) for every listed column. Include at least one row that passes and at least one that fails.
   expectedValid states whether that row passes. The engine runs your code on these rows and refuses the rule if any
   result differs from expectedValid.
@@ -133,7 +147,7 @@ Leave ruleType and expression empty.
 deterministically. Leave every other field empty.
 
 For every decision: use exact column and sheet names from the schema; tableName is "" for a single-table definition;
-reject when the sheet a rule applies to is ambiguous. name is a short rule name. severity is "Warning" only when the
+use tables only when the requested rule explicitly relates two or more defined sheets. name is a short rule name. severity is "Warning" only when the
 request asks for a warning, otherwise "Error". reason explains the decision in one sentence (for "mapped", say why the
 mapping loses nothing; for "natural_language", say why no declarative type fits). Fields that do not apply to the
 chosen decision are "" or [].
@@ -149,6 +163,18 @@ const proposalSchema = {
         name: { type: 'string' },
         severity: { type: 'string', enum: ['Error', 'Warning'] },
         tableName: { type: 'string' },
+        tables: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    sheet: { type: 'string' },
+                    columns: { type: 'array', items: { type: 'string' } },
+                },
+                required: ['sheet', 'columns'],
+                additionalProperties: false,
+            },
+        },
         ruleType: { type: 'string' },
         expression: { type: 'string' },
         columns: { type: 'array', items: { type: 'string' } },
@@ -158,6 +184,7 @@ const proposalSchema = {
             items: {
                 type: 'object',
                 properties: {
+                    sheet: { type: 'string' },
                     values: {
                         type: 'array',
                         items: {
@@ -169,14 +196,14 @@ const proposalSchema = {
                     },
                     expectedValid: { type: 'boolean' },
                 },
-                required: ['values', 'expectedValid'],
+                required: ['sheet', 'values', 'expectedValid'],
                 additionalProperties: false,
             },
         },
         pseudocode: { type: 'string' },
         typescript: { type: 'string' },
     },
-    required: ['decision', 'reason', 'name', 'severity', 'tableName', 'ruleType', 'expression', 'columns', 'examples', 'pseudocode', 'typescript'],
+    required: ['decision', 'reason', 'name', 'severity', 'tableName', 'tables', 'ruleType', 'expression', 'columns', 'examples', 'pseudocode', 'typescript'],
     additionalProperties: false,
 };
 
@@ -189,13 +216,13 @@ function readExamples(value: unknown): RuleExample[] | null {
     if (!Array.isArray(value)) return null;
     const examples: RuleExample[] = [];
     for (const item of value) {
-        if (!isObject(item) || typeof item.expectedValid !== 'boolean' || !Array.isArray(item.values)) return null;
+        if (!isObject(item) || typeof item.sheet !== 'string' || typeof item.expectedValid !== 'boolean' || !Array.isArray(item.values)) return null;
         const values: Record<string, string | null> = {};
         for (const entry of item.values) {
             if (!isObject(entry) || typeof entry.column !== 'string' || (entry.value !== null && typeof entry.value !== 'string')) return null;
             values[entry.column] = entry.value;
         }
-        examples.push({ values, expectedValid: item.expectedValid });
+        examples.push({ sheet: item.sheet, values, expectedValid: item.expectedValid });
     }
     return examples;
 }
@@ -215,19 +242,24 @@ export function readProposal(text: string): Proposal {
         ['mapped', 'natural_language', 'rejected'].includes(value.decision as string) ? null : 'decision',
         ...(['reason', 'name', 'severity', 'tableName', 'ruleType', 'expression', 'pseudocode', 'typescript'] as const)
             .map(field => (typeof value[field] === 'string' ? null : field)),
+        Array.isArray(value.tables) && value.tables.every(table => isObject(table) && typeof table.sheet === 'string' && isStringArray(table.columns)) ? null : 'tables',
         isStringArray(value.columns) ? null : 'columns',
         examples ? null : 'examples',
     ].filter((field): field is string => field !== null);
     if (invalid.length > 0 || !examples) {
         throw new ModelCallError(`The model's proposal has missing or invalid fields: ${invalid.join(', ')}`, true);
     }
-    const fields = value as Record<'reason' | 'name' | 'severity' | 'tableName' | 'ruleType' | 'expression' | 'pseudocode' | 'typescript', string> & { columns: string[] };
+    const fields = value as Record<'reason' | 'name' | 'severity' | 'tableName' | 'ruleType' | 'expression' | 'pseudocode' | 'typescript', string> & {
+        columns: string[];
+        tables: { sheet: string; columns: string[] }[];
+    };
     return {
         decision: value.decision as Decision,
         reason: fields.reason,
         name: fields.name,
         severity: fields.severity,
         tableName: fields.tableName,
+        tables: fields.tables,
         ruleType: fields.ruleType,
         expression: fields.expression,
         columns: fields.columns,
@@ -499,15 +531,23 @@ type CheckedProposal =
     | { outcome: 'natural_language'; dto: ICreateRuleDto; pseudocode: string; typescript: string };
 
 /** What is wrong with a generated rule's examples, or null when they can verify its code. */
-export function describeExampleProblem(examples: RuleExample[], columns: string[]): string | null {
+export function describeExampleProblem(
+    examples: RuleExample[],
+    columns: string[],
+    columnsBySheet?: Record<string, string[]>,
+): string | null {
     if (examples.length === 0) return 'it has no examples';
     if (examples.length < 2 || examples.length > MAX_EXAMPLES) return `it has ${examples.length} example(s), but 2 to ${MAX_EXAMPLES} are required`;
     if (!examples.some(example => example.expectedValid)) return 'none of its examples is expected to pass';
     if (!examples.some(example => !example.expectedValid)) return 'none of its examples is expected to fail';
     for (const [index, example] of examples.entries()) {
-        const unknown = Object.keys(example.values).find(column => !columns.includes(column));
+        const sheetColumns = columnsBySheet
+            ? Object.entries(columnsBySheet).find(([sheet]) => sameSheet(sheet, example.sheet ?? ''))?.[1]
+            : columns;
+        if (!sheetColumns) return `example ${index + 1} names unknown sheet "${example.sheet}"`;
+        const unknown = Object.keys(example.values).find(column => !sheetColumns.includes(column));
         if (unknown !== undefined) {
-            return `example ${index + 1} gives a value for "${unknown}", which is not one of the columns the rule reads (${columns.join(', ')})`;
+            return `example ${index + 1} gives a value for "${unknown}", which is not one of the columns the rule reads from sheet "${example.sheet}" (${sheetColumns.join(', ')})`;
         }
     }
     return null;
@@ -521,26 +561,49 @@ async function checkProposal(proposal: Proposal, request: string, fileDefinition
     if (!proposal.name.trim() || proposal.name.length > 200 || !['Error', 'Warning'].includes(proposal.severity) || proposal.reason.length > 1000) {
         return { problem: 'the proposal has an empty or too long name, an invalid severity, or a too long reason' };
     }
-    const table = draftHasSheets
+    const crossSheet = proposal.tables.length > 0;
+    if (crossSheet && (proposal.tables.length < 2 || !draftHasSheets || proposal.tableName.trim())) {
+        return { problem: 'a cross-sheet rule must list at least two sheet tables and leave tableName empty' };
+    }
+    const columnsBySheet: Record<string, string[]> | undefined = crossSheet
+        ? Object.create(null) as Record<string, string[]>
+        : undefined;
+    if (columnsBySheet) {
+        for (const entry of proposal.tables) {
+            const table = tables.find(candidate => candidate.sheet !== null && sameSheet(candidate.sheet, entry.sheet));
+            if (!table) return { problem: `sheet "${entry.sheet}" is not one of the definition's sheet tables` };
+            if (entry.columns.length === 0) return { problem: `the cross-sheet rule must read at least one column from sheet "${entry.sheet}"` };
+            if (Object.keys(columnsBySheet).some(sheet => sameSheet(sheet, table.sheet!))) {
+                return { problem: `sheet "${table.sheet}" is listed more than once in the cross-sheet rule` };
+            }
+            const missing = entry.columns.find(column => !table.columns.some(candidate => candidate.name === column));
+            if (missing) return { problem: `column "${missing}" is not in sheet "${table.sheet}"` };
+            columnsBySheet[table.sheet!] = [...new Set(entry.columns)];
+        }
+    }
+    const table = crossSheet ? tables[0] : draftHasSheets
         ? tables.find(candidate => candidate.sheet !== null && sameSheet(candidate.sheet, proposal.tableName))
         : proposal.tableName.trim() ? undefined : tables[0];
-    if (!table) {
+    if (!table && !crossSheet) {
         return {
             problem: draftHasSheets
                 ? `tableName "${proposal.tableName}" is not one of the definition's sheet tables (${tables.map(candidate => `"${candidate.sheet}"`).join(', ')})`
                 : `tableName must be "" for this single-table definition, not "${proposal.tableName}"`,
         };
     }
-    const columnNames = new Set(table.columns.map(column => column.name));
+    const columnNames = new Set(crossSheet
+        ? Object.values(columnsBySheet!).flat()
+        : table!.columns.map(column => column.name));
     const base = {
         FileDefinitionId: fileDefinitionId,
         Name: proposal.name.trim(),
         Description: request,
         Severity: proposal.severity as RuleSeverity,
-        TableName: table.sheet,
+        TableName: crossSheet ? null : table!.sheet,
     };
 
     if (proposal.decision === 'mapped') {
+        if (crossSheet) return { problem: 'declarative rule types cannot express a rule spanning multiple sheets' };
         report('info', `Checking the ${proposal.ruleType} expression "${proposal.expression}" against the validation engine and schema`);
         try {
             assertValidRule(proposal.ruleType, proposal.expression);
@@ -555,7 +618,7 @@ async function checkProposal(proposal: Proposal, request: string, fileDefinition
         return {
             outcome: 'mapped',
             dto: { ...base, RuleType: proposal.ruleType as RuleType, SqlQuery: proposal.expression },
-            pseudocode: pseudocodeForRule(parsed, table.sheet),
+            pseudocode: pseudocodeForRule(parsed, table!.sheet),
         };
     }
 
@@ -567,16 +630,28 @@ async function checkProposal(proposal: Proposal, request: string, fileDefinition
     if (missingColumn) {
         return { problem: `column "${missingColumn}" is not in the selected definition table` };
     }
+    if (crossSheet && columns.some(column => !Object.values(columnsBySheet!).some(sheetColumns => sheetColumns.includes(column)))) {
+        return { problem: 'the rule lists a column that is not read from any selected sheet' };
+    }
+    if (crossSheet) {
+        const mappedColumns = [...new Set(Object.values(columnsBySheet!).flat())];
+        if (mappedColumns.length !== columns.length || mappedColumns.some(column => !columns.includes(column))) {
+            return { problem: 'the columns list must exactly match the columns listed for the selected sheets' };
+        }
+    }
     if (!proposal.pseudocode.trim() || proposal.pseudocode.length > MAX_PSEUDOCODE_LENGTH || proposal.typescript.length > MAX_RULE_CODE_LENGTH) {
         return { problem: `the pseudocode is empty or longer than ${MAX_PSEUDOCODE_LENGTH} characters, or the code is longer than ${MAX_RULE_CODE_LENGTH} characters` };
     }
     const examples = proposal.examples;
-    const exampleProblem = describeExampleProblem(examples, columns);
+    const exampleProblem = describeExampleProblem(examples, columns, columnsBySheet);
     if (exampleProblem) {
         return { problem: exampleProblem };
     }
     for (const example of examples) {
-        for (const column of columns) example.values[column] ??= null;
+        const exampleColumns = columnsBySheet
+            ? Object.entries(columnsBySheet).find(([sheet]) => sameSheet(sheet, example.sheet ?? ''))?.[1] ?? []
+            : columns;
+        for (const column of exampleColumns) example.values[column] ??= null;
     }
 
     report('info', 'Type-checking the generated TypeScript');
@@ -586,7 +661,7 @@ async function checkProposal(proposal: Proposal, request: string, fileDefinition
         return { problem: error instanceof RuleCodeError ? error.message : 'the rule code does not compile' };
     }
     report('info', `Running the code in the sandbox on the model's ${examples.length} example rows`);
-    const mismatch = findExampleMismatch(await loadRuleSandbox(), proposal.typescript, columns, examples);
+    const mismatch = findExampleMismatch(await loadRuleSandbox(), proposal.typescript, columns, examples, undefined, columnsBySheet);
     if (mismatch) {
         return { problem: `its code did not match its own examples: ${mismatch}` };
     }
@@ -597,7 +672,9 @@ async function checkProposal(proposal: Proposal, request: string, fileDefinition
         dto: {
             ...base,
             RuleType: NATURAL_LANGUAGE_RULE_TYPE,
-            SqlQuery: columns.join(', '),
+            SqlQuery: columnsBySheet
+                ? serializeNaturalLanguageColumnsBySheet(columnsBySheet)
+                : columns.join(', '),
             NaturalLanguageText: request,
             Pseudocode: proposal.pseudocode.trim(),
             GeneratedCode: proposal.typescript,

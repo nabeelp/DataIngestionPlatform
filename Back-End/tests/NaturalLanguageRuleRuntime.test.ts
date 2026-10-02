@@ -28,6 +28,45 @@ const validateRow = (row: Row, rowNumber: number): string | null => {
     return null;
 };`;
 
+const CROSS_SHEET_RULE = `
+const orders = new Map<string, number>();
+const payments = new Map<string, number[]>();
+function validateRow(row: Row, rowNumber: number, sheet?: string): string | null {
+    if (sheet === 'Orders' && row['OrderId'] !== null && row['Amount'] !== null) {
+        orders.set(String(row['OrderId']), Number(row['Amount']));
+    } else if (sheet === 'Payments' && row['PaymentOrderId'] !== null && row['Amount'] !== null) {
+        const id = String(row['PaymentOrderId']);
+        payments.set(id, [...(payments.get(id) ?? []), Number(row['Amount'])]);
+    }
+    return null;
+}
+function validateFile(): string | null {
+    let orderTotal = 0;
+    let paymentTotal = 0;
+    for (const [id, amount] of orders) {
+        orderTotal += amount;
+        const matches = payments.get(id) ?? [];
+        if (matches.length !== 1 || matches[0] !== amount) return 'Each order must have exactly one payment for the same amount';
+    }
+    for (const amounts of payments.values()) for (const amount of amounts) paymentTotal += amount;
+    return orderTotal === paymentTotal ? null : 'Order and payment totals do not match';
+}`;
+const CROSS_SHEET_COLUMNS = {
+    Orders: ['OrderId', 'Amount'],
+    Payments: ['PaymentOrderId', 'Amount'],
+};
+const SHEET_TOTALS_RULE = `let orderTotal = 0;
+let paymentTotal = 0;
+function validateRow(row: Row, rowNumber: number, sheet?: string): string | null {
+    if (row['Amount'] === null) return null;
+    if (sheet === 'Orders') orderTotal += Number(row['Amount']);
+    if (sheet === 'Payments') paymentTotal += Number(row['Amount']);
+    return null;
+}
+function validateFile(): string | null {
+    return orderTotal === paymentTotal ? null : 'Order and payment totals do not match';
+}`;
+
 const run = (evaluator: RowEvaluator, headers: string[], rows: Record<string, unknown>[], sheet?: string) => {
     evaluator.onHeaders(headers, sheet);
     rows.forEach((row, index) => evaluator.onRow(row, index + 2, sheet));
@@ -44,6 +83,7 @@ describe('natural-language rule runtime', () => {
         it('accepts code that implements the validateRow contract', () => {
             expect(() => typeCheckRuleCode(SUFFIX_RULE)).not.toThrow();
             expect(() => typeCheckRuleCode(UNIQUE_RULE)).not.toThrow();
+            expect(() => typeCheckRuleCode(SHEET_TOTALS_RULE)).not.toThrow();
         });
 
         it.each([
@@ -51,6 +91,7 @@ describe('natural-language rule runtime', () => {
             ['a missing validateRow', 'function check(row: Row) { return null; }', "Cannot find name 'validateRow'"],
             ['a wrong return type', 'function validateRow(row: Row, rowNumber: number) { return 1; }', 'check.ts'],
             ['a type error', 'function validateRow(row: Row, rowNumber: number): string | null { return row.Email.length ? null : "x"; }', 'rule.ts'],
+            ['an invalid file-level return type', `${SUFFIX_RULE}\nfunction validateFile(): number { return 1; }`, 'check.ts'],
             ['Node.js globals', 'function validateRow(row: Row, rowNumber: number): string | null { return process.env.X ?? null; }', "Cannot find name 'process'"],
         ])('rejects %s', (_label, code, message) => {
             expect(() => typeCheckRuleCode(code)).toThrow(message);
@@ -92,6 +133,82 @@ describe('natural-language rule runtime', () => {
         evaluator.onHeaders(['Email'], 'Staff');
         evaluator.onRow({ Email: 'x@y.z' }, 2, 'Staff');
         expect(evaluator.result().errors).toEqual([expect.objectContaining({ sheet: 'Staff', row: 2 })]);
+    });
+
+    it.each([
+        ['Orders', 'Payments'],
+        ['Payments', 'Orders'],
+    ])('checks keyed rows and totals across sheets in %s then %s order', (firstSheet, secondSheet) => {
+        const evaluator = createNaturalLanguageRuleEvaluator(
+            quickjs,
+            CROSS_SHEET_RULE,
+            ['OrderId', 'PaymentOrderId', 'Amount'],
+            undefined,
+            CROSS_SHEET_COLUMNS,
+        );
+        const rows: Record<string, Record<string, unknown>[]> = {
+            Orders: [
+                { OrderId: 'O-1', Amount: 100 },
+                { OrderId: 'O-2', Amount: 50 },
+            ],
+            Payments: [
+                { PaymentOrderId: 'O-1', Amount: 100 },
+                { PaymentOrderId: 'O-2', Amount: 49 },
+            ],
+        };
+        const headers: Record<string, string[]> = {
+            Orders: ['OrderId', 'Amount'],
+            Payments: ['PaymentOrderId', 'Amount'],
+        };
+        for (const sheet of [firstSheet, secondSheet]) {
+            evaluator.onHeaders(headers[sheet], sheet);
+            rows[sheet].forEach((row, index) => evaluator.onRow(row, index + 2, sheet));
+        }
+
+        const result = evaluator.result();
+        expect(result.passed).toBe(false);
+        expect(result.errors).toEqual([expect.objectContaining({
+            sheet: secondSheet,
+            error: 'Each order must have exactly one payment for the same amount',
+        })]);
+    });
+
+    it('passes canonical sheet names to code while matching workbook sheet names case-insensitively', () => {
+        const evaluator = createNaturalLanguageRuleEvaluator(
+            quickjs,
+            CROSS_SHEET_RULE,
+            ['OrderId', 'PaymentOrderId', 'Amount'],
+            undefined,
+            CROSS_SHEET_COLUMNS,
+        );
+        evaluator.onHeaders(['OrderId', 'Amount'], 'orders');
+        evaluator.onRow({ OrderId: 'O-1', Amount: 100 }, 2, 'orders');
+        evaluator.onHeaders(['PaymentOrderId', 'Amount'], 'PAYMENTS');
+        evaluator.onRow({ PaymentOrderId: 'O-1', Amount: 100 }, 2, 'PAYMENTS');
+
+        expect(evaluator.result()).toMatchObject({ passed: true, errors: [] });
+    });
+
+    it.each([
+        ['Orders', 'Payments'],
+        ['Payments', 'Orders'],
+    ])('compares totals independent of %s/%s sheet order', (firstSheet, secondSheet) => {
+        const evaluator = createNaturalLanguageRuleEvaluator(
+            quickjs,
+            SHEET_TOTALS_RULE,
+            ['Amount'],
+            undefined,
+            { Orders: ['Amount'], Payments: ['Amount'] },
+        );
+        const values: Record<string, number[]> = { Orders: [100, 50], Payments: [100, 49] };
+        for (const sheet of [firstSheet, secondSheet]) {
+            evaluator.onHeaders(['Amount'], sheet);
+            values[sheet].forEach((amount, index) => evaluator.onRow({ Amount: amount }, index + 2, sheet));
+        }
+        expect(evaluator.result().errors).toEqual([expect.objectContaining({
+            sheet: secondSheet,
+            error: 'Order and payment totals do not match',
+        })]);
     });
 
     it('cannot reach Node.js, the file system or the network', () => {

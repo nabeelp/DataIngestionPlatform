@@ -52,7 +52,7 @@ const streamOf = (final: ModelResponse | null, extra: object[] = []) => ({
 });
 const response = (proposal: object) => streamOf(completed(JSON.stringify(proposal)));
 
-const empty = { ruleType: '', expression: '', columns: [], pseudocode: '', typescript: '', examples: [] };
+const empty = { ruleType: '', expression: '', columns: [], tables: [], pseudocode: '', typescript: '', examples: [] };
 const mapped = {
     ...empty, decision: 'mapped', reason: 'An inclusive range check expresses this exactly.', name: 'Valid amount',
     severity: 'Error', tableName: 'Orders', ruleType: 'Range Check', expression: 'Amount: 0..100',
@@ -62,13 +62,57 @@ const SUFFIX_CODE = `function validateRow(row: Row, rowNumber: number): string |
     if (email === null || email === '') return null;
     return String(email).endsWith('@contoso.example') ? null : 'Email must end with @contoso.example';
 }`;
-const example = (value: string | null, expectedValid: boolean) => ({ values: [{ column: 'Email', value }], expectedValid });
+const example = (value: string | null, expectedValid: boolean) => ({ sheet: 'Orders', values: [{ column: 'Email', value }], expectedValid });
 const naturalLanguage = {
     ...empty, decision: 'natural_language', reason: 'No declarative type checks a text suffix.', name: 'Contoso email',
     severity: 'Error', tableName: 'Orders', columns: ['Email'],
     pseudocode: 'FOR EACH row:\n  IF Email is not empty AND does not end with "@contoso.example": report issue',
     typescript: SUFFIX_CODE,
     examples: [example('a@contoso.example', true), example('b@example.org', false), example(null, true)],
+};
+const crossSheetCode = `const orderAmounts = new Map<string, number>();
+const payments = new Map<string, number[]>();
+function validateRow(row: Row, rowNumber: number, sheet?: string): string | null {
+    if (sheet === 'Orders' && row['OrderId'] !== null && row['Amount'] !== null) {
+        orderAmounts.set(String(row['OrderId']), Number(row['Amount']));
+    }
+    if (sheet === 'Payments' && row['PaymentOrderId'] !== null && row['Amount'] !== null) {
+        const id = String(row['PaymentOrderId']);
+        payments.set(id, [...(payments.get(id) ?? []), Number(row['Amount'])]);
+    }
+    return null;
+}
+function validateFile(): string | null {
+    let orderTotal = 0;
+    let paymentTotal = 0;
+    for (const [id, amount] of orderAmounts) {
+        orderTotal += amount;
+        const matches = payments.get(id) ?? [];
+        if (matches.length !== 1 || matches[0] !== amount) return 'Each order must have exactly one payment for the same amount';
+    }
+    for (const amounts of payments.values()) for (const amount of amounts) paymentTotal += amount;
+    return orderTotal === paymentTotal ? null : 'Order and payment totals do not match';
+}`;
+const crossSheetProposal = {
+    ...empty,
+    decision: 'natural_language',
+    reason: 'The rule correlates rows and totals across sheets.',
+    name: 'Orders match payments',
+    severity: 'Error',
+    tableName: '',
+    tables: [
+        { sheet: 'Orders', columns: ['OrderId', 'Amount'] },
+        { sheet: 'Payments', columns: ['PaymentOrderId', 'Amount'] },
+    ],
+    columns: ['OrderId', 'PaymentOrderId', 'Amount'],
+    pseudocode: 'Collect orders and payments from both sheets; compare each keyed payment and compare their totals.',
+    typescript: crossSheetCode,
+    examples: [
+        { sheet: 'Orders', values: [{ column: 'OrderId', value: 'O-1' }, { column: 'Amount', value: '100' }], expectedValid: true },
+        { sheet: 'Payments', values: [{ column: 'PaymentOrderId', value: 'O-1' }, { column: 'Amount', value: '100' }], expectedValid: true },
+        { sheet: 'Orders', values: [{ column: 'OrderId', value: 'O-2' }, { column: 'Amount', value: '50' }], expectedValid: true },
+        { sheet: 'Payments', values: [{ column: 'PaymentOrderId', value: 'O-2' }, { column: 'Amount', value: '49' }], expectedValid: false },
+    ],
 };
 const request = 'Email must end with @contoso.example';
 
@@ -130,6 +174,39 @@ describe('natural-language rule authoring', () => {
         }, 'admin');
     });
 
+    it('generates and saves a natural-language rule correlating matching rows and totals across two sheets', async () => {
+        jest.mocked(DefinitionVersionService.getDraftState).mockResolvedValue({
+            activeVersion: null,
+            diff: {} as never,
+            draft: {
+                columns: [],
+                tables: [
+                    { sheet: 'Orders', columns: [{ name: 'OrderId', type: 'string', required: true }, { name: 'Amount', type: 'decimal', required: true }] },
+                    { sheet: 'Payments', columns: [{ name: 'PaymentOrderId', type: 'string', required: true }, { name: 'Amount', type: 'decimal', required: true }] },
+                ],
+                rules: [],
+            },
+        });
+        createResponse.mockResolvedValue(response(crossSheetProposal));
+
+        await expect(createNaturalLanguageRule(
+            definitionId,
+            'Every order must have exactly one payment for the same amount, and the totals across both sheets must match',
+            'admin',
+        )).resolves.toMatchObject({ outcome: 'natural_language', typescript: crossSheetCode });
+
+        expect(JSON.parse(createResponse.mock.calls[0][0].input).tables).toEqual([
+            { sheet: 'Orders', columns: [{ name: 'OrderId', type: 'string' }, { name: 'Amount', type: 'decimal' }] },
+            { sheet: 'Payments', columns: [{ name: 'PaymentOrderId', type: 'string' }, { name: 'Amount', type: 'decimal' }] },
+        ]);
+        expect(Rule.create).toHaveBeenCalledWith(expect.objectContaining({
+            RuleType: 'Natural Language',
+            TableName: null,
+            SqlQuery: '@sheet-columns:{"sheets":[{"sheet":"Orders","columns":["OrderId","Amount"]},{"sheet":"Payments","columns":["PaymentOrderId","Amount"]}]}',
+            GeneratedCode: crossSheetCode,
+        }), 'admin');
+    });
+
     it('regenerates an existing Natural Language rule in place after the replacement passes all checks', async () => {
         const revisedRequest = 'Email must end with @contoso.example and be lowercase';
         createResponse.mockResolvedValue(response(naturalLanguage));
@@ -180,7 +257,7 @@ describe('natural-language rule authoring', () => {
         ['examples without a passing row', { ...naturalLanguage, examples: [example('a@example.org', false), example('b@example.org', false)] }, 'none of its examples is expected to pass'],
         ['no examples', { ...naturalLanguage, examples: [] }, 'it has no examples'],
         ['a single example', { ...naturalLanguage, examples: [example('b@example.org', false)] }, 'it has 1 example(s), but 2 to 20 are required'],
-        ['examples for other columns', { ...naturalLanguage, examples: [...naturalLanguage.examples, { values: [{ column: 'Amount', value: '1' }], expectedValid: true }] }, 'example 4 gives a value for "Amount", which is not one of the columns the rule reads (Email)'],
+        ['examples for other columns', { ...naturalLanguage, examples: [...naturalLanguage.examples, { sheet: 'Orders', values: [{ column: 'Amount', value: '1' }], expectedValid: true }] }, 'example 4 gives a value for "Amount", which is not one of the columns the rule reads from sheet "Orders" (Email)'],
         ['a mapped rule with an invalid expression', { ...mapped, expression: 'Amount: now..tomorrow' }, 'cannot be implemented'],
         ['a mapped rule with a missing column', { ...mapped, expression: 'Unknown: 0..100' }, 'column "Unknown"'],
         ['an unknown sheet', { ...naturalLanguage, tableName: 'Other' }, 'tableName "Other" is not one of the definition\'s sheet tables ("Orders")'],
@@ -225,7 +302,7 @@ describe('natural-language rule authoring', () => {
         expect(() => readProposal('{}')).toThrow(RuleGenerationError);
         expect(() => readProposal('{}')).toThrow('missing or invalid fields: decision, reason, name');
         expect(() => readProposal('{"decision": "mapp')).toThrow(/malformed JSON .*18 characters received/);
-        expect(() => readProposal(JSON.stringify({ ...naturalLanguage, examples: [{ values: [{ column: 'Email', value: 1 }], expectedValid: true }] })))
+        expect(() => readProposal(JSON.stringify({ ...naturalLanguage, examples: [{ sheet: 'Orders', values: [{ column: 'Email', value: 1 }], expectedValid: true }] })))
             .toThrow('missing or invalid fields: examples');
     });
 

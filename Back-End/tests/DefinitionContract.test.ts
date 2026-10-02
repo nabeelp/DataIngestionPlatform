@@ -1,4 +1,13 @@
-import { assertPublishable, buildContractSnapshot, diffContracts, schemaCheckName, validationTables } from '../src/services/validation/DefinitionContract';
+import {
+    assertPublishable,
+    buildContractSnapshot,
+    contractRuleColumns,
+    diffContracts,
+    naturalLanguageColumnsBySheet,
+    schemaCheckName,
+    serializeNaturalLanguageColumnsBySheet,
+    validationTables,
+} from '../src/services/validation/DefinitionContract';
 
 const columns = [
     { name: 'CustomerId', type: 'string', required: true },
@@ -137,6 +146,35 @@ describe('sheet table contracts', () => {
     it('reads the rule table from published snapshots too', () => {
         const published = buildContractSnapshot([], [{ ...rule(), Table: 'Orders' }], tables);
         expect(published.rules[0].Table).toBe('Orders');
+    });
+
+    it('publishes a cross-sheet natural-language rule with columns validated against each named sheet', () => {
+        const columnsBySheet = {
+            Orders: ['OrderId', 'Amount'],
+            Payments: ['PaymentOrderId', 'Amount'],
+        };
+        const sqlQuery = serializeNaturalLanguageColumnsBySheet(columnsBySheet);
+        const crossSheetRule = rule({
+            RuleType: 'Natural Language',
+            SqlQuery: sqlQuery,
+            TableName: null,
+            GeneratedCode: 'function validateRow(row: Row, rowNumber: number, sheet?: string): string | null { return null; }',
+        });
+        const contract = buildContractSnapshot([], [crossSheetRule], [
+            { sheet: 'Orders', columns: [{ name: 'OrderId', type: 'string', required: true }, { name: 'Amount', type: 'decimal', required: true }] },
+            { sheet: 'Payments', columns: [{ name: 'PaymentOrderId', type: 'string', required: true }, { name: 'Amount', type: 'decimal', required: true }] },
+        ]);
+
+        expect(naturalLanguageColumnsBySheet(sqlQuery)).toEqual(columnsBySheet);
+        expect(contractRuleColumns(contract.rules[0])).toEqual(['OrderId', 'Amount', 'PaymentOrderId']);
+        expect(() => assertPublishable(contract)).not.toThrow();
+        expect(() => assertPublishable(buildContractSnapshot([], [rule({
+            ...crossSheetRule,
+            SqlQuery: serializeNaturalLanguageColumnsBySheet({ Orders: ['Missing'], Payments: ['PaymentOrderId'] }),
+        })], [
+            { sheet: 'Orders', columns: [{ name: 'OrderId', type: 'string', required: true }] },
+            { sheet: 'Payments', columns: [{ name: 'PaymentOrderId', type: 'string', required: true }] },
+        ]))).toThrow('not in sheet "Orders"');
     });
 
     it('labels sheet table changes with the sheet name', () => {

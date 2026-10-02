@@ -25,7 +25,12 @@ import {
     scopeToSheet,
     type RowEvaluator,
 } from './validation/ValidationEngine';
-import { contractRuleColumns, schemaCheckName, validationTables } from './validation/DefinitionContract';
+import {
+    contractRuleColumns,
+    naturalLanguageColumnsBySheet,
+    schemaCheckName,
+    validationTables,
+} from './validation/DefinitionContract';
 import { createNaturalLanguageRuleEvaluator, loadRuleSandbox, type SandboxedRowEvaluator } from './validation/NaturalLanguageRuleRuntime';
 import { readRecords } from './validation/FileRecordReader';
 import { createValidationWorker } from './Queue.service';
@@ -131,7 +136,8 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
         const tables = validationTables(contract);
 
         // Build one evaluator per rule detail; the file is then read once for all of them.
-        // Sheet tables (and their rules) only see rows of their own sheet; a missing sheet fails its columns check.
+        // Sheet tables enforce their own columns. Cross-sheet Natural Language rules receive selected rows from each
+        // named sheet and run their whole-file check after the reader has finished.
         const checks: ActiveCheck[] = [];
         for (const ruleDetail of ruleDetails) {
             let evaluator: RowEvaluator | null = null;
@@ -153,20 +159,26 @@ export async function processValidationJob(job: Job<IValidationJobData>): Promis
                 } else if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
                     // Generated code only runs inside the sandbox; configuration problems fail the rule, not the job.
                     let ruleEvaluator: SandboxedRowEvaluator;
+                    let sheetColumns: Record<string, string[]> | null;
                     try {
+                        sheetColumns = naturalLanguageColumnsBySheet(rule.SqlQuery);
                         ruleEvaluator = createNaturalLanguageRuleEvaluator(
                             await loadRuleSandbox(),
                             rule.GeneratedCode || '',
                             contractRuleColumns(rule),
                             appConfig.workers.ruleSandbox,
+                            sheetColumns ?? undefined,
                         );
                     } catch (error) {
                         const message = error instanceof Error ? error.message : 'Invalid natural-language rule';
                         const issue = { error: `Rule configuration error: ${message}` };
                         ruleEvaluator = { onHeaders: () => undefined, onRow: () => undefined, result: () => ({ passed: false, errorCount: 1, errors: [issue] }), dispose: () => undefined };
+                        sheetColumns = null;
                     }
                     sandboxes.push(ruleEvaluator);
-                    evaluator = rule.Table ? scopeToSheet(ruleEvaluator, rule.Table, { reportMissing: false }) : ruleEvaluator;
+                    evaluator = sheetColumns
+                        ? ruleEvaluator
+                        : rule.Table ? scopeToSheet(ruleEvaluator, rule.Table, { reportMissing: false }) : ruleEvaluator;
                 } else {
                     const ruleEvaluator = createRuleEvaluator(rule.RuleType, rule.SqlQuery);
                     evaluator = rule.Table ? scopeToSheet(ruleEvaluator, rule.Table, { reportMissing: false }) : ruleEvaluator;
