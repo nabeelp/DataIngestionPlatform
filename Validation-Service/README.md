@@ -45,6 +45,29 @@ Each run met the 1.5-second and 1.5-GiB budgets on this Windows development host
 The test workload returns expected validation failures; the benchmark exit status indicates budget compliance,
 not data validity.
 
+## WP4 Natural Language SQL
+
+The SQL guard validates the AST with `sqlglot` before row predicates become Polars expressions or query-mode SQL
+is run. Its table-driven test executes every allow-listed function in Polars SQL; the deny-list covers file
+readers, DDL/DML, session commands, nondeterministic functions, undeclared columns and unregistered tables.
+Examples are run independently: each example populates only its named table, while all other declared tables
+are empty. This makes an example deterministic and avoids implicitly combining separate example records.
+
+The `dq-engine bench` command also measures the incremental cost of one guarded Natural Language row predicate
+over the same parsed 1,000,000-row frame as the 18-rule baseline. On the local Windows development host:
+
+| Measurement | Result |
+|---|---:|
+| 18-rule CSV engine time | 0.8363 s |
+| Peak working set during the benchmark | 1,131,642,880 bytes |
+| Baseline rule evaluation median | 471.1756 ms |
+| Evaluation median with one Natural Language row rule | 509.5585 ms |
+| Incremental Natural Language row-rule cost | 38.3829 ms |
+| §9 incremental budget | 100 ms |
+
+The CSV and Natural Language row-rule budgets passed. As with the WP3 figures, these measurements are from the
+development host, not the prescribed 4-vCPU/8-GiB performance-gate host.
+
 Use `uv run dq-engine validate <file> --contract <contract.json> --json` for local validation. Add
 `--output-dir <directory>` to write a Zstandard Parquet file per table and a streamed issues CSV.
 

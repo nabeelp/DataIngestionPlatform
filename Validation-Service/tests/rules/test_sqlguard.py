@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import polars as pl
 import pytest
 
 from dq_engine.rules.base import RuleConfigurationError
@@ -10,6 +11,32 @@ from dq_engine.rules.sqlguard import (
     validate_query,
     validate_row_expression,
 )
+
+_ALLOWED_POLARS_SQL = [
+    "SELECT ABS(-1) AS result FROM t_0 LIMIT 1",
+    "SELECT CEIL(1.2) AS result FROM t_0 LIMIT 1",
+    "SELECT COALESCE(NULL, 1) AS result FROM t_0 LIMIT 1",
+    "SELECT COUNT(*) AS result FROM t_0",
+    "SELECT DATE_PART('year', EventDate) AS result FROM t_0 LIMIT 1",
+    "SELECT ENDS_WITH('abc', 'c') AS result FROM t_0 LIMIT 1",
+    "SELECT FLOOR(1.8) AS result FROM t_0 LIMIT 1",
+    "SELECT LAG(Amount) OVER (ORDER BY __row) AS result FROM t_0",
+    "SELECT LEAD(Amount) OVER (ORDER BY __row) AS result FROM t_0",
+    "SELECT LENGTH('abc') AS result FROM t_0 LIMIT 1",
+    "SELECT LOWER('ABC') AS result FROM t_0 LIMIT 1",
+    "SELECT NULLIF(1, 1) AS result FROM t_0 LIMIT 1",
+    "SELECT REGEXP_LIKE('abc', 'a.*') AS result FROM t_0 LIMIT 1",
+    "SELECT ROUND(1.25, 1) AS result FROM t_0 LIMIT 1",
+    "SELECT STARTS_WITH('abc', 'a') AS result FROM t_0 LIMIT 1",
+    "SELECT STRPTIME('2024-01-01', '%Y-%m-%d') AS result FROM t_0 LIMIT 1",
+    "SELECT SUBSTR('abc', 1, 2) AS result FROM t_0 LIMIT 1",
+    "SELECT SUM(TRY_CAST(Amount AS DOUBLE)) AS result FROM t_0",
+    "SELECT MIN(TRY_CAST(Amount AS DOUBLE)) AS result FROM t_0",
+    "SELECT MAX(TRY_CAST(Amount AS DOUBLE)) AS result FROM t_0",
+    "SELECT ROW_NUMBER() OVER (ORDER BY __row) AS result FROM t_0",
+    "SELECT TRIM(' abc ') AS result FROM t_0 LIMIT 1",
+    "SELECT UPPER('abc') AS result FROM t_0 LIMIT 1",
+]
 
 
 def test_row_guard_accepts_declared_boolean_expression() -> None:
@@ -23,9 +50,13 @@ def test_row_guard_accepts_declared_boolean_expression() -> None:
     [
         "SELECT * FROM t_0",
         "read_csv('private.csv')",
+        "read_parquet('private.parquet')",
+        "read_json('private.json')",
         "Amount > 0; DROP TABLE t_0",
         "Undeclared > 0",
         "now() > Amount",
+        "current_date > DATE '2024-01-01'",
+        "random() > 0",
     ],
 )
 def test_row_guard_rejects_queries_undeclared_columns_and_unsafe_functions(sql: str) -> None:
@@ -50,6 +81,20 @@ def test_query_guard_accepts_ctes_joins_and_count_star_over_declared_tables() ->
     assert validate_query(sql, {"t_0": ["Amount"]}) == sql
 
 
+@pytest.mark.parametrize("sql", _ALLOWED_POLARS_SQL)
+def test_query_guard_allows_and_executes_every_listed_polars_sql_function(sql: str) -> None:
+    frame = pl.DataFrame({
+        "Amount": ["1", "2", "3"],
+        "__row": [0, 1, 2],
+        "EventDate": pl.Series("EventDate", ["2024-01-01"] * 3).str.to_date(),
+    })
+
+    assert validate_query(sql, {"t_0": ["Amount", "__row", "EventDate"]}) == sql
+    result = pl.SQLContext(t_0=frame).execute(sql, eager=True)
+
+    assert result.height > 0
+
+
 def test_validation_date_is_substituted_as_a_fixed_sql_literal() -> None:
     sql = "OrderDate >= :validation_date"
 
@@ -60,9 +105,19 @@ def test_validation_date_is_substituted_as_a_fixed_sql_literal() -> None:
     "sql",
     [
         "DELETE FROM t_0",
+        "CREATE TABLE t_1 (Amount INT)",
+        "INSERT INTO t_0 VALUES (1)",
+        "UPDATE t_0 SET Amount = 1",
+        "SET enable_object_cache = true",
+        "PRAGMA version",
         "SELECT * FROM t_1",
         "SELECT Secret FROM t_0",
         "SELECT read_csv('private.csv') FROM t_0",
+        "SELECT read_parquet('private.parquet') FROM t_0",
+        "SELECT read_json('private.json') FROM t_0",
+        "SELECT now() FROM t_0",
+        "SELECT current_date FROM t_0",
+        "SELECT random() FROM t_0",
         "SELECT Amount FROM t_0; SELECT Amount FROM t_0",
     ],
 )

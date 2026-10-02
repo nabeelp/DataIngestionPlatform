@@ -9,9 +9,14 @@ import tempfile
 import time
 from datetime import UTC, date, datetime
 from pathlib import Path
+from statistics import median
 from typing import Any
 
-from dq_engine.benchmark import benchmark_contract, generate
+from dq_engine.benchmark import (
+    benchmark_contract,
+    generate,
+    natural_language_benchmark_contract,
+)
 from dq_engine.engine import (
     ValidationOutcome,
     load_contract,
@@ -100,7 +105,31 @@ def _bench_command(arguments: argparse.Namespace) -> int:
         started = time.perf_counter()
         outcome = validate_file(path, contract, date(2025, 1, 15))
         elapsed_seconds = time.perf_counter() - started
+        parsed = read_file(path, contract)
+        natural_language_contract = natural_language_benchmark_contract(contract)
+        validation_date = date(2025, 1, 15)
+        validate_parsed(parsed, contract, validation_date)
+        validate_parsed(parsed, natural_language_contract, validation_date)
+        baseline_times: list[float] = []
+        natural_language_times: list[float] = []
+        for _ in range(3):
+            started = time.perf_counter()
+            validate_parsed(parsed, contract, validation_date)
+            baseline_times.append(time.perf_counter() - started)
+            started = time.perf_counter()
+            validate_parsed(parsed, natural_language_contract, validation_date)
+            natural_language_times.append(time.perf_counter() - started)
+        baseline_median = median(baseline_times)
+        natural_language_median = median(natural_language_times)
+        natural_language_extra_ms = (natural_language_median - baseline_median) * 1000
         peak_rss = _peak_rss_bytes()
+        csv_budget_passed = (
+            arguments.rows != 1_000_000
+            or (elapsed_seconds <= CSV_ENGINE_BUDGET_SECONDS and peak_rss <= RSS_BUDGET_BYTES)
+        )
+        natural_language_budget_passed = (
+            arguments.rows != 1_000_000 or natural_language_extra_ms <= 100
+        )
         report = {
             "workload": "csv",
             "rows": arguments.rows,
@@ -110,10 +139,13 @@ def _bench_command(arguments: argparse.Namespace) -> int:
             "peakRssBytes": peak_rss,
             "engineBudgetSeconds": CSV_ENGINE_BUDGET_SECONDS,
             "rssBudgetBytes": RSS_BUDGET_BYTES,
-            "passedBudgets": (
-                arguments.rows != 1_000_000
-                or (elapsed_seconds <= CSV_ENGINE_BUDGET_SECONDS and peak_rss <= RSS_BUDGET_BYTES)
-            ),
+            "naturalLanguageRowRuleBaselineMedianMs": round(baseline_median * 1000, 4),
+            "naturalLanguageRowRuleMedianMs": round(natural_language_median * 1000, 4),
+            "naturalLanguageRowRuleExtraMs": round(natural_language_extra_ms, 4),
+            "naturalLanguageRowRuleBudgetMs": 100,
+            "passedCsvBudgets": csv_budget_passed,
+            "passedNaturalLanguageBudget": natural_language_budget_passed,
+            "passedBudgets": csv_budget_passed and natural_language_budget_passed,
             "status": outcome.status,
             "issueCount": sum(check.issue_count for check in outcome.checks),
         }

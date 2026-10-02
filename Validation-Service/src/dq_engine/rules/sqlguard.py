@@ -67,15 +67,19 @@ def _parse_single(sql: str) -> exp.Expr:
 def _validate_nodes(expression: exp.Expr, query_mode: bool = False) -> None:
     for node in expression.walk():
         if isinstance(node, exp.Func):
-            if node.sql_name().casefold() not in _ALLOWED_FUNCTIONS | {"cast", "try_cast"}:
-                raise RuleConfigurationError("Natural-language SQL uses a function that is not allowed.")
+            name = node.sql_name().casefold()
+            if name == "anonymous":
+                name = node.name.casefold()
+            name = {"str_to_time": "strptime", "substring": "substr"}.get(name, name)
+            if name not in _ALLOWED_FUNCTIONS | {"cast", "try_cast"}:
+                raise RuleConfigurationError(f"Function `{name}` is not allowed.")
         elif query_mode and isinstance(node, exp.Star) and isinstance(node.parent, exp.Count):
             continue
         elif query_mode and isinstance(node, (
             exp.Select, exp.From, exp.Table, exp.Join, exp.Alias, exp.With,
             exp.CTE, exp.TableAlias, exp.Subquery, exp.Where, exp.Group, exp.Having,
             exp.Order, exp.Ordered, exp.Limit, exp.Offset, exp.Distinct,
-            exp.Window, exp.WindowSpec,
+            exp.Window, exp.WindowSpec, exp.Partition,
         )):
             continue
         elif not isinstance(node, _ALLOWED_NODE_TYPES):

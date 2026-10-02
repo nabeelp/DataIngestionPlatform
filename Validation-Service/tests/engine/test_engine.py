@@ -8,7 +8,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from dq_engine.benchmark import benchmark_contract
+from dq_engine.benchmark import benchmark_contract, natural_language_benchmark_contract
 from dq_engine.cli import main as cli_main
 from dq_engine.contracts.models import DefinitionContract
 from dq_engine.engine import validate_file, validate_parsed, write_outputs
@@ -319,6 +319,15 @@ def test_benchmark_contract_contains_the_required_18_rules() -> None:
     contract = benchmark_contract()
 
     assert len(contract.rules) == 18
+
+
+def test_natural_language_benchmark_contract_adds_one_guarded_row_rule() -> None:
+    contract = natural_language_benchmark_contract(benchmark_contract())
+
+    assert len(contract.rules) == 19
+    rule = contract.rules[-1]
+    assert rule.type == "naturalLanguage"
+    assert rule.params.mode == "row"
 
 
 def test_cli_validate_emits_json_for_a_valid_file(tmp_path: Path, monkeypatch, capsys) -> None:

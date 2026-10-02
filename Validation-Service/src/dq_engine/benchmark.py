@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from dq_engine.contracts.models import DefinitionContract
+from dq_engine.contracts.models import DefinitionContract, NaturalLanguageRule
 
 HEADERS = (
     "Id", "CustomerId", "OrderDate", "ShipDate", "Amount", "Discount",
@@ -98,3 +98,33 @@ def benchmark_contract() -> DefinitionContract:
             "countries": {"name": "countries", "values": ["US", "CA", "GB", "ZA"]},
         },
     })
+
+
+def natural_language_benchmark_contract(contract: DefinitionContract) -> DefinitionContract:
+    rule = NaturalLanguageRule.model_validate({
+        "id": "bench-natural-language",
+        "name": "Natural Language row-rule overhead",
+        "description": "Measure the incremental cost of one guarded row predicate.",
+        "severity": "Error",
+        "executionOrder": len(contract.rules),
+        "enabled": True,
+        "table": None,
+        "type": "naturalLanguage",
+        "params": {
+            "request": "Amount must be nonnegative.",
+            "explanation": "Fails rows where Amount is negative.",
+            "mode": "row",
+            "failWhen": "TRY_CAST(Amount AS DOUBLE) < 0",
+            "query": None,
+            "message": "Amount must be nonnegative.",
+            "columns": {"": ["Amount"]},
+            "examples": [],
+            "provenance": {
+                "model": "benchmark",
+                "responseId": "benchmark",
+                "promptSha256": "0" * 64,
+                "createdAt": "2025-01-15T00:00:00Z",
+            },
+        },
+    })
+    return contract.model_copy(update={"rules": [*contract.rules, rule]})
