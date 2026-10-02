@@ -30,6 +30,12 @@ Back-End/sharepoint/compressed/
 Back-End/temp/*
 !Back-End/temp/.gitkeep
 
+# Python tooling and test artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # Test output
 test-results/
 playwright-report/
