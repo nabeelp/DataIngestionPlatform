@@ -1,0 +1,40 @@
+[project]
+name = "dq-engine"
+version = "0.1.0"
+description = "Python and Polars data quality engine"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "jsonschema>=4.25,<5",
+  "pydantic>=2.11,<3",
+  "referencing>=0.36,<1",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.18,<2",
+  "pytest>=8.4,<9",
+  "ruff>=0.14,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dq_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["dq_engine"]

@@ -1,0 +1,7 @@
+{
+  "file": "04-file-handling/customers_zipped_archive.zip",
+  "definition": "customers",
+  "outcome": "UPLOAD_REJECTED",
+  "reason": "unsupported_extension",
+  "checks": []
+}

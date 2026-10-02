@@ -1,0 +1,192 @@
+{
+  "file": "01-single-table/sales-orders/orders_xlsx_dates_as_serial_numbers.xlsx",
+  "definition": "orders",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 20,
+  "checks": [
+    {
+      "name": "File definition columns",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 20,
+      "issues": [
+        {
+          "sheet": "Orders",
+          "row": 2,
+          "column": "OrderDate",
+          "value": "45695",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 3,
+          "column": "OrderDate",
+          "value": "45823",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 4,
+          "column": "OrderDate",
+          "value": "46187",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 5,
+          "column": "OrderDate",
+          "value": "45916",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 6,
+          "column": "OrderDate",
+          "value": "45767",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 7,
+          "column": "OrderDate",
+          "value": "45683",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 8,
+          "column": "OrderDate",
+          "value": "45978",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 9,
+          "column": "OrderDate",
+          "value": "45921",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 10,
+          "column": "OrderDate",
+          "value": "45714",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 11,
+          "column": "OrderDate",
+          "value": "45932",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 12,
+          "column": "OrderDate",
+          "value": "45759",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 13,
+          "column": "OrderDate",
+          "value": "46221",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 14,
+          "column": "OrderDate",
+          "value": "45950",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 15,
+          "column": "OrderDate",
+          "value": "45935",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 16,
+          "column": "OrderDate",
+          "value": "45987",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 17,
+          "column": "OrderDate",
+          "value": "45705",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 18,
+          "column": "OrderDate",
+          "value": "46018",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 19,
+          "column": "OrderDate",
+          "value": "46096",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 20,
+          "column": "OrderDate",
+          "value": "45659",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "sheet": "Orders",
+          "row": 21,
+          "column": "OrderDate",
+          "value": "45746",
+          "error": "Value is not a valid datetime"
+        }
+      ]
+    },
+    {
+      "name": "Currency allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Payment status allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Order total range",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Discount is not negative",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Order and customer identifiers present",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    }
+  ]
+}

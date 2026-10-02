@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dataintegrationplatform.local/contracts/definition-contract.schema.json",
+  "title": "DefinitionContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "layout", "ignoredSheets", "encoding", "tables", "rules", "lookups"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "layout": { "enum": ["single", "sheets"] },
+    "ignoredSheets": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "encoding": { "enum": ["auto", "utf-8", "utf-16", "windows-1252", "iso-8859-1"] },
+    "tables": {
+      "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/table" }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "./rule-config.schema.json" }
+    },
+    "lookups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["name", "values"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "values": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "layout": { "const": "single" } } },
+      "then": {
+        "properties": {
+          "tables": {
+            "items": {
+              "properties": { "sheet": { "type": "null" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "layout": { "const": "sheets" } } },
+      "then": {
+        "properties": {
+          "tables": {
+            "items": {
+              "properties": { "sheet": { "type": "string", "minLength": 1 } }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "table": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sheet", "headerRow", "allowExtraColumns", "minRows", "maxRows", "columns"],
+      "properties": {
+        "sheet": { "type": ["string", "null"], "minLength": 1 },
+        "headerRow": { "type": ["integer", "null"], "minimum": 1 },
+        "allowExtraColumns": { "type": "boolean" },
+        "minRows": { "type": ["integer", "null"], "minimum": 0 },
+        "maxRows": { "type": ["integer", "null"], "minimum": 0 },
+        "columns": { "type": "array", "items": { "$ref": "#/definitions/column" } }
+      }
+    },
+    "column": {
+      "type": "object", "additionalProperties": false, "required": ["name", "type", "mustExist", "nullable"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["string", "integer", "decimal", "date", "datetime", "boolean"] },
+        "mustExist": { "type": "boolean" },
+        "nullable": { "type": "boolean" },
+        "format": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/dateFormat" }] },
+        "decimalSeparator": { "type": "string", "minLength": 1, "maxLength": 1 },
+        "thousandsSeparator": { "type": ["string", "null"], "maxLength": 1 },
+        "precision": { "type": ["integer", "null"], "minimum": 1, "maximum": 38 },
+        "scale": { "type": ["integer", "null"], "minimum": 0, "maximum": 38 },
+        "maxLength": { "type": ["integer", "null"], "minimum": 0 },
+        "unique": { "type": "boolean" }
+      }
+    },
+    "dateFormat": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      ]
+    }
+  }
+}

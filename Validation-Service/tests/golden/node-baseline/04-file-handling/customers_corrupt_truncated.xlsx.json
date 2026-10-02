@@ -1,0 +1,6 @@
+{
+  "file": "04-file-handling/customers_corrupt_truncated.xlsx",
+  "definition": "customers",
+  "outcome": "READ_ERROR",
+  "checks": []
+}

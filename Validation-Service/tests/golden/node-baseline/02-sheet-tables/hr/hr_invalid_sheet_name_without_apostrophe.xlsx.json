@@ -1,0 +1,91 @@
+{
+  "file": "02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx",
+  "definition": "hr",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 120,
+  "checks": [
+    {
+      "name": "Sheet \"Employees\" columns",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Sheet \"Benefits (2026)\" columns",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Sheet \"Employee Emergency Contacts '26\" columns",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 1,
+      "issues": [
+        {
+          "sheet": "Employee Emergency Contacts '26",
+          "error": "Required sheet \"Employee Emergency Contacts '26\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Department allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Salary range",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Employee key columns present",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Benefit plan allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Dependents range",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Monthly cost within budget",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Relationship allowed values",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Alternate phone provided",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    }
+  ]
+}

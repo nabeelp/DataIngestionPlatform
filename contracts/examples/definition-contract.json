@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "layout": "single",
+  "ignoredSheets": ["Notes"],
+  "encoding": "auto",
+  "tables": [
+    {
+      "sheet": null,
+      "headerRow": null,
+      "allowExtraColumns": true,
+      "minRows": 1,
+      "maxRows": 1000000,
+      "columns": [
+        {
+          "name": "Amount",
+          "type": "decimal",
+          "mustExist": true,
+          "nullable": false,
+          "format": null,
+          "decimalSeparator": ".",
+          "thousandsSeparator": ",",
+          "precision": 18,
+          "scale": 2,
+          "maxLength": null,
+          "unique": false
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "discount-rule",
+      "name": "Discount limit",
+      "description": "Discount must not exceed half the amount.",
+      "severity": "Error",
+      "executionOrder": 1,
+      "enabled": true,
+      "table": null,
+      "type": "naturalLanguage",
+      "params": {
+        "request": "Discount must not exceed half the amount",
+        "explanation": "Fails when Discount > 0.5 * Amount.",
+        "mode": "row",
+        "failWhen": "TRY_CAST(Discount AS DOUBLE) > TRY_CAST(Amount AS DOUBLE) * 0.5",
+        "query": null,
+        "message": "Discount exceeds half of the amount",
+        "columns": { "Orders": ["Amount", "Discount"] },
+        "examples": [
+          {
+            "table": "Orders",
+            "values": { "Amount": "100", "Discount": "60" },
+            "expectedValid": false,
+            "source": "model"
+          }
+        ],
+        "provenance": {
+          "model": "model-deployment",
+          "responseId": "resp_example",
+          "promptSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "createdAt": "2026-10-02T00:00:00Z"
+        }
+      }
+    }
+  ],
+  "lookups": {
+    "countries": { "name": "Countries", "values": ["ZA", "GB"] }
+  }
+}

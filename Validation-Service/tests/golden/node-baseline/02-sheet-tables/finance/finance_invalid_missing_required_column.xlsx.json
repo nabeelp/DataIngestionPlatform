@@ -1,0 +1,100 @@
+{
+  "file": "02-sheet-tables/finance/finance_invalid_missing_required_column.xlsx",
+  "definition": "finance",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 225,
+  "checks": [
+    {
+      "name": "Sheet \"Invoices\" columns",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Sheet \"Payments\" columns",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 1,
+      "issues": [
+        {
+          "sheet": "Payments",
+          "column": "Method",
+          "value": null,
+          "error": "Required column \"Method\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Sheet \"Credit Notes\" columns",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Invoice status allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Invoice currency allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Invoice amount is positive",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Invoice has a PO number",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Payment method allowed values",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 1,
+      "issues": [
+        {
+          "sheet": "Payments",
+          "column": "Method",
+          "value": null,
+          "error": "Column \"Method\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Payment amount range",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Credit note amount range",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Credit note reason provided",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    }
+  ]
+}

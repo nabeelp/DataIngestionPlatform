@@ -1,0 +1,69 @@
+{
+  "file": "01-single-table/customers/customers_invalid_status_values.csv",
+  "definition": "customers",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 50,
+  "checks": [
+    {
+      "name": "File definition columns",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Customer status allowed values",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 4,
+      "issues": [
+        {
+          "row": 3,
+          "column": "CustomerStatus",
+          "value": "active",
+          "error": "Value not in allowed values: Active, Inactive, Prospect"
+        },
+        {
+          "row": 6,
+          "column": "CustomerStatus",
+          "value": "ACTIVE",
+          "error": "Value not in allowed values: Active, Inactive, Prospect"
+        },
+        {
+          "row": 9,
+          "column": "CustomerStatus",
+          "value": "Deleted",
+          "error": "Value not in allowed values: Active, Inactive, Prospect"
+        },
+        {
+          "row": 12,
+          "column": "CustomerStatus",
+          "value": "Suspended",
+          "error": "Value not in allowed values: Active, Inactive, Prospect"
+        }
+      ]
+    },
+    {
+      "name": "Country is a supported market",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Phone number provided",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Key customer columns present",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    }
+  ]
+}

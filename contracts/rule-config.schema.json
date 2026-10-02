@@ -1,0 +1,327 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dataintegrationplatform.local/contracts/rule-config.schema.json",
+  "title": "RuleConfig",
+  "description": "A versioned declarative rule configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "severity": { "enum": ["Error", "Warning"] },
+    "executionOrder": { "type": "integer", "minimum": 0 },
+    "enabled": { "type": "boolean" },
+    "table": { "type": ["string", "null"] },
+    "type": {
+      "enum": [
+        "columnsPresent", "required", "type", "enum", "range", "pattern", "length", "unique",
+        "lookup", "dateRange", "conditionalRequired", "compare", "rowCount", "aggregate",
+        "reconcile", "naturalLanguage"
+      ]
+    },
+    "params": { "type": "object" }
+  },
+  "required": ["id", "name", "description", "severity", "executionOrder", "enabled", "table", "type", "params"],
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "columnsPresent" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["columns"],
+          "properties": { "columns": { "$ref": "#/definitions/columns" } }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "required" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["columns"],
+          "properties": { "columns": { "$ref": "#/definitions/columns" } }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "type" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column", "dataType"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "dataType": { "enum": ["string", "integer", "decimal", "date", "datetime", "boolean"] },
+            "format": { "$ref": "#/definitions/format" },
+            "decimalSeparator": { "type": "string", "minLength": 1, "maxLength": 1 },
+            "thousandsSeparator": { "type": ["string", "null"], "maxLength": 1 }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "enum" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column", "values"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "values": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "caseSensitive": { "type": "boolean", "default": true },
+            "trim": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "range" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "minInclusive": { "type": "boolean", "default": true },
+            "maxInclusive": { "type": "boolean", "default": true }
+          },
+          "anyOf": [{ "required": ["min"] }, { "required": ["max"] }]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "pattern" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column", "pattern"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "pattern": { "type": "string", "minLength": 1 },
+            "caseSensitive": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "length" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 }
+          },
+          "anyOf": [{ "required": ["min"] }, { "required": ["max"] }]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "unique" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["columns"],
+          "properties": { "columns": { "$ref": "#/definitions/columns" } }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "lookup" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column", "lookupId"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "lookupId": { "type": "string", "minLength": 1 },
+            "caseSensitive": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "dateRange" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "min": { "$ref": "#/definitions/dateBound" },
+            "max": { "$ref": "#/definitions/dateBound" }
+          },
+          "anyOf": [{ "required": ["min"] }, { "required": ["max"] }]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "conditionalRequired" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["columns", "when"],
+          "properties": {
+            "columns": { "$ref": "#/definitions/columns" },
+            "when": {
+              "oneOf": [
+                {
+                  "type": "object", "additionalProperties": false, "required": ["column", "op", "value"],
+                  "properties": {
+                    "column": { "$ref": "#/definitions/column" },
+                    "op": { "enum": ["eq", "ne"] },
+                    "value": { "type": "string" }
+                  }
+                },
+                {
+                  "type": "object", "additionalProperties": false, "required": ["column", "op", "values"],
+                  "properties": {
+                    "column": { "$ref": "#/definitions/column" },
+                    "op": { "const": "in" },
+                    "values": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                  }
+                },
+                {
+                  "type": "object", "additionalProperties": false, "required": ["column", "op"],
+                  "properties": {
+                    "column": { "$ref": "#/definitions/column" },
+                    "op": { "enum": ["empty", "notEmpty"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "compare" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["left", "op", "right", "as"],
+          "properties": {
+            "left": { "$ref": "#/definitions/column" },
+            "op": { "enum": ["lt", "le", "eq", "ne", "ge", "gt"] },
+            "right": { "$ref": "#/definitions/column" },
+            "as": { "enum": ["number", "date", "string"] }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "rowCount" },
+        "params": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 }
+          },
+          "anyOf": [{ "required": ["min"] }, { "required": ["max"] }]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "aggregate" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["column", "fn"],
+          "properties": {
+            "column": { "$ref": "#/definitions/column" },
+            "fn": { "enum": ["sum", "min", "max", "avg", "count", "countDistinct"] },
+            "min": { "type": "number" },
+            "max": { "type": "number" }
+          },
+          "anyOf": [{ "required": ["min"] }, { "required": ["max"] }]
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "reconcile" },
+        "params": {
+          "type": "object", "additionalProperties": false, "required": ["left", "right"],
+          "properties": {
+            "left": { "$ref": "#/definitions/aggregateRef" },
+            "right": { "$ref": "#/definitions/aggregateRef" },
+            "tolerance": { "type": "number", "minimum": 0, "default": 0 }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "naturalLanguage" },
+        "params": {
+          "type": "object", "additionalProperties": false,
+          "required": ["request", "explanation", "mode", "message", "columns", "examples", "provenance"],
+          "properties": {
+            "request": { "type": "string", "minLength": 1 },
+            "explanation": { "type": "string", "minLength": 1 },
+            "mode": { "enum": ["row", "query"] },
+            "failWhen": { "type": ["string", "null"], "maxLength": 4096 },
+            "query": { "type": ["string", "null"], "maxLength": 4096 },
+            "message": { "type": "string", "minLength": 1 },
+            "columns": {
+              "type": "object", "maxProperties": 20, "additionalProperties": {
+                "type": "array", "items": { "type": "string" }, "uniqueItems": true
+              }
+            },
+            "examples": {
+              "type": "array", "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["table", "values", "expectedValid", "source"],
+                "properties": {
+                  "table": { "type": "string" },
+                  "values": { "type": "object", "additionalProperties": { "type": "string" } },
+                  "expectedValid": { "type": "boolean" },
+                  "source": { "enum": ["model", "admin"] }
+                }
+              }
+            },
+            "provenance": {
+              "type": "object", "additionalProperties": false, "required": ["model", "responseId", "promptSha256", "createdAt"],
+              "properties": {
+                "model": { "type": "string" },
+                "responseId": { "type": "string" },
+                "promptSha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+                "createdAt": { "type": "string", "format": "date-time" }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "mode": { "const": "row" } } },
+              "then": { "required": ["failWhen"], "properties": { "failWhen": { "type": "string", "minLength": 1 }, "query": { "type": "null" } } }
+            },
+            {
+              "if": { "properties": { "mode": { "const": "query" } } },
+              "then": { "required": ["query"], "properties": { "query": { "type": "string", "minLength": 1 }, "failWhen": { "type": "null" } } }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "column": { "type": "string", "minLength": 1 },
+    "columns": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/column" }, "uniqueItems": true },
+    "format": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      ]
+    },
+    "dateBound": {
+      "oneOf": [
+        { "type": "string", "format": "date" },
+        {
+          "type": "object", "additionalProperties": false, "required": ["relative"],
+          "properties": { "relative": { "type": "string", "pattern": "^P-([0-9]+[YMWD])+$" } }
+        }
+      ]
+    },
+    "aggregateRef": {
+      "type": "object", "additionalProperties": false, "required": ["table", "column", "fn"],
+      "properties": {
+        "table": { "type": "string", "minLength": 1 },
+        "column": { "$ref": "#/definitions/column" },
+        "fn": { "enum": ["sum", "min", "max", "avg", "count", "countDistinct"] }
+      }
+    }
+  }
+}

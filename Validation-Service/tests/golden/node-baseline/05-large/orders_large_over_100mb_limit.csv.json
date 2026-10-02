@@ -1,0 +1,7 @@
+{
+  "file": "05-large/orders_large_over_100mb_limit.csv",
+  "definition": "orders",
+  "outcome": "UPLOAD_REJECTED",
+  "reason": "file_size_limit",
+  "checks": []
+}

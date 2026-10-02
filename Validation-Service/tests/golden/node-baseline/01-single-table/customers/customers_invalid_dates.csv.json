@@ -1,0 +1,105 @@
+{
+  "file": "01-single-table/customers/customers_invalid_dates.csv",
+  "definition": "customers",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 50,
+  "checks": [
+    {
+      "name": "File definition columns",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 10,
+      "issues": [
+        {
+          "row": 2,
+          "column": "DateOfBirth",
+          "value": "2024-13-01",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 6,
+          "column": "DateOfBirth",
+          "value": "yesterday",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 10,
+          "column": "DateOfBirth",
+          "value": "32/01/1990",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 14,
+          "column": "DateOfBirth",
+          "value": "13/13/1990",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 18,
+          "column": "DateOfBirth",
+          "value": "1990/01/05",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 22,
+          "column": "DateOfBirth",
+          "value": "Jan 5 1990",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 26,
+          "column": "DateOfBirth",
+          "value": "19900105",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 30,
+          "column": "DateOfBirth",
+          "value": "1990-1-5",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 34,
+          "column": "DateOfBirth",
+          "value": "00/00/0000",
+          "error": "Value is not a valid datetime"
+        },
+        {
+          "row": 38,
+          "column": "DateOfBirth",
+          "value": "5 January 1990",
+          "error": "Value is not a valid datetime"
+        }
+      ]
+    },
+    {
+      "name": "Customer status allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Country is a supported market",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Phone number provided",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Key customer columns present",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "file": "04-file-handling/customers_random_binary.csv",
+  "definition": "customers",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 0,
+  "checks": [
+    {
+      "name": "File definition columns",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 6,
+      "issues": [
+        {
+          "column": "CustomerId",
+          "value": null,
+          "error": "Required column \"CustomerId\" not found"
+        },
+        {
+          "column": "FirstName",
+          "value": null,
+          "error": "Required column \"FirstName\" not found"
+        },
+        {
+          "column": "LastName",
+          "value": null,
+          "error": "Required column \"LastName\" not found"
+        },
+        {
+          "column": "Email",
+          "value": null,
+          "error": "Required column \"Email\" not found"
+        },
+        {
+          "column": "Country",
+          "value": null,
+          "error": "Required column \"Country\" not found"
+        },
+        {
+          "column": "CustomerStatus",
+          "value": null,
+          "error": "Required column \"CustomerStatus\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Customer status allowed values",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 1,
+      "issues": [
+        {
+          "column": "CustomerStatus",
+          "value": null,
+          "error": "Column \"CustomerStatus\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Country is a supported market",
+      "severity": "Warning",
+      "status": "WARNING",
+      "errorCount": 1,
+      "issues": [
+        {
+          "column": "Country",
+          "value": null,
+          "error": "Column \"Country\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Phone number provided",
+      "severity": "Warning",
+      "status": "WARNING",
+      "errorCount": 1,
+      "issues": [
+        {
+          "column": "Phone",
+          "value": null,
+          "error": "Required column \"Phone\" not found"
+        }
+      ]
+    },
+    {
+      "name": "Key customer columns present",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 2,
+      "issues": [
+        {
+          "column": "CustomerId",
+          "value": null,
+          "error": "Required column \"CustomerId\" not found"
+        },
+        {
+          "column": "Email",
+          "value": null,
+          "error": "Required column \"Email\" not found"
+        }
+      ]
+    }
+  ]
+}

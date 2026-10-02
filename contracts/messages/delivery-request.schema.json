@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dataintegrationplatform.local/contracts/messages/delivery-request.schema.json",
+  "title": "DeliveryRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "uploadId", "attempt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "uploadId": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 5 }
+  }
+}

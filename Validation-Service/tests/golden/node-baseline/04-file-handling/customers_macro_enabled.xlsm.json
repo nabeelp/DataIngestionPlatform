@@ -1,0 +1,7 @@
+{
+  "file": "04-file-handling/customers_macro_enabled.xlsm",
+  "definition": "customers",
+  "outcome": "UPLOAD_REJECTED",
+  "reason": "unsupported_extension",
+  "checks": []
+}

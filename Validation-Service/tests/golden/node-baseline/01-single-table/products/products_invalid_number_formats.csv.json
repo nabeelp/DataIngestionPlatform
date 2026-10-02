@@ -1,0 +1,134 @@
+{
+  "file": "01-single-table/products/products_invalid_number_formats.csv",
+  "definition": "products",
+  "outcome": "VALIDATED",
+  "uploadStatus": "FAILED",
+  "rowCount": 8,
+  "checks": [
+    {
+      "name": "File definition columns",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 8,
+      "issues": [
+        {
+          "row": 2,
+          "column": "UnitPrice",
+          "value": "12,50",
+          "error": "Value is not a valid decimal"
+        },
+        {
+          "row": 3,
+          "column": "UnitPrice",
+          "value": "$10.00",
+          "error": "Value is not a valid decimal"
+        },
+        {
+          "row": 4,
+          "column": "CostPrice",
+          "value": "1 000",
+          "error": "Value is not a valid decimal"
+        },
+        {
+          "row": 5,
+          "column": "StockQuantity",
+          "value": "10.5",
+          "error": "Value is not a valid integer"
+        },
+        {
+          "row": 6,
+          "column": "StockQuantity",
+          "value": "1e3",
+          "error": "Value is not a valid integer"
+        },
+        {
+          "row": 7,
+          "column": "Active",
+          "value": "maybe",
+          "error": "Value is not a valid boolean"
+        },
+        {
+          "row": 8,
+          "column": "Active",
+          "value": "2",
+          "error": "Value is not a valid boolean"
+        },
+        {
+          "row": 9,
+          "column": "ReorderLevel",
+          "value": "five",
+          "error": "Value is not a valid integer"
+        }
+      ]
+    },
+    {
+      "name": "Unit price range",
+      "severity": "Error",
+      "status": "FAILED",
+      "errorCount": 2,
+      "issues": [
+        {
+          "row": 2,
+          "column": "UnitPrice",
+          "value": "12,50",
+          "error": "Value is not a number"
+        },
+        {
+          "row": 3,
+          "column": "UnitPrice",
+          "value": "$10.00",
+          "error": "Value is not a number"
+        }
+      ]
+    },
+    {
+      "name": "Stock quantity range",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Weight is not negative",
+      "severity": "Warning",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Reorder level ceiling",
+      "severity": "Warning",
+      "status": "WARNING",
+      "errorCount": 1,
+      "issues": [
+        {
+          "row": 9,
+          "column": "ReorderLevel",
+          "value": "five",
+          "error": "Value is not a number"
+        }
+      ]
+    },
+    {
+      "name": "Category allowed values",
+      "severity": "Error",
+      "status": "PASSED",
+      "errorCount": 0,
+      "issues": []
+    },
+    {
+      "name": "Reorder level is a whole number",
+      "severity": "Warning",
+      "status": "WARNING",
+      "errorCount": 1,
+      "issues": [
+        {
+          "row": 9,
+          "column": "ReorderLevel",
+          "value": "five",
+          "error": "Value is not a valid integer"
+        }
+      ]
+    }
+  ]
+}

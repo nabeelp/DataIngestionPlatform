@@ -1,0 +1,6 @@
+{
+  "file": "01-single-table/customers/customers_invalid_unclosed_quote.csv",
+  "definition": "customers",
+  "outcome": "READ_ERROR",
+  "checks": []
+}
