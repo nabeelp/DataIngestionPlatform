@@ -27,7 +27,16 @@ export type ValidationStatus =
     | 'PASSED'
     | 'FAILED'
     | 'WARNING'
+    | 'ERROR'
     | 'SKIPPED';
+
+export interface IValidationIssue {
+    sheet: string | null;
+    row: number | null;
+    column: string | null;
+    value: string | number | boolean | null;
+    message: string;
+}
 
 /**
  * Delivery type
@@ -78,6 +87,14 @@ export interface IUpload {
     UploadedBy: string;
     OriginalFilename: string;
     StoredFilename: string;
+    BlobContainer: string;
+    BlobName: string;
+    FileSha256: string | null;
+    DetectedEncoding: string | null;
+    ValidationDate: Date | null;
+    EngineVersion: string | null;
+    ReportBlobName: string | null;
+    ParquetPrefix: string | null;
     AzureBlobUrl: string | null;
     FileSize: number;
     FileType: string;
@@ -148,12 +165,15 @@ export interface IValidationRuleDetail {
     Id: string;
     ValidationResultId: string;
     UploadId: string;
-    RuleId: string;
+    RuleId: string | null;
     RuleName: string;
     RuleType: string;
     RuleSeverity: string;
     ExecutionOrder: number;
     Status: ValidationStatus;
+    IssueCount: number;
+    Issues: string;
+    ElapsedMs: number;
     ExecutionTimeMs: number | null;
     ErrorCount: number;
     WarningCount: number;
@@ -237,6 +257,14 @@ export interface ICreateUploadDto {
     FileDefinitionVersionId?: string | null;
     OriginalFilename: string;
     StoredFilename: string;
+    BlobContainer?: string;
+    BlobName?: string;
+    FileSha256?: string | null;
+    DetectedEncoding?: string | null;
+    ValidationDate?: Date | null;
+    EngineVersion?: string | null;
+    ReportBlobName?: string | null;
+    ParquetPrefix?: string | null;
     TempLocalPath?: string;
     AzureBlobUrl?: string;
     FileSize: number;
@@ -255,6 +283,14 @@ export interface ICreateUploadDto {
 export interface IUpdateUploadDto {
     Status?: UploadStatus;
     FileDefinitionVersionId?: string;
+    BlobContainer?: string;
+    BlobName?: string;
+    FileSha256?: string | null;
+    DetectedEncoding?: string | null;
+    ValidationDate?: Date | null;
+    EngineVersion?: string | null;
+    ReportBlobName?: string | null;
+    ParquetPrefix?: string | null;
     TempLocalPath?: string | null;
     RetryCount?: number;
     RowCountNo?: number;
@@ -341,6 +377,10 @@ export interface ICreateValidationRuleDetailDto {
  */
 export interface IUpdateValidationRuleDetailDto {
     Status?: ValidationStatus;
+    IssueCount?: number;
+    Issues?: string;
+    ElapsedMs?: number;
+    Sheet?: string | null;
     ExecutionTimeMs?: number;
     ErrorCount?: number;
     WarningCount?: number;

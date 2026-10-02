@@ -11,12 +11,13 @@ import { logger } from '../utils/logger';
 import {
     ContractValidationError,
     assertPublishable,
-    buildContractSnapshot,
     diffContracts,
     type ContractDiff,
     type ContractSnapshot,
 } from './validation/DefinitionContract';
 import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
 
 export class DefinitionVersionError extends Error {
     constructor(message: string, readonly statusCode: 400 | 404 | 409) {
@@ -44,6 +45,7 @@ export interface DefinitionVersionState {
 
 export interface ValidationContract extends ContractSnapshot {
     version: IFileDefinitionVersion;
+    contract: DefinitionContract;
 }
 
 export const toVersionSummary = (version: IFileDefinitionVersion | null): VersionSummary | null =>
@@ -54,27 +56,54 @@ const contractOf = (version: IFileDefinitionVersion | null): ContractSnapshot | 
 
 const MAX_CHANGE_NOTE_LENGTH = 500;
 
-const parseJson = (value: unknown): unknown => {
-    if (typeof value !== 'string') return value;
-    try {
-        return JSON.parse(value);
-    } catch {
-        return [];
-    }
-};
+interface DraftContract {
+    contract: DefinitionContract;
+    snapshot: ContractSnapshot;
+}
 
-async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<ContractSnapshot | null> {
+async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<DraftContract | null> {
     const definition = await db.request()
         .input('Id', fileDefinitionId)
-        .query(`SELECT Id, Columns, Tables FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''} WHERE Id = @Id`);
+        .query(`SELECT Id, Contract FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''} WHERE Id = @Id`);
     if (!definition.recordset[0]) return null;
 
     const rules = await db.request()
         .input('FileDefinitionId', fileDefinitionId)
-        .query(`SELECT Id, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, NaturalLanguageText, Pseudocode, GeneratedCode FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
+        .query(`SELECT Config, IsEnabled FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
+    const ruleConfigs = rules.recordset
+        .filter((row: { IsEnabled: boolean | number }) => Boolean(row.IsEnabled))
+        .map((row: { Config: unknown }) => parseRuleConfig(row.Config));
+    const baseContract = parseDefinitionContract(definition.recordset[0].Contract);
+    const lookupIds = new Set(ruleConfigs
+        .filter(rule => rule.type === 'lookup')
+        .map(rule => rule.params.lookupId)
+        .filter((id): id is string => typeof id === 'string'));
+    const lookups: DefinitionContract['lookups'] = {};
+    if (lookupIds.size > 0) {
+        const lookupResult = await db.request().query('SELECT Id, Name, [Values] FROM Lookups');
+        for (const row of lookupResult.recordset) {
+            if (!lookupIds.has(String(row.Id))) continue;
+            let values: unknown;
+            try {
+                values = typeof row.Values === 'string' ? JSON.parse(row.Values) as unknown : row.Values;
+            } catch {
+                throw new Error(`Lookup ${row.Id} contains invalid JSON values.`);
+            }
+            if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) {
+                throw new Error(`Lookup ${row.Id} must contain a JSON array of strings.`);
+            }
+            lookups[String(row.Id)] = { name: String(row.Name), values: values as string[] };
+        }
+        const missingLookup = [...lookupIds].find(id => !lookups[id]);
+        if (missingLookup) throw new Error(`Rule references missing lookup ${missingLookup}.`);
+    }
 
-    const row = definition.recordset[0];
-    return buildContractSnapshot(parseJson(row.Columns), rules.recordset, parseJson(row.Tables));
+    const contract: DefinitionContract = {
+        ...baseContract,
+        rules: ruleConfigs,
+        lookups,
+    };
+    return { contract, snapshot: legacySnapshotFromContract(contract) };
 }
 
 export class DefinitionVersionService {
@@ -87,7 +116,7 @@ export class DefinitionVersionService {
         if (!draft) throw new DefinitionVersionError('File definition not found', 404);
 
         const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
-        return { activeVersion, draft, diff: diffContracts(contractOf(activeVersion), draft) };
+        return { activeVersion, draft: draft.snapshot, diff: diffContracts(contractOf(activeVersion), draft.snapshot) };
     }
 
     /**
@@ -125,28 +154,20 @@ export class DefinitionVersionService {
      */
     static async getVersionStates(definitions: { Id: string; Columns: unknown; Tables?: unknown }[]): Promise<Map<string, DefinitionVersionState>> {
         const pool = await getConnection();
-        const [activeVersions, rules] = await Promise.all([
-            FileDefinitionVersion.findAllActive(pool),
-            pool.request().query(`SELECT Id, FileDefinitionId, Name, Description, RuleType, Severity, ExecutionOrder, SqlQuery, IsEnabled, TableName, NaturalLanguageText, Pseudocode, GeneratedCode FROM Rules`),
-        ]);
-
+        const activeVersions = await FileDefinitionVersion.findAllActive(pool);
         const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));
-        const rulesByDefinition = new Map<string, any[]>();
-        for (const rule of rules.recordset) {
-            const key = String(rule.FileDefinitionId).toLowerCase();
-            rulesByDefinition.set(key, [...(rulesByDefinition.get(key) || []), rule]);
-        }
 
         const states = new Map<string, DefinitionVersionState>();
-        for (const definition of definitions) {
+        await Promise.all(definitions.map(async definition => {
             const key = String(definition.Id).toLowerCase();
             const active = activeByDefinition.get(key) || null;
-            const draft = buildContractSnapshot(definition.Columns, rulesByDefinition.get(key) || [], definition.Tables);
+            const draft = await readDraft(pool, definition.Id);
+            if (!draft) return;
             states.set(definition.Id, {
                 activeVersion: toVersionSummary(active),
-                hasUnpublishedChanges: diffContracts(contractOf(active), draft).hasChanges,
+                hasUnpublishedChanges: diffContracts(contractOf(active), draft.snapshot).hasChanges,
             });
-        }
+        }));
         return states;
     }
 
@@ -161,7 +182,13 @@ export class DefinitionVersionService {
         return definitions.map(definition => {
             const active = activeByDefinition.get(String(definition.Id).toLowerCase());
             return active
-                ? { ...definition, Columns: active.Columns, Tables: active.Tables, ActiveVersion: toVersionSummary(active) }
+                ? {
+                    ...definition,
+                    Contract: active.Contract,
+                    Columns: active.Columns,
+                    Tables: active.Tables,
+                    ActiveVersion: toVersionSummary(active),
+                }
                 : { ...definition, ActiveVersion: null };
         });
     }
@@ -175,7 +202,13 @@ export class DefinitionVersionService {
             ? await FileDefinitionVersion.findById(await getConnection(), upload.FileDefinitionVersionId)
             : await this.ensureActiveVersion(upload.FileDefinitionId, null);
         if (!version) throw new Error(`File definition version ${upload.FileDefinitionVersionId} not found`);
-        return { version, columns: version.Columns, tables: version.Tables, rules: version.Rules };
+        return {
+            version,
+            contract: version.Contract,
+            columns: version.Columns,
+            tables: version.Tables,
+            rules: version.Rules,
+        };
     }
 
     private static async publishDraft(
@@ -200,19 +233,19 @@ export class DefinitionVersionService {
                 await tx.commit();
                 return active;
             }
-            if (active && !diffContracts(contractOf(active), draft).hasChanges) {
+            if (active && !diffContracts(contractOf(active), draft.snapshot).hasChanges) {
                 throw new DefinitionVersionError(`There are no changes to publish; version ${active.VersionNumber} is already active`, 409);
             }
             if (options.validate) {
                 try {
-                    assertPublishable(draft);
+                    assertPublishable(draft.snapshot);
                 } catch (error) {
                     if (error instanceof ContractValidationError) throw new DefinitionVersionError(error.message, 400);
                     throw error;
                 }
             }
 
-            versionId = await FileDefinitionVersion.activate(tx, fileDefinitionId, draft, userId, note);
+            versionId = await FileDefinitionVersion.activate(tx, fileDefinitionId, draft.contract, userId, note);
             await tx.commit();
         } catch (error) {
             await tx.rollback().catch(rollbackError => logger.warn('[DEF_VERSION] Rollback failed', rollbackError));

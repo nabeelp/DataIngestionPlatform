@@ -3,13 +3,14 @@
 // =============================================================================
 
 import type { ContractSnapshot } from '../services/validation/DefinitionContract';
+import type { DefinitionContract } from '../contracts/definition-contract';
 
 /**
  * Column definition for a file definition
  */
 export interface IColumn {
     name: string;
-    type: 'string' | 'integer' | 'decimal' | 'datetime' | 'boolean';
+    type: 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
     required: boolean;
 }
 
@@ -28,6 +29,7 @@ export interface IFileDefinition {
     Id: string;
     Name: string;
     Description: string;
+    Contract: DefinitionContract;
     /** Single-table columns; empty when the definition has sheet tables. */
     Columns: IColumn[];
     /** One table per workbook sheet; empty (or absent) for single-table definitions. */
@@ -59,6 +61,7 @@ export interface IFileDefinitionUser {
 export interface ICreateFileDefinitionDto {
     Name: string;
     Description: string;
+    Contract?: DefinitionContract;
     Columns: IColumn[];
     Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
@@ -73,6 +76,7 @@ export interface ICreateFileDefinitionDto {
 export interface IUpdateFileDefinitionDto {
     Name?: string;
     Description?: string;
+    Contract?: DefinitionContract;
     Columns?: IColumn[];
     Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
@@ -95,6 +99,7 @@ export interface IFileDefinitionVersion {
     FileDefinitionId: string;
     VersionNumber: number;
     Status: 'Active' | 'Superseded';
+    Contract: DefinitionContract;
     Columns: ContractSnapshot['columns'];
     Tables: ContractSnapshot['tables'];
     Rules: ContractSnapshot['rules'];
@@ -121,4 +126,3 @@ export interface IDefinitionResponse {
     success: boolean;
     definition: IFileDefinition;
 }
-

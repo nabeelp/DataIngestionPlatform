@@ -86,25 +86,31 @@ export async function getPublishedRules(
         return { rules: await Rule.findEnabledByFileDefinitionId(fileDefinitionId), versionNumber: null };
     }
 
-    const rules = activeVersion.Rules.map(rule => ({
-        Id: rule.Id,
-        FileDefinitionId: fileDefinitionId,
-        Name: rule.Name,
-        Description: rule.Description,
-        RuleType: rule.RuleType as IRule['RuleType'],
-        Severity: rule.Severity as IRule['Severity'],
-        ExecutionOrder: rule.ExecutionOrder,
-        SqlQuery: rule.SqlQuery,
-        TableName: rule.Table,
-        NaturalLanguageText: rule.NaturalLanguageText ?? null,
-        Pseudocode: rule.Pseudocode ?? null,
-        GeneratedCode: rule.GeneratedCode ?? null,
-        IsEnabled: true,
-        CreatedBy: activeVersion.CreatedBy,
-        CreatorName: activeVersion.CreatedByName,
-        CreatedAt: activeVersion.ActivatedAt,
-        UpdatedAt: activeVersion.ActivatedAt,
-    }));
+    const rules = activeVersion.Rules.map(rule => {
+        const config = activeVersion.Contract.rules.find(candidate => candidate.id.toLowerCase() === rule.Id.toLowerCase());
+        if (!config) throw new Error(`Published rule ${rule.Id} is missing from its contract.`);
+        return {
+            Id: rule.Id,
+            FileDefinitionId: fileDefinitionId,
+            Config: config,
+            ConfigSchemaVersion: 1,
+            Name: rule.Name,
+            Description: rule.Description,
+            RuleType: rule.RuleType as IRule['RuleType'],
+            Severity: rule.Severity as IRule['Severity'],
+            ExecutionOrder: rule.ExecutionOrder,
+            SqlQuery: rule.SqlQuery,
+            TableName: rule.Table,
+            NaturalLanguageText: rule.NaturalLanguageText ?? null,
+            Pseudocode: rule.Pseudocode ?? null,
+            GeneratedCode: rule.GeneratedCode ?? null,
+            IsEnabled: true,
+            CreatedBy: activeVersion.CreatedBy,
+            CreatorName: activeVersion.CreatedByName,
+            CreatedAt: activeVersion.ActivatedAt,
+            UpdatedAt: activeVersion.ActivatedAt,
+        };
+    });
     return { rules, versionNumber: activeVersion.VersionNumber };
 }
 
@@ -233,4 +239,3 @@ export async function toggleRuleEnabled(
 
     return await Rule.update(ruleId, { IsEnabled: !rule.IsEnabled });
 }
-

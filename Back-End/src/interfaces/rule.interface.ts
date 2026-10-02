@@ -21,9 +21,13 @@ export type RuleSeverity = 'Error' | 'Warning';
 /**
  * Rule entity interface
  */
+import type { RuleConfig } from '../contracts/rule-config';
+
 export interface IRule {
     Id: string;
     FileDefinitionId: string;
+    Config: RuleConfig;
+    ConfigSchemaVersion: number;
     Name: string;
     Description: string;
     RuleType: RuleType;
@@ -49,6 +53,7 @@ export interface IRule {
  */
 export interface ICreateRuleDto {
     FileDefinitionId: string;
+    Config?: RuleConfig;
     Name: string;
     Description?: string;
     RuleType: RuleType;
@@ -66,6 +71,7 @@ export interface ICreateRuleDto {
  * Update Rule DTO
  */
 export interface IUpdateRuleDto {
+    Config?: RuleConfig;
     Name?: string;
     Description?: string;
     RuleType?: RuleType;

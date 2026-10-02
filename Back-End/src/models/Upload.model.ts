@@ -173,7 +173,14 @@ export class Upload {
             .input('UploadedBy', userId)
             .input('OriginalFilename', dto.OriginalFilename)
             .input('StoredFilename', dto.StoredFilename)
-            .input('TempLocalPath', dto.TempLocalPath || null)
+            .input('BlobContainer', dto.BlobContainer || 'uploads')
+            .input('BlobName', dto.BlobName || dto.StoredFilename)
+            .input('FileSha256', dto.FileSha256 ?? null)
+            .input('DetectedEncoding', dto.DetectedEncoding ?? null)
+            .input('ValidationDate', dto.ValidationDate ?? null)
+            .input('EngineVersion', dto.EngineVersion ?? null)
+            .input('ReportBlobName', dto.ReportBlobName ?? null)
+            .input('ParquetPrefix', dto.ParquetPrefix ?? null)
             .input('AzureBlobUrl', dto.AzureBlobUrl || null)
             .input('FileSize', dto.FileSize)
             .input('FileType', dto.FileType)
@@ -186,9 +193,9 @@ export class Upload {
             .input('UploadedAt', now)
             .query(`
                 INSERT INTO ${this.TABLE_NAME} 
-(Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, TempLocalPath, AzureBlobUrl, FileSize, FileType, CompressedFileSize, CompressedBlobUrl, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
+                                    (Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, BlobContainer, BlobName, FileSha256, DetectedEncoding, ValidationDate, EngineVersion, ReportBlobName, ParquetPrefix, AzureBlobUrl, FileSize, FileType, CompressedFileSize, CompressedBlobUrl, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
                 VALUES 
-                (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @TempLocalPath, @AzureBlobUrl, @FileSize, @FileType, @CompressedFileSize, @CompressedBlobUrl, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
+                                    (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @BlobContainer, @BlobName, @FileSha256, @DetectedEncoding, @ValidationDate, @EngineVersion, @ReportBlobName, @ParquetPrefix, @AzureBlobUrl, @FileSize, @FileType, @CompressedFileSize, @CompressedBlobUrl, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
             `);
 
 
@@ -205,13 +212,41 @@ export class Upload {
         const request = pool.request()
             .input('Id', id);
 
-        if (updates.TempLocalPath !== undefined) {
-            setClauses.push('TempLocalPath = @TempLocalPath');
-            request.input('TempLocalPath', updates.TempLocalPath);
-        }
         if (updates.FileDefinitionVersionId !== undefined) {
             setClauses.push('FileDefinitionVersionId = @FileDefinitionVersionId');
             request.input('FileDefinitionVersionId', updates.FileDefinitionVersionId);
+        }
+        if (updates.BlobContainer !== undefined) {
+            setClauses.push('BlobContainer = @BlobContainer');
+            request.input('BlobContainer', updates.BlobContainer);
+        }
+        if (updates.BlobName !== undefined) {
+            setClauses.push('BlobName = @BlobName');
+            request.input('BlobName', updates.BlobName);
+        }
+        if (updates.FileSha256 !== undefined) {
+            setClauses.push('FileSha256 = @FileSha256');
+            request.input('FileSha256', updates.FileSha256);
+        }
+        if (updates.DetectedEncoding !== undefined) {
+            setClauses.push('DetectedEncoding = @DetectedEncoding');
+            request.input('DetectedEncoding', updates.DetectedEncoding);
+        }
+        if (updates.ValidationDate !== undefined) {
+            setClauses.push('ValidationDate = @ValidationDate');
+            request.input('ValidationDate', updates.ValidationDate);
+        }
+        if (updates.EngineVersion !== undefined) {
+            setClauses.push('EngineVersion = @EngineVersion');
+            request.input('EngineVersion', updates.EngineVersion);
+        }
+        if (updates.ReportBlobName !== undefined) {
+            setClauses.push('ReportBlobName = @ReportBlobName');
+            request.input('ReportBlobName', updates.ReportBlobName);
+        }
+        if (updates.ParquetPrefix !== undefined) {
+            setClauses.push('ParquetPrefix = @ParquetPrefix');
+            request.input('ParquetPrefix', updates.ParquetPrefix);
         }
         if (updates.RetryCount !== undefined) {
             setClauses.push('RetryCount = @RetryCount');
@@ -237,10 +272,6 @@ export class Upload {
         if (updates.CompressedBlobUrl !== undefined) {
             setClauses.push('CompressedBlobUrl = @CompressedBlobUrl');
             request.input('CompressedBlobUrl', updates.CompressedBlobUrl);
-        }
-        if (updates.ValidationJobId !== undefined) {
-            setClauses.push('ValidationJobId = @ValidationJobId');
-            request.input('ValidationJobId', updates.ValidationJobId);
         }
         if (updates.DeliveryJobId !== undefined) {
             setClauses.push('DeliveryJobId = @DeliveryJobId');
@@ -449,4 +480,3 @@ export class Upload {
         };
     }
 }
-

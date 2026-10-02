@@ -92,9 +92,9 @@ def render_readme(manifest, definitions):
     lines += [
         '',
         '1. Run [definitions/sample_definitions.sql](definitions/sample_definitions.sql) against the application database '
-        '(after the scripts in `Back-End/database`, including `seed_local_users.sql`), for example '
-        '`sqlcmd -S "(localdb)\\MSSQLLocalDB" -d FileValidationPlatform -I -i samples\\definitions\\sample_definitions.sql`.',
-        '2. Re-run `Back-End/database/file_definition_versions_schema.sql` to publish version 1 of each new definition.',
+        '(after the scripts in `Back-End/database`, including `seed_local_users.sql`), using the database configured '
+        'by `SQLCMD_DATABASE` in `Back-End/.env`.',
+        '2. Publish each draft definition in the application to create its version snapshot.',
         '3. The script gives the seeded test user access. Alternatively, create the definitions in the UI from '
         '[definitions/sample_definitions.json](definitions/sample_definitions.json).',
         '',

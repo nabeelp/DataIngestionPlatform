@@ -123,14 +123,11 @@ function Wait-ForHttpProcess {
     throw "Service did not become healthy at $HealthUrl within $TimeoutSeconds seconds. Last error: $lastError"
 }
 
-function Invoke-LocalSqlCmd {
-    param([Parameter(Mandatory)][string[]]$SqlArguments)
+function Test-ContainerRunning {
+    param([Parameter(Mandatory)][string]$Name)
 
-    $sqlcmdPath = '/opt/mssql-tools18/bin/sqlcmd'
-    & docker exec data-ingestion-sql $sqlcmdPath -S localhost -U sa -P $script:saPassword -C -b @SqlArguments | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Local database initialization failed. Check the Docker SQL Server logs and .env settings.'
-    }
+    $running = & docker inspect --format '{{.State.Running}}' $Name 2>$null
+    return $LASTEXITCODE -eq 0 -and $running -eq 'true'
 }
 
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
@@ -192,9 +189,20 @@ if ($dbSettings.UserID -ne 'sa' -or $dbSettings.Password -ne $script:saPassword)
 }
 
 $ports = @(1433, 5173, 3000, 5672, [int]$emulatorHttpPort, 10000, 10001, 10002)
+$composePortContainers = @{
+    1433 = 'data-ingestion-sql'
+    5672 = 'servicebus-emulator'
+    ([int]$emulatorHttpPort) = 'servicebus-emulator'
+    10000 = 'data-ingestion-azurite'
+    10001 = 'data-ingestion-azurite'
+    10002 = 'data-ingestion-azurite'
+}
 foreach ($port in $ports) {
     $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($listener) {
+        if ($composePortContainers.ContainsKey($port) -and (Test-ContainerRunning -Name $composePortContainers[$port])) {
+            continue
+        }
         throw "Port $port is already in use by process $($listener.OwningProcess). Stop it before running start.ps1."
     }
 }
@@ -216,20 +224,10 @@ try {
     }
 
     Write-Host 'Applying local database scripts...'
-    $quotedDatabaseName = $databaseName.Replace(']', ']]')
-    $databaseLiteral = $databaseName.Replace("'", "''")
-    $createDatabase = "IF DB_ID(N'$databaseLiteral') IS NULL CREATE DATABASE [$quotedDatabaseName]"
-    Invoke-LocalSqlCmd -SqlArguments @('-d', 'master', '-Q', $createDatabase)
-    $scripts = @(
-        'users_schema.sql',
-        'file_definitions_schema.sql',
-        'upload_system_tables.sql',
-        'audit_logs_schema.sql',
-        'lookups_schema.sql',
-        'file_definition_versions_schema.sql'
-    )
-    foreach ($scriptName in $scripts) {
-        Invoke-LocalSqlCmd -SqlArguments @('-d', $databaseName, '-i', "/var/opt/mssql/scripts/$scriptName")
+    $applyScript = Join-Path $backend 'database\apply.ps1'
+    & $applyScript -Authentication Local -Database $databaseName -Password $script:saPassword -CreateDatabase
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Local database initialization failed. Check the Docker SQL Server logs and .env settings.'
     }
 
     $pythonApiEntry = Join-Path $pythonService 'src\dq_engine\api\app.py'

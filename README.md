@@ -12,6 +12,10 @@ Prerequisites: Docker Desktop with its engine running, Python 3.12 with `uv`, an
 4. Copy `Front-End/.env.example` to `Front-End/.env.development` if needed. Set `VITE_DEV_BYPASS_AUTH=true` only for a local demo.
 5. From the repository root, run `.\start.ps1`. It starts the Compose services, waits for them to become healthy, applies the local database scripts, and launches the APIs and UI. Verify `http://localhost:3000/health`, `http://localhost:8000/healthz`, and `http://localhost:5173`.
 
+The ordered schema scripts are in `Back-End/database/`. `start.ps1` applies them to the local Docker SQL Server. To apply them manually, use `Back-End/database/apply.ps1 -Authentication Local -Database <name> -Password <local-sa-password> -CreateDatabase`. The `Entra` mode uses the Go `sqlcmd` utility and `ActiveDirectoryDefault` credentials; provision the database and grant the deployment identity schema permissions first.
+
+The current schema is a clean-slate contract. `apply.ps1` fails fast on incompatible legacy `FileDefinitions`, `Rules`, or `FileDefinitionVersions` tables instead of silently discarding their data. Back up and migrate any non-disposable database before applying it.
+
 ## Validation
 
 Every upload is read in full (streaming CSV parser; all Excel sheets) and checked in one pass:
@@ -86,7 +90,7 @@ In Admin → File Definitions, **Start from an example file** proposes a definit
 
 **Use these columns** (or **Use N sheet tables**) replaces the form's layout and columns. You can then edit them, including switching layout, before saving; nothing is saved until you click **Create** or **Update**. When editing an existing definition, applied columns are saved as a draft like any other column edit. The example file is deleted as soon as it has been analyzed and is never stored.
 
-`Custom SQL` and `Regex Pattern` rules are no longer supported. `upload_system_tables.sql` disables existing rules of those types, and on older databases it also disables rules without a `SqlQuery`. Review these rules on the Rules page and recreate them with a supported type before re-enabling them.
+Rules are stored as versioned JSON configurations in `Rules.Config`; indexed listing fields are persisted computed columns. Database schema changes are applied in the fixed order by `Back-End/database/apply.ps1`.
 
 ## Delivery
 

@@ -13,21 +13,21 @@ import type {
     IFileDefinitionUser 
 } from '../interfaces/fileDefinition.interface';
 import { logger } from '../utils/logger';
+import {
+    contractFromLegacyColumns,
+    emptyDefinitionContract,
+    legacyColumnsFromContract,
+    legacyTablesFromContract,
+    parseDefinitionContract,
+} from './contractMapper';
 
-// Columns and Tables are stored as JSON; a definition without sheet tables has Tables = [].
 const parseJsonColumns = (row: any): any => {
-    if (row.Columns && typeof row.Columns === 'string') {
-        row.Columns = JSON.parse(row.Columns);
-    }
-    if (typeof row.Tables === 'string' && row.Tables.trim()) {
-        row.Tables = JSON.parse(row.Tables);
-    }
-    if (!Array.isArray(row.Tables)) row.Tables = [];
+    const contract = parseDefinitionContract(row.Contract);
+    row.Contract = contract;
+    row.Columns = legacyColumnsFromContract(contract);
+    row.Tables = legacyTablesFromContract(contract);
     return row;
 };
-
-const tablesJson = (tables: unknown): string | null =>
-    Array.isArray(tables) && tables.length > 0 ? JSON.stringify(tables) : null;
 
 export class FileDefinition {
     private static readonly TABLE_NAME = 'FileDefinitions';
@@ -130,20 +130,18 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         const id = uuidv4();
         const now = new Date();
 
-        // Ensure Columns is stored as JSON string
-        const columnsJson = JSON.stringify(dto.Columns);
+        const contract = dto.Contract ?? contractFromLegacyColumns(dto.Columns, dto.Tables);
 
         const request = pool.request()
             .input('Id', id)
             .input('Name', dto.Name)
             .input('Description', dto.Description || '')
-            .input('Columns', columnsJson)
-            .input('Tables', tablesJson(dto.Tables))
+            .input('Contract', JSON.stringify(contract))
             .input('Status', dto.Status || 'Active')
             .input('CreatedAt', now)
             .input('UpdatedAt', now);
 
-        const columnsList = ['Id', 'Name', 'Description', 'Columns', 'Tables', 'Status', 'CreatedAt', 'UpdatedAt'];
+        const columnsList = ['Id', 'Name', 'Description', 'Contract', 'Status', 'CreatedAt', 'UpdatedAt'];
         if (dto.TemplateFilename) {
             request.input('TemplateFilename', dto.TemplateFilename);
             columnsList.push('TemplateFilename');
@@ -185,6 +183,22 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
             .input('Id', id)
             .input('UpdatedAt', now);
 
+        if (updates.Contract !== undefined || updates.Columns !== undefined || updates.Tables !== undefined) {
+            const current = await pool.request()
+                .input('Id', id)
+                .query(`SELECT Contract FROM ${this.TABLE_NAME} WHERE Id = @Id`);
+            if (!current.recordset[0]) return null;
+
+            const currentContract = parseDefinitionContract(current.recordset[0].Contract);
+            const nextContract = updates.Contract ?? contractFromLegacyColumns(
+                updates.Columns ?? legacyColumnsFromContract(currentContract),
+                updates.Tables ?? legacyTablesFromContract(currentContract),
+                currentContract,
+            );
+            request.input('Contract', JSON.stringify(nextContract));
+            setClauses.push('Contract = @Contract');
+        }
+
         if (updates.Name !== undefined) {
             setClauses.push('Name = @Name');
             request.input('Name', updates.Name);
@@ -192,14 +206,6 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         if (updates.Description !== undefined) {
             setClauses.push('Description = @Description');
             request.input('Description', updates.Description);
-        }
-        if (updates.Columns !== undefined) {
-            setClauses.push('Columns = @Columns');
-            request.input('Columns', JSON.stringify(updates.Columns));
-        }
-        if (updates.Tables !== undefined) {
-            setClauses.push('Tables = @Tables');
-            request.input('Tables', tablesJson(updates.Tables));
         }
         if (updates.Status !== undefined) {
             setClauses.push('Status = @Status');
@@ -377,4 +383,3 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         return Number(result.recordset[0]?.count) || 0;
     }
 }
-
