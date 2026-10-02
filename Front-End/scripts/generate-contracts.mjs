@@ -5,7 +5,7 @@ import { compileFromFile } from 'json-schema-to-typescript';
 
 const projectDirectory = path.dirname(fileURLToPath(import.meta.url));
 const contractsDirectory = path.resolve(projectDirectory, '..', '..', 'contracts');
-const outputDirectory = path.resolve(projectDirectory, 'src', 'contracts');
+const outputDirectory = path.resolve(projectDirectory, '..', 'src', 'contracts');
 
 async function schemaFiles(directory) {
   const entries = await fs.readdir(directory, { withFileTypes: true });
