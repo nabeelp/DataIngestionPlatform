@@ -1,17 +1,16 @@
 # Data Ingestion Platform
 
-Users upload CSV/TSV/TXT or Excel files against **file definitions**. The backend validates every row against the definition's columns and any configured rules, then optionally delivers the file to a folder. The backend is in `Back-End` (Express, TypeScript, SQL Server, optional Redis/BullMQ, Socket.IO) and the frontend is in `Front-End` (React, Vite).
+Users upload CSV/TSV/TXT or Excel files against **file definitions**. The solution keeps the Node API and React UI and is moving validation into a Python + Polars service. Local dependencies run in Docker Compose: SQL Server, Azurite, and the Azure Service Bus emulator.
 
 ## Local development
 
-Use Node.js and npm and a local SQL Server instance (Windows SQL Server LocalDB also works). Redis is **not required** for local development: when `REDIS_ENABLED=false`, uploads use an in-process queue and cache. Jobs are not durable across backend restarts and should not be processed by multiple backend instances. Set `REDIS_ENABLED=true` and run Redis to use BullMQ for durable multi-instance processing.
+Prerequisites: Docker Desktop with its engine running, Python 3.12 with `uv`, and Node.js 24 with npm. Docker needs at least 2 GB of memory and 5 GB of free disk for the Service Bus emulator and its SQL Server dependency.
 
-1. Run `npm ci` in `Back-End` and `Front-End` separately.
-2. Create a local SQL Server database named `FileValidationPlatform` (or choose another name). On Windows, SQL Server LocalDB can use `Server=(localdb)\MSSQLLocalDB;Database=FileValidationPlatform;Integrated Security=true`, the optional `msnodesqlv8` dependency, and ODBC Driver 17 for SQL Server. Connect using a local account with schema-creation rights. Execute these scripts **against that database** in order:
-   `Back-End/database/users_schema.sql`, `file_definitions_schema.sql`, `upload_system_tables.sql`, `audit_logs_schema.sql`, `lookups_schema.sql`. For the optional mock-login demo, run `seed_local_users.sql`, then `sample_file_definitions.sql` (once), and finally `seed_user_assignments.sql`. Run `file_definition_versions_schema.sql` last: it publishes version 1 of every existing definition. The scripts are idempotent; re-run them after pulling changes to apply new columns and migrations. With `sqlcmd`, pass `-I` (or keep the script's `SET QUOTED_IDENTIFIER ON`), because the versions table uses a filtered index.
-3. Copy `Back-End/.env.example` to `Back-End/.env`, or update an existing `.env` to match it. Set `DB_CONNECTION_STRING` to your local SQL Server connection string and `JWT_SECRET` to a new random secret. Replace any old user-specific `UPLOAD_TEMP_DIR` or `SHAREPOINT_LOCAL_PATH` with writable local paths. Keep these files private. The backend loads `.env`, **not** `.env.development`. Set `DEV_BYPASS_AUTH=true` only for the seeded local mock-login demo; it is ignored unless `NODE_ENV=development`.
-4. Copy `Front-End/.env.example` to `Front-End/.env.development`, if it is not already configured. Set `VITE_API_URL=http://localhost:3000/api/v1` (or omit it to use the Vite `/api` proxy). Set `VITE_DEV_BYPASS_AUTH=true` only with the backend flag above. The frontend must use the same backend port as the Vite proxy.
-5. From the repository root, run `.\start.ps1`, or run `npm run dev` in each project directory in separate terminals. Verify `http://localhost:3000/health` and open `http://localhost:5173`. Test logging in, viewing definitions, uploading a small CSV, and observing validation status. `npm run build` is only needed for production builds.
+1. Run `npm ci` in `Back-End` and `Front-End`; run `uv sync` in `Validation-Service`.
+2. Copy `Back-End/.env.example` to `Back-End/.env`. Configure the local SQL connection, `JWT_SECRET`, `MSSQL_SA_PASSWORD`, the Service Bus emulator connection string, Azurite connection string, and `RULES_SERVICE_DEV_KEY` there. The template intentionally contains empty secret placeholders. Copy `Validation-Service/.env.example` only when running the Python service outside `start.ps1`; the root script loads the shared backend `.env` into the local process environment.
+3. Review and accept the SQL Server and Service Bus emulator license terms before setting `ACCEPT_EULA=Y` in `Back-End/.env`. Keep connection strings, keys, passwords, and `.env` files local. The emulator's connection string format and host options are documented in Microsoft's [Service Bus emulator guide](https://learn.microsoft.com/azure/service-bus-messaging/test-locally-with-service-bus-emulator).
+4. Copy `Front-End/.env.example` to `Front-End/.env.development` if needed. Set `VITE_DEV_BYPASS_AUTH=true` only for a local demo.
+5. From the repository root, run `.\start.ps1`. It starts the Compose services, waits for them to become healthy, applies the local database scripts, and launches the APIs and UI. Verify `http://localhost:3000/health`, `http://localhost:8000/healthz`, and `http://localhost:5173`.
 
 ## Validation
 
