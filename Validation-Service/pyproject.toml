@@ -4,10 +4,17 @@ version = "0.1.0"
 description = "Python and Polars data quality engine"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "fastexcel>=0.21.0",
   "jsonschema>=4.25,<5",
+  "polars>=1.44.2",
+  "pyarrow>=25.0.1",
   "pydantic>=2.11,<3",
   "referencing>=0.36,<1",
+  "sqlglot>=26,<31",
 ]
+
+[project.scripts]
+dq-engine = "dq_engine.cli:main"
 
 [dependency-groups]
 dev = [
@@ -19,6 +26,10 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://packagefeedproxy.microsoft.io/pypi/simple/"
+default = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_engine"]
@@ -38,3 +49,7 @@ python_version = "3.12"
 strict = true
 mypy_path = "src"
 packages = ["dq_engine"]
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
