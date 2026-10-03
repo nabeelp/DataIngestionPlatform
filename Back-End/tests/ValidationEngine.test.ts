@@ -88,6 +88,7 @@ describe('parseRuleExpression', () => {
         expect(parseRuleExpression('Schema Validation', 'A, B')).toEqual({ type: 'Schema Validation', columns: ['A', 'B'] });
         expect(parseRuleExpression('Required Values', 'A')).toEqual({ type: 'Required Values', columns: ['A'] });
         expect(parseRuleExpression('Type Check', 'Amount: Decimal')).toEqual({ type: 'Type Check', column: 'Amount', dataType: 'decimal' });
+        expect(parseRuleExpression('Type Check', 'StartDate: date')).toEqual({ type: 'Type Check', column: 'StartDate', dataType: 'date' });
         expect(parseRuleExpression('Enum Check', 'Status: Active, Inactive')).toEqual({ type: 'Enum Check', column: 'Status', values: ['Active', 'Inactive'] });
         expect(parseRuleExpression('Range Check', 'Qty: 0..')).toEqual({ type: 'Range Check', column: 'Qty', min: 0, max: undefined });
     });

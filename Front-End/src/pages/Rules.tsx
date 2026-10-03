@@ -8,9 +8,21 @@ import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { getFileDefinitionsAdmin } from '../services/adminApi';
-import { regenerateNaturalLanguageRule, reviewNaturalLanguageRule, type ReviewActivity } from '../services/ruleAuthoringApi';
-import type { RuleConfig } from '../contracts/rule-config';
 import {
+  regenerateNaturalLanguageRule,
+  reviewNaturalLanguageRule,
+  runUploadDryRun,
+  testNaturalLanguageRuleExamples,
+  validateRuleConfig,
+  type ReviewActivity,
+  type RuleConfigValidationResult,
+  type RuleExampleTestResult,
+} from '../services/ruleAuthoringApi';
+import { getRecentUploads } from '../services/uploadApi';
+import type { RuleConfig } from '../contracts/rule-config';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import {
+  defaultRuleParams,
   ruleConfigColumns,
   ruleConfigExpression,
   ruleConfigFromForm,
@@ -18,6 +30,8 @@ import {
   updateRuleConfigFromForm,
 } from '../services/ruleConfig';
 import RuleConfigDetails from './RuleConfigDetails';
+import RuleConfigFields from './RuleConfigFields';
+import NaturalLanguageExamplesEditor, { type NaturalLanguageExample } from './NaturalLanguageExamplesEditor';
 import RuleReviewActivity from './RuleReviewActivity';
 
 //#region INTERFACES & TYPES
@@ -48,35 +62,59 @@ interface Definition {
   name: string;
   /** Sheet tables rules can target (empty for single-table definitions). */
   sheets: string[];
+  lookups: string[];
 }
 
 interface FormState {
   name: string;
   executionOrder: string;
   description: string;
-  ruleType: string;
+  ruleType: RuleConfig['type'];
   severity: string;
-  sqlQuery: string;
   isEnabled: boolean;
   tableName: string;
+  params: Record<string, unknown>;
 }
+
+const naturalLanguageExamples = (params: Record<string, unknown>): NaturalLanguageExample[] => {
+  if (!Array.isArray(params.examples)) return [];
+  return params.examples.flatMap((item): NaturalLanguageExample[] => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const example = item as Record<string, unknown>;
+    const values = example.values;
+    if (typeof example.table !== 'string' || typeof example.expectedValid !== 'boolean' ||
+      !values || typeof values !== 'object' || Array.isArray(values) ||
+      Object.values(values).some(value => typeof value !== 'string')) return [];
+    return [{
+      table: example.table,
+      expectedValid: example.expectedValid,
+      values: values as Record<string, string>,
+      source: example.source === 'admin' ? 'admin' : 'model',
+    }];
+  });
+};
 //#endregion
 
 const RULE_TYPES = [
-  { value: 'Schema Validation', label: 'Required columns', help: 'Comma-separated columns that must exist in the file header.', example: 'CustomerId, Email, Country' },
-  { value: 'Required Values', label: 'Required values', help: 'Comma-separated columns whose values must not be empty.', example: 'CustomerId, Email' },
-  { value: 'Type Check', label: 'Data type', help: 'Column and type: string, integer, decimal, datetime, or boolean.', example: 'UnitPrice: decimal' },
-  { value: 'Enum Check', label: 'Allowed values', help: 'Column followed by the comma-separated allowed values.', example: 'CustomerStatus: Active, Inactive' },
-  { value: 'Range Check', label: 'Numeric range', help: 'Column and inclusive range "min..max"; either bound may be omitted.', example: 'StockQuantity: 0..10000' },
-];
+  { value: 'columnsPresent', label: 'Required columns' },
+  { value: 'required', label: 'Required values' },
+  { value: 'type', label: 'Data type' },
+  { value: 'enum', label: 'Allowed values' },
+  { value: 'range', label: 'Numeric range' },
+  { value: 'pattern', label: 'Pattern' },
+  { value: 'length', label: 'Length' },
+  { value: 'unique', label: 'Unique values' },
+  { value: 'lookup', label: 'Lookup' },
+  { value: 'dateRange', label: 'Date range' },
+  { value: 'conditionalRequired', label: 'Conditional required values' },
+  { value: 'compare', label: 'Compare columns' },
+  { value: 'rowCount', label: 'Row count' },
+  { value: 'aggregate', label: 'Aggregate' },
+  { value: 'reconcile', label: 'Reconcile tables' },
+] as const satisfies ReadonlyArray<{ value: Exclude<RuleConfig['type'], 'naturalLanguage'>; label: string }>;
 const DEFAULT_RULE_TYPE = RULE_TYPES[0].value;
-// Also the stored rule type of rules generated from a request that no declarative type expresses without loss.
-const NATURAL_LANGUAGE_STRATEGY = 'Natural Language';
+const NATURAL_LANGUAGE_STRATEGY: RuleConfig['type'] = 'naturalLanguage';
 const isGeneratedRule = (rule: Pick<Rule, 'config'> | null | undefined) => rule?.config.type === 'naturalLanguage';
-const hasExpressionEditor = (rule: Rule | null | undefined) =>
-  !rule || ['columnsPresent', 'required', 'type', 'enum', 'range'].includes(rule.config.type);
-const getRuleTypeMeta = (type: string) =>
-  RULE_TYPES.find(t => t.value === type) || { value: type, label: type, help: 'This rule type is no longer supported. Choose a supported type.', example: '' };
 
 export default function ValidationRules() {
   const { token, user } = useAuth();
@@ -100,6 +138,22 @@ export default function ValidationRules() {
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const reviewAbort = useRef<AbortController | null>(null);
+  const validationRequestId = useRef(0);
+  const [ruleValidation, setRuleValidation] = useState<RuleConfigValidationResult | null>(null);
+  const [ruleValidationError, setRuleValidationError] = useState<string | null>(null);
+  const [validatingRule, setValidatingRule] = useState(false);
+  const [exampleTest, setExampleTest] = useState<RuleExampleTestResult | null>(null);
+  const [testingExamples, setTestingExamples] = useState(false);
+  const [recentUploads, setRecentUploads] = useState<Array<{
+    Id: string;
+    FileDefinitionId: string;
+    OriginalFilename: string;
+    Status: string;
+  }>>([]);
+  const [selectedDryRunUploadId, setSelectedDryRunUploadId] = useState('');
+  const [dryRunResult, setDryRunResult] = useState<Record<string, unknown> | null>(null);
+  const [dryRunError, setDryRunError] = useState<string | null>(null);
+  const [runningDryRun, setRunningDryRun] = useState(false);
 
   // Search & Filter UI State
   const [searchTerm, setSearchTerm] = useState('');
@@ -117,13 +171,14 @@ export default function ValidationRules() {
     description: '',
     ruleType: DEFAULT_RULE_TYPE,
     severity: 'Error',
-    sqlQuery: '',
     isEnabled: true,
-    tableName: ''
+    tableName: '',
+    params: defaultRuleParams(DEFAULT_RULE_TYPE),
   });
   //#endregion
 
   const selectedSheets = definitions.find(def => def.id === selectedDefinitionId)?.sheets ?? [];
+  const selectedLookupIds = definitions.find(def => def.id === selectedDefinitionId)?.lookups ?? [];
   // A plain-language review saved a rule: the drawer offers Done / Create another instead of reviewing again.
   const ruleCreated = !editingRule && formData.ruleType === NATURAL_LANGUAGE_STRATEGY
     && generationResult !== null && generationResult.outcome !== 'rejected';
@@ -154,11 +209,11 @@ export default function ValidationRules() {
         name: editingRule.name || '',
         executionOrder: editingRule.executionOrder?.toString() || '8',
         description: editingRule.description || '',
-        ruleType: editingRule.ruleType || DEFAULT_RULE_TYPE,
+        ruleType: editingRule.config.type,
         severity: editingRule.severity || 'Error',
-        sqlQuery: editingRule.sqlQuery || '',
         isEnabled: editingRule.isEnabled !== false,
-        tableName: editingRule.tableName || ''
+        tableName: editingRule.tableName || '',
+        params: editingRule.config.params as Record<string, unknown>,
       });
     } else {
       setFormData({
@@ -167,9 +222,9 @@ export default function ValidationRules() {
         description: '',
         ruleType: DEFAULT_RULE_TYPE,
         severity: 'Error',
-        sqlQuery: '',
         isEnabled: true,
-        tableName: ''
+        tableName: '',
+        params: defaultRuleParams(DEFAULT_RULE_TYPE),
       });
     }
   }, [editingRule, isDrawerOpen]);
@@ -183,6 +238,88 @@ export default function ValidationRules() {
 
   // Leaving the page stops a running review, so the server does not keep calling the model.
   useEffect(() => () => reviewAbort.current?.abort(), []);
+
+  useEffect(() => {
+    const requestId = ++validationRequestId.current;
+    if (!isDrawerOpen || !selectedDefinitionId || formData.ruleType === 'naturalLanguage' && !editingRule ||
+      !formData.name.trim()) {
+      setRuleValidation(null);
+      setRuleValidationError(null);
+      setValidatingRule(false);
+      return;
+    }
+
+    setRuleValidation(null);
+    setRuleValidationError(null);
+    const timer = window.setTimeout(() => {
+      const form = {
+        id: editingRule?.config.id ?? 'rule-preview',
+        name: formData.name,
+        description: formData.description,
+        executionOrder: Number.parseInt(formData.executionOrder, 10) || 0,
+        severity: formData.severity as 'Error' | 'Warning',
+        enabled: formData.isEnabled,
+        ruleType: formData.ruleType,
+        params: formData.params,
+        table: selectedSheets.length > 0 ? formData.tableName || null : null,
+      };
+      let config: RuleConfig;
+      try {
+        config = editingRule
+          ? updateRuleConfigFromForm(editingRule.config, form)
+          : ruleConfigFromForm(form);
+      } catch (error) {
+        setRuleValidationError(error instanceof Error ? error.message : 'Rule configuration is incomplete.');
+        return;
+      }
+      setValidatingRule(true);
+      void validateRuleConfig(apiConfig.getBaseUrl(), token, selectedDefinitionId, config)
+        .then(result => {
+          if (validationRequestId.current === requestId) setRuleValidation(result);
+        })
+        .catch(error => {
+          if (validationRequestId.current === requestId) {
+            setRuleValidationError(error instanceof Error ? error.message : 'Could not validate the rule.');
+          }
+        })
+        .finally(() => {
+          if (validationRequestId.current === requestId) setValidatingRule(false);
+        });
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (validationRequestId.current === requestId) validationRequestId.current += 1;
+    };
+  }, [editingRule, formData, isDrawerOpen, selectedDefinitionId, selectedSheets.length, token]);
+
+  useEffect(() => {
+    if (!isDrawerOpen || editingRule?.config.type !== 'naturalLanguage' || !selectedDefinitionId) {
+      setRecentUploads([]);
+      setSelectedDryRunUploadId('');
+      setDryRunResult(null);
+      setDryRunError(null);
+      return;
+    }
+    let active = true;
+    getRecentUploads(50).then(result => {
+      if (!active) return;
+      const matching = result.uploads
+        .filter(upload => upload.FileDefinitionId === selectedDefinitionId &&
+          ['VALIDATED', 'VALIDATION_PASSED', 'VALIDATION_FAILED', 'DELIVERED'].includes(upload.Status))
+        .map(upload => ({
+          Id: upload.Id,
+          FileDefinitionId: upload.FileDefinitionId,
+          OriginalFilename: upload.OriginalFilename,
+          Status: upload.Status,
+        }));
+      setRecentUploads(matching);
+      setSelectedDryRunUploadId(matching[0]?.Id ?? '');
+    }).catch(error => {
+      if (active) setDryRunError(error instanceof Error ? error.message : 'Could not load recent uploads.');
+    });
+    return () => { active = false; };
+  }, [editingRule, isDrawerOpen, selectedDefinitionId]);
   //#endregion
 
   //#region DATA ACCESS OPERATIONS (API FETCHERS)
@@ -202,20 +339,28 @@ export default function ValidationRules() {
       const data = await response.json();
       if (data.success && data.definitions) {
         // Admins edit draft rules, so they target the draft's sheet tables; others see the published ones.
-        const draftSheets = new Map<string, string[]>();
+        const draftSettings = new Map<string, { sheets: string[]; lookups: string[] }>();
         if (canManageRules) {
           const admin = await getFileDefinitionsAdmin().catch(() => null);
           for (const def of admin?.definitions ?? []) {
-            draftSheets.set(String(def.id).toLowerCase(), (def.tables ?? []).map(table => table.sheet));
+            const contract = (def as typeof def & { contract?: DefinitionContract }).contract;
+            draftSettings.set(String(def.id).toLowerCase(), {
+              sheets: contract?.layout === 'sheets'
+                ? contract.tables.flatMap(table => table.sheet ? [table.sheet] : [])
+                : (def.tables ?? []).map(table => table.sheet),
+              lookups: Object.keys(contract?.lookups ?? {}),
+            });
           }
         }
         const defs = data.definitions.map((def: any) => {
           const id = def.Id || def.id;
           const publishedSheets = (def.Tables || def.tables || []).map((table: { sheet: string }) => table.sheet);
+          const draft = draftSettings.get(String(id).toLowerCase());
           return {
             id,
             name: def.Name || def.name,
-            sheets: draftSheets.get(String(id).toLowerCase()) ?? publishedSheets,
+            sheets: draft?.sheets ?? publishedSheets,
+            lookups: draft?.lookups ?? [],
           };
         });
         setDefinitions(defs);
@@ -298,12 +443,15 @@ export default function ValidationRules() {
         severity: formData.severity as 'Error' | 'Warning',
         enabled: formData.isEnabled,
         ruleType: formData.ruleType,
-        expression: formData.sqlQuery,
+        params: formData.params,
         table: selectedSheets.length > 0 ? formData.tableName || null : null,
       };
       const config = editingRule
         ? updateRuleConfigFromForm(editingRule.config, form)
         : ruleConfigFromForm(form);
+      const validation = await validateRuleConfig(baseUrl, token, selectedDefinitionId, config);
+      setRuleValidation(validation);
+      if (!validation.ok) return;
       
       const response = await fetch(url, {
         method,
@@ -428,6 +576,79 @@ export default function ValidationRules() {
 
   const stopNaturalLanguageRule = () => reviewAbort.current?.abort();
 
+  const updateNaturalLanguageExamples = (examples: NaturalLanguageExample[]) => {
+    setFormData(previous => ({ ...previous, params: { ...previous.params, examples } }));
+    setExampleTest(null);
+  };
+
+  const runNaturalLanguageExamples = async () => {
+    if (!editingRule || editingRule.config.type !== 'naturalLanguage') return;
+    setTestingExamples(true);
+    setExampleTest(null);
+    setError(null);
+    try {
+      const form = {
+        id: editingRule.config.id,
+        name: formData.name,
+        description: formData.description,
+        executionOrder: Number.parseInt(formData.executionOrder, 10) || 0,
+        severity: formData.severity as 'Error' | 'Warning',
+        enabled: formData.isEnabled,
+        ruleType: 'naturalLanguage' as const,
+        params: formData.params,
+        table: selectedSheets.length > 0 ? formData.tableName || null : null,
+      };
+      const config = updateRuleConfigFromForm(editingRule.config, form);
+      const result = await testNaturalLanguageRuleExamples(
+        apiConfig.getBaseUrl(),
+        token,
+        selectedDefinitionId,
+        config,
+        naturalLanguageExamples(formData.params),
+      );
+      setExampleTest(result);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not run rule examples.');
+    } finally {
+      setTestingExamples(false);
+    }
+  };
+
+  const runSelectedUploadDryRun = async () => {
+    if (!selectedDryRunUploadId) return;
+    setRunningDryRun(true);
+    setDryRunResult(null);
+    setDryRunError(null);
+    try {
+      setDryRunResult(await runUploadDryRun(apiConfig.getBaseUrl(), token, selectedDryRunUploadId));
+    } catch (error) {
+      setDryRunError(error instanceof Error ? error.message : 'Could not run validation preview.');
+    } finally {
+      setRunningDryRun(false);
+    }
+  };
+
+  const editNaturalLanguageConfig = (config: RuleConfig) => {
+    if (config.type !== 'naturalLanguage') return;
+    const params = config.params as Record<string, unknown>;
+    setEditingRule({
+      id: config.id,
+      fileDefinitionId: selectedDefinitionId,
+      name: config.name,
+      description: config.description,
+      executionOrder: config.executionOrder,
+      ruleType: ruleConfigTypeLabel(config),
+      severity: config.severity,
+      sqlQuery: ruleConfigExpression(config),
+      isEnabled: config.enabled,
+      tableName: config.table,
+      naturalLanguageText: typeof params.request === 'string' ? params.request : null,
+      explanation: typeof params.explanation === 'string' ? params.explanation : null,
+      config,
+    });
+    setGenerationResult(null);
+  };
+
   const startAnotherRule = () => {
     setNaturalLanguageRequest('');
     setGenerationResult(null);
@@ -490,11 +711,13 @@ export default function ValidationRules() {
       name: `${rule.name} - Copy`,
       executionOrder: (rule.executionOrder + 1).toString(),
       description: rule.description || '',
-      ruleType: rule.ruleType || DEFAULT_RULE_TYPE,
+      ruleType: rule.config.type === 'naturalLanguage' ? DEFAULT_RULE_TYPE : rule.config.type,
       severity: rule.severity || 'Error',
-      sqlQuery: rule.sqlQuery || '',
       isEnabled: rule.isEnabled,
-      tableName: rule.tableName || ''
+      tableName: rule.tableName || '',
+      params: rule.config.type === 'naturalLanguage'
+        ? defaultRuleParams(DEFAULT_RULE_TYPE)
+        : { ...rule.config.params },
     });
     setIsDrawerOpen(true);
     setActiveMenuId(null);
@@ -772,7 +995,7 @@ export default function ValidationRules() {
                                   <button onClick={() => { setEditingRule(rule); setIsDrawerOpen(true); setActiveMenuId(null); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700">
                                     <Edit2 className="w-3.5 h-3.5 text-slate-400" /> Edit Configuration
                                   </button>
-                                  {!isGeneratedRule(rule) && hasExpressionEditor(rule) && (
+                                  {!isGeneratedRule(rule) && (
                                   <button onClick={() => handleClone(rule)} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700">
                                     <Copy className="w-3.5 h-3.5 text-slate-400" /> Clone Logic
                                   </button>
@@ -796,6 +1019,8 @@ export default function ValidationRules() {
                               naturalLanguageText={rule.naturalLanguageText}
                               explanation={rule.explanation}
                               expression={rule.sqlQuery}
+                              provenance={rule.config.params.provenance}
+                              examples={rule.config.params.examples}
                             />
                           </>
                         ) : rule.sqlQuery && (
@@ -851,12 +1076,21 @@ export default function ValidationRules() {
                     {error}
                   </div>
                 )}
+                {validatingRule && <p role="status" className="text-xs text-slate-500">Validating RuleConfig…</p>}
+                {ruleValidationError && <p role="alert" className="text-xs text-red-700">{ruleValidationError}</p>}
+                {ruleValidation?.errors.length ? (
+                  <ul role="alert" className="space-y-1 rounded bg-amber-50 p-3 text-xs text-amber-900">
+                    {ruleValidation.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.path}: {item.message}</li>)}
+                  </ul>
+                ) : ruleValidation?.ok ? (
+                  <p role="status" className="text-xs text-emerald-700">RuleConfig is valid for this definition.</p>
+                ) : null}
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">{formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? 'Describe your rule' : 'System Parameters'}</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule
-                      ? 'The model maps your rule to an existing rule type when nothing is lost, or otherwise generates code to enforce it.'
-                      : 'Define runtime parameters mapped directly to active schemas.'}
+                      ? 'The model maps your request to a declarative rule or proposes restricted SQL validated by the Python service.'
+                      : 'Configure a typed RuleConfig and validate it against the definition before saving.'}
                   </p>
                 </div>
 
@@ -868,7 +1102,8 @@ export default function ValidationRules() {
                       value={formData.ruleType}
                       disabled={generatingRule}
                       onChange={e => {
-                        setFormData({ ...formData, ruleType: e.target.value });
+                        const ruleType = e.target.value as RuleConfig['type'];
+                        setFormData({ ...formData, ruleType, params: defaultRuleParams(ruleType) });
                         setGenerationResult(null);
                         setActivity([]);
                         setError(null);
@@ -884,10 +1119,8 @@ export default function ValidationRules() {
                 {formData.ruleType === NATURAL_LANGUAGE_STRATEGY && !editingRule ? (
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500">
-                      Describe one check of the file's rows. When an existing rule type (required columns or values, data type,
-                      allowed values, numeric range) expresses it exactly, that RuleConfig type is used. Otherwise a Natural Language
-                      RuleConfig stores a restricted SQL expression, validated and tested by the Python rules service. Rules are saved
-                      to the draft; review them and publish the definition version before they apply to uploads.
+                      Describe one check. The model prefers a matching built-in RuleConfig type; otherwise it proposes restricted SQL.
+                      The Python service validates every proposal and runs its examples before the rule is saved to the draft.
                     </p>
                     <label htmlFor="naturalLanguageRule" className="block text-xs font-bold text-slate-600">Rule to enforce <span className="text-red-500">*</span></label>
                     <textarea
@@ -921,8 +1154,17 @@ export default function ValidationRules() {
                           naturalLanguageText={naturalLanguageRequest}
                           explanation={typeof generationResult.config.params.explanation === 'string' ? generationResult.config.params.explanation : null}
                           expression={ruleConfigExpression(generationResult.config)}
+                          provenance={generationResult.config.params.provenance}
+                          examples={generationResult.config.params.examples}
                           expanded
                         />
+                        <button
+                          type="button"
+                          onClick={() => editNaturalLanguageConfig(generationResult.config)}
+                          className="rounded border border-violet-200 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-50"
+                        >
+                          Review and edit examples
+                        </button>
                       </div>
                     )}
                     {ruleCreated && (
@@ -992,7 +1234,7 @@ export default function ValidationRules() {
                 </div>
 
                 {/* Field: Sheet table (definitions with one table per workbook sheet) */}
-                {selectedSheets.length > 0 && !isGeneratedRule(editingRule) && (
+                {selectedSheets.length > 0 && !isGeneratedRule(editingRule) && formData.ruleType !== 'reconcile' && (
                   <div className="space-y-1.5">
                     <label htmlFor="ruleTable" className="text-xs font-bold text-slate-600">Sheet Table <span className="text-red-500">*</span></label>
                     <p className="text-[11px] text-slate-500">The rule checks rows of this workbook sheet only.</p>
@@ -1054,51 +1296,99 @@ export default function ValidationRules() {
                       naturalLanguageText={editingRule!.naturalLanguageText}
                       explanation={editingRule!.explanation}
                       expression={editingRule!.sqlQuery}
+                      provenance={editingRule!.config.params.provenance}
+                      examples={editingRule!.config.params.examples}
                     />
+                    <NaturalLanguageExamplesEditor
+                      examples={naturalLanguageExamples(formData.params)}
+                      tableOptions={selectedSheets}
+                      results={exampleTest?.results ?? null}
+                      running={testingExamples}
+                      onChange={updateNaturalLanguageExamples}
+                      onRun={() => void runNaturalLanguageExamples()}
+                    />
+                    {exampleTest && exampleTest.errors.length > 0 && (
+                      <ul role="alert" className="space-y-1 rounded bg-red-50 p-3 text-xs text-red-700">
+                        {exampleTest.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.path}: {item.message}</li>)}
+                      </ul>
+                    )}
+                    <section className="space-y-2 border-t border-slate-100 pt-4" aria-label="Dry run">
+                      <div>
+                        <p className="text-xs font-bold text-slate-600">Dry run against a recent upload</p>
+                        <p className="text-[11px] text-slate-500">Preview the current draft contract on an upload for this definition. Cell values are not shown here.</p>
+                      </div>
+                      {recentUploads.length > 0 ? (
+                        <div className="flex gap-2">
+                          <select
+                            aria-label="Recent upload for dry run"
+                            value={selectedDryRunUploadId}
+                            onChange={event => setSelectedDryRunUploadId(event.target.value)}
+                            className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-2 text-xs"
+                          >
+                            {recentUploads.map(upload => (
+                              <option key={upload.Id} value={upload.Id}>{upload.OriginalFilename} — {upload.Status}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={runningDryRun || !selectedDryRunUploadId}
+                            onClick={() => void runSelectedUploadDryRun()}
+                            className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {runningDryRun ? 'Running…' : 'Dry run'}
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">No completed uploads are available for this definition.</p>
+                      )}
+                      {dryRunError && <p role="alert" className="text-xs text-red-700">{dryRunError}</p>}
+                      {dryRunResult && (
+                        <div role="status" className="rounded bg-slate-50 p-3 text-xs text-slate-700">
+                          <p className="font-semibold">Preview status: {String(dryRunResult.status ?? 'unknown')}</p>
+                          <p>{Array.isArray(dryRunResult.structuralIssues) ? dryRunResult.structuralIssues.length : 0} structural issue(s)</p>
+                          {Array.isArray(dryRunResult.checks) && (
+                            <ul className="mt-2 space-y-1">
+                              {dryRunResult.checks.map((item, index) => {
+                                if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+                                const check = item as Record<string, unknown>;
+                                return (
+                                  <li key={String(check.id ?? index)}>
+                                    {String(check.name ?? 'Check')}: {String(check.status ?? 'unknown')}
+                                    {typeof check.issueCount === 'number' ? ` (${check.issueCount} issue(s))` : ''}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </section>
                   </div>
                 ) : (
                   <>
-                {editingRule && hasExpressionEditor(editingRule) && (
+                {editingRule && (
                   <div className="space-y-1.5">
                     <label htmlFor="editRuleStrategy" className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
                     <select
                       id="editRuleStrategy"
                       value={formData.ruleType}
-                      onChange={e => setFormData({ ...formData, ruleType: e.target.value })}
+                      onChange={e => {
+                        const ruleType = e.target.value as RuleConfig['type'];
+                        setFormData({ ...formData, ruleType, params: defaultRuleParams(ruleType) });
+                      }}
                       className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 font-medium"
                     >
-                      {!RULE_TYPES.some(type => type.value === formData.ruleType) && (
-                        <option value={formData.ruleType} disabled>{formData.ruleType} (no longer supported)</option>
-                      )}
                       {RULE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
                     </select>
                   </div>
                 )}
 
-                {/* Field: Rule expression */}
-                {!editingRule || hasExpressionEditor(editingRule) ? (
-                <div className="space-y-1.5">
-                  <label htmlFor="ruleExpression" className="text-xs font-bold text-slate-600">Rule Expression <span className="text-red-500">*</span></label>
-                  <p className="text-[11px] text-slate-500">{getRuleTypeMeta(formData.ruleType).help}</p>
-                  <textarea 
-                    id="ruleExpression"
-                    required
-                    rows={4}
-                    maxLength={4000}
-                    placeholder={getRuleTypeMeta(formData.ruleType).example}
-                    value={formData.sqlQuery}
-                    onChange={(e) => setFormData({ ...formData, sqlQuery: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-900 text-emerald-400 font-mono shadow-inner resize-y min-h-[100px]"
-                  />
-                </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-bold text-slate-600">RuleConfig (read-only logic)</p>
-                    <pre className="max-h-52 overflow-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-700">
-                      {JSON.stringify(editingRule.config, null, 2)}
-                    </pre>
-                  </div>
-                )}
+                <RuleConfigFields
+                  type={formData.ruleType as Exclude<RuleConfig['type'], 'naturalLanguage'>}
+                  params={formData.params}
+                  lookupIds={selectedLookupIds}
+                  onChange={params => setFormData(previous => ({ ...previous, params }))}
+                />
                   </>
                 )}
                   </>

@@ -24,7 +24,7 @@ export const NATURAL_LANGUAGE_RULE_TYPE = 'Natural Language';
 /** Every rule type a published contract may contain. */
 export const CONTRACT_RULE_TYPES = [...SUPPORTED_RULE_TYPES, NATURAL_LANGUAGE_RULE_TYPE] as const;
 
-export const COLUMN_TYPES = ['string', 'integer', 'decimal', 'datetime', 'boolean'] as const;
+export const COLUMN_TYPES = ['string', 'integer', 'decimal', 'date', 'datetime', 'boolean'] as const;
 export type ColumnType = typeof COLUMN_TYPES[number];
 
 export const MAX_SAMPLE_ERRORS = 100;

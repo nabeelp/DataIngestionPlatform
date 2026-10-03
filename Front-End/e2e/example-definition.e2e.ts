@@ -103,6 +103,8 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     await assistant.getByLabel('Preview sheet').selectOption({ label: 'Refunds — 2 columns, 2 rows' });
     await expect(proposed.locator('tbody tr')).toHaveCount(2);
 
+    await form.getByLabel('Text encoding').selectOption('utf-8');
+    await form.getByLabel('Ignored workbook sheets').fill('ReadMe');
     await assistant.getByRole('button', { name: 'Use 2 sheet tables' }).click();
     await expect(assistant).toContainText('Sheet tables from orders-example.xlsx (2 sheets) were applied');
 
@@ -122,6 +124,15 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     await expect(page.getByRole('row', { name: new RegExp(name) })).toContainText('2 sheets, 7 columns');
 
     const history = await api(page, 'GET', `/admin/file-definitions/${definitionId}/versions`);
+    const definitions = await api(page, 'GET', '/admin/file-definitions');
+    const savedDefinition = definitions.definitions.find((definition: { id: string }) => definition.id === definitionId);
+    expect(savedDefinition.contract).toMatchObject({
+      layout: 'sheets',
+      encoding: 'utf-8',
+      ignoredSheets: ['ReadMe'],
+      tables: [{ sheet: 'Orders' }, { sheet: 'Refunds' }],
+      rules: [],
+    });
     expect(history.hasUnpublishedChanges).toBe(false);
     expect(history.versions[0].columns).toEqual([]);
     expect(history.versions[0].tables).toEqual([

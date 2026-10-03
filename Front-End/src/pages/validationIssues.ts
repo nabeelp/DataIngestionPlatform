@@ -5,8 +5,22 @@ export interface ValidationIssue {
   value: string;
 }
 
+export type ValidationCheckStatus = 'Passed' | 'Failed' | 'Warning' | 'Error' | 'Pending' | 'In Progress' | 'Unknown';
+
+export const mapValidationCheckStatus = (status: string): ValidationCheckStatus => {
+  const statuses: Record<string, ValidationCheckStatus> = {
+    PASSED: 'Passed',
+    FAILED: 'Failed',
+    WARNING: 'Warning',
+    ERROR: 'Error',
+    PENDING: 'Pending',
+    IN_PROGRESS: 'In Progress',
+  };
+  return statuses[status] ?? 'Unknown';
+};
+
 export const getValidationIssueCount = (
-  status: 'Passed' | 'Failed' | 'Warning',
+  status: ValidationCheckStatus,
   errorCount: number | null | undefined,
   warningCount: number | null | undefined,
 ): number => status === 'Warning' ? warningCount ?? 0 : errorCount ?? 0;
@@ -45,8 +59,8 @@ export const parseValidationIssues = (failedRows: unknown): ValidationIssue[] =>
 
       return [{
         column: asDisplayText(record.column),
-        error: asDisplayText(record.error),
-        rowNumber: rowNumber !== undefined && Number.isFinite(rowNumber) ? rowNumber : undefined,
+        error: asDisplayText(record.message ?? record.error),
+        rowNumber: rowNumber !== undefined && Number.isInteger(rowNumber) && rowNumber > 0 ? rowNumber : undefined,
         value: asDisplayText(record.value),
       }];
     });

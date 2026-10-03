@@ -144,8 +144,8 @@ export class UploadController {
                 res.status(404).json({ success: false, message: 'Upload not found' });
                 return;
             }
-            const contract = await DefinitionVersionService.loadValidationContract(upload);
-            const result = await RulesService.dryRun(contract.contract, upload.Id);
+            const draftContract = await DefinitionVersionService.getDraftContract(upload.FileDefinitionId);
+            const result = await RulesService.dryRun(draftContract, upload.Id);
             res.json({ success: true, ...result });
         } catch (error) {
             logger.error(`[UPLOAD-DRY-RUN] Failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);

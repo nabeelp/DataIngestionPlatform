@@ -20,11 +20,12 @@ import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
 import { COLUMN_TYPES } from '../services/validation/ValidationEngine';
 import { MAX_SHEET_NAME_LENGTH } from '../services/validation/DefinitionContract';
+import { v4 as uuidv4 } from 'uuid';
 import type { IColumn, ITable } from '../interfaces/fileDefinition.interface';
-import type { ICreateRuleDto } from '../interfaces/rule.interface';
+import type { ICreateRuleDto, RuleType } from '../interfaces/rule.interface';
 import type { RuleConfig } from '../contracts/rule-config';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import { contractFromLegacyColumns } from '../models/contractMapper';
+import { contractFromLegacyColumns, parseRuleConfig } from '../models/contractMapper';
 import { RulesService, RulesServiceError } from '../services/RulesService.service';
 import { logger } from '../utils/logger';
 
@@ -445,7 +446,7 @@ export const getFileDefinitions = async (req: AuthRequest, res: Response, next: 
  */
 export const createFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { name, description, columns, tables, status, deliveryFolder, rules } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder, rules, contract: submittedContract } = req.body;
 
         if (!name) {
             return res.status(400).json({
@@ -457,10 +458,23 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
         let normalizedDeliveryFolder: string | null;
         let layout: DefinitionLayout;
         let initialRules: InitialRule[];
+        let baseContract: DefinitionContract;
         try {
-            layout = validateDefinitionLayout(columns, tables);
+            if (submittedContract) {
+                baseContract = submittedContract as DefinitionContract;
+                await validateDefinitionContract(baseContract);
+                layout = validateDefinitionLayout(...legacyLayoutArguments(baseContract));
+            } else {
+                layout = validateDefinitionLayout(columns, tables);
+                baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
+            }
             normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
-            initialRules = await validateInitialRules(rules, layout);
+            const configs = [
+                ...(Array.isArray(baseContract.rules) ? baseContract.rules : []),
+                ...normalizeInitialRuleConfigs(rules),
+            ];
+            baseContract = { ...baseContract, rules: [] };
+            initialRules = await validateInitialRules(configs, baseContract);
         } catch (validationError) {
             if (validationError instanceof RulesServiceError) return next(validationError);
             return res.status(400).json({ success: false, message: (validationError as Error).message });
@@ -471,6 +485,7 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             Description: description || '',
             Columns: layout.columns,
             Tables: layout.tables,
+            Contract: baseContract,
             Status: status || 'Active',
             DeliveryFolder: normalizedDeliveryFolder
         };
@@ -506,12 +521,19 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
 export const updateFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
-        const { name, description, columns, tables, status, deliveryFolder } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract } = req.body;
 
         const updates: any = {};
         try {
-            // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
-            if (tables !== undefined) {
+            if (submittedContract) {
+                const contract = { ...(submittedContract as DefinitionContract), rules: [] };
+                await validateDefinitionContract(contract);
+                const layout = validateDefinitionLayout(...legacyLayoutArguments(contract));
+                updates.Columns = layout.columns;
+                updates.Tables = layout.tables;
+                updates.Contract = contract;
+            } else if (tables !== undefined) {
+                // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
                 const layout = validateDefinitionLayout(columns, tables);
                 updates.Columns = layout.columns;
                 updates.Tables = layout.tables;
@@ -521,6 +543,7 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
             }
             if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
         } catch (validationError) {
+            if (validationError instanceof RulesServiceError) return next(validationError);
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
         if (name !== undefined) updates.Name = name;
@@ -612,6 +635,7 @@ interface MappedFileDefinition {
     allowedUsers: any[];
     templateFilename: string | null;
     deliveryFolder: string | null;
+    contract: DefinitionContract | null;
 }
 
 /**
@@ -669,36 +693,149 @@ function validateDefinitionLayout(columns: unknown, tables: unknown): Definition
     return { columns: [], tables: normalized };
 }
 
+function legacyLayoutArguments(contract: DefinitionContract): [unknown, unknown] {
+    if (contract.layout === 'single' && contract.tables.length !== 1) {
+        throw new Error('A single-table contract must contain exactly one table');
+    }
+    if (contract.layout === 'sheets' && contract.tables.some(table => !table.sheet)) {
+        throw new Error('Every table in a sheet-table contract needs a sheet name');
+    }
+
+    const toColumns = (columns: DefinitionContract['tables'][number]['columns']): IColumn[] =>
+        columns.map(column => ({
+            name: column.name,
+            type: column.type === 'date' ? 'datetime' : column.type,
+            required: column.mustExist && !column.nullable,
+        }));
+
+    if (contract.layout === 'single') {
+        return [toColumns(contract.tables[0].columns), []];
+    }
+    return [
+        [],
+        contract.tables.map(table => {
+            if (!table.sheet) throw new Error('Every table in a sheet-table contract needs a sheet name');
+            return { sheet: table.sheet, columns: toColumns(table.columns) };
+        }),
+    ];
+}
+
 type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
 
 const MAX_INITIAL_RULES = 50;
 
-/**
- * Validate optional initial RuleConfig values with the Python contract validator.
- */
-async function validateInitialRules(rules: unknown, layout: DefinitionLayout): Promise<InitialRule[]> {
-    if (rules === undefined || rules === null) return [];
-    if (!Array.isArray(rules)) throw new Error('Rules must be an array');
-    if (rules.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
+const ruleTypeLabels: Record<RuleConfig['type'], RuleType> = {
+    columnsPresent: 'Schema Validation',
+    required: 'Required Values',
+    type: 'Type Check',
+    enum: 'Enum Check',
+    range: 'Range Check',
+    pattern: 'Schema Validation',
+    length: 'Schema Validation',
+    unique: 'Schema Validation',
+    lookup: 'Schema Validation',
+    dateRange: 'Schema Validation',
+    conditionalRequired: 'Schema Validation',
+    compare: 'Schema Validation',
+    rowCount: 'Schema Validation',
+    aggregate: 'Schema Validation',
+    reconcile: 'Schema Validation',
+    naturalLanguage: 'Natural Language',
+};
 
-    const configs = rules.map((value, index) => {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            throw new Error(`Rule ${index + 1} must be a RuleConfig object`);
+const legacyRuleTypes: Record<string, RuleConfig['type']> = {
+    'enum check': 'enum',
+    'range check': 'range',
+    'required values': 'required',
+    'required': 'required',
+};
+
+function normalizeInitialRuleConfigs(value: unknown): RuleConfig[] {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error('Rules must be an array');
+
+    return value.map((candidate, index) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+            throw new Error(`Rule ${index + 1} must be a RuleConfig or supported example suggestion`);
         }
-        return value as RuleConfig;
+        const rule = candidate as Record<string, unknown>;
+        if (typeof rule.type === 'string' && rule.params && typeof rule.params === 'object' && !Array.isArray(rule.params)) {
+            return parseRuleConfig(rule);
+        }
+
+        const ruleType = typeof rule.ruleType === 'string' ? legacyRuleTypes[rule.ruleType.trim().toLowerCase()] : undefined;
+        const expression = typeof rule.expression === 'string' ? rule.expression : '';
+        const separator = expression.indexOf(':');
+        if (!ruleType) {
+            throw new Error(`Rule ${index + 1}: Rule type must be one of the supported RuleConfig types or example suggestions`);
+        }
+        if (separator < 1) {
+            throw new Error(`Rule ${index + 1} is not a supported typed rule or example suggestion`);
+        }
+        if (typeof rule.name !== 'string' || !rule.name.trim()) throw new Error(`Rule ${index + 1} needs a name`);
+        if (rule.severity !== undefined && rule.severity !== 'Error' && rule.severity !== 'Warning') {
+            throw new Error(`Rule ${index + 1} has an unsupported severity`);
+        }
+        if (rule.table !== undefined && rule.table !== null && typeof rule.table !== 'string') {
+            throw new Error(`Rule ${index + 1} has an invalid table name`);
+        }
+        if (rule.executionOrder !== undefined &&
+            (typeof rule.executionOrder !== 'number' || !Number.isInteger(rule.executionOrder) || rule.executionOrder < 1)) {
+            throw new Error(`Rule ${index + 1} has an invalid execution order`);
+        }
+        const column = expression.slice(0, separator).trim();
+        const valueText = expression.slice(separator + 1).trim();
+        if (!column || !valueText) throw new Error(`Rule ${index + 1} needs a column and rule value`);
+
+        let params: Record<string, unknown>;
+        if (ruleType === 'enum') {
+            const values = valueText.split(',').map(item => item.trim()).filter(Boolean);
+            if (values.length === 0) throw new Error(`Rule ${index + 1} needs at least one allowed value`);
+            params = { column, values };
+        } else if (ruleType === 'range') {
+            const match = valueText.match(/^(-?(?:\d+\.?\d*|\.\d+))\s*\.\.\s*(-?(?:\d+\.?\d*|\.\d+))$/);
+            if (!match) throw new Error(`Rule ${index + 1} needs numeric range bounds in min..max format`);
+            params = { column, min: Number(match[1]), max: Number(match[2]) };
+        } else {
+            params = { columns: [column] };
+        }
+
+        const severity = rule.severity === 'Warning' ? 'Warning' : 'Error';
+        const table = typeof rule.table === 'string' && rule.table.trim() ? rule.table.trim() : null;
+        return parseRuleConfig({
+            id: uuidv4(),
+            name: typeof rule.name === 'string' && rule.name.trim() ? rule.name.trim() : `Suggested rule ${index + 1}`,
+            description: typeof rule.description === 'string' ? rule.description : '',
+            severity,
+            executionOrder: typeof rule.executionOrder === 'number' ? rule.executionOrder : index + 1,
+            enabled: true,
+            table,
+            type: ruleType,
+            params,
+        });
     });
-    const baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
-    const contract: DefinitionContract = { ...baseContract, rules: configs };
+}
+
+async function validateDefinitionContract(contract: DefinitionContract): Promise<void> {
     const validation = await RulesService.validateContract(contract);
     if (!validation.ok) {
         throw new Error(validation.errors.map(error => `${error.path}: ${error.message}`).join('; '));
     }
+}
+
+/**
+ * Validate optional initial RuleConfig values with the Python contract validator.
+ */
+async function validateInitialRules(configs: RuleConfig[], baseContract: DefinitionContract): Promise<InitialRule[]> {
+    if (configs.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
+    const contract: DefinitionContract = { ...baseContract, rules: configs };
+    await validateDefinitionContract(contract);
 
     return configs.map(config => ({
         Config: config,
         Name: config.name,
         Description: config.description,
-        RuleType: config.type === 'naturalLanguage' ? 'Natural Language' : 'Required Values',
+        RuleType: ruleTypeLabels[config.type],
         Severity: config.severity,
         ExecutionOrder: config.executionOrder,
         SqlQuery: '',
@@ -719,6 +856,7 @@ function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
         updatedAt: def.UpdatedAt,
         allowedUsers: def.AllowedUsers || [],
         templateFilename: def.TemplateFilename ? getTemplateDisplayName(def.TemplateFilename) : null,
-        deliveryFolder: def.DeliveryFolder || null
+        deliveryFolder: def.DeliveryFolder || null,
+        contract: def.Contract || null
     };
 }

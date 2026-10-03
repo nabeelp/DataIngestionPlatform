@@ -1,20 +1,44 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
-const GENERATED_CODE = `function validateRow(row: Row, rowNumber: number): string | null {
-  const email = row['Email'];
-  if (email === null || email === '') return null;
-  return String(email).endsWith('@contoso.example') ? null : 'Email must end with @contoso.example';
-}`;
-const PSEUDOCODE = 'FOR EACH row:\n  IF Email is not empty AND does not end with "@contoso.example": report issue';
-
-const generatedRule = {
-  Id: 'rule-nl', FileDefinitionId: 'definition-id', Name: 'Contoso email', Description: 'Email must end with @contoso.example',
-  RuleType: 'Natural Language', Severity: 'Error', ExecutionOrder: 2, SqlQuery: 'Email', IsEnabled: true,
-  NaturalLanguageText: 'Email must end with @contoso.example', Pseudocode: PSEUDOCODE, GeneratedCode: GENERATED_CODE,
+const generatedConfig = {
+  id: 'rule-nl',
+  name: 'Contoso email',
+  description: 'Emails must use the Contoso example domain.',
+  severity: 'Error',
+  executionOrder: 2,
+  enabled: true,
+  table: null,
+  type: 'naturalLanguage',
+  params: {
+    request: 'Email must end with @contoso.example',
+    explanation: 'Each non-empty Email value must use the approved domain.',
+    mode: 'row',
+    failWhen: "NOT ENDS_WITH(Email, '@contoso.example')",
+    query: null,
+    message: 'Email must end with @contoso.example',
+    columns: { '': ['Email'] },
+    examples: [
+      { table: '', values: { Email: 'person@contoso.example' }, expectedValid: true, source: 'model' },
+      { table: '', values: { Email: 'person@example.org' }, expectedValid: false, source: 'model' },
+    ],
+    provenance: {
+      model: 'test-model',
+      responseId: 'response-123',
+      promptSha256: 'a'.repeat(64),
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+  },
 };
-const mappedRule = {
-  Id: 'rule-1', FileDefinitionId: 'definition-id', Name: 'Amount range', Description: '', RuleType: 'Range Check',
-  Severity: 'Error', ExecutionOrder: 1, SqlQuery: 'Amount: 0..100', IsEnabled: true,
+const mappedConfig = {
+  id: 'rule-1',
+  name: 'Amount range',
+  description: '',
+  severity: 'Error',
+  executionOrder: 1,
+  enabled: true,
+  table: null,
+  type: 'range',
+  params: { column: 'Amount', min: 0, max: 100, minInclusive: true, maxInclusive: true },
 };
 const ndjson = (events: object[]) => events.map(event => JSON.stringify(event)).join('\n') + '\n';
 
@@ -41,7 +65,7 @@ const mockApi = async (page: Page, naturalLanguage: (route: Route) => Promise<vo
 const openNaturalLanguageDrawer = async (page: Page) => {
   await page.goto('/admin/rules');
   await page.getByRole('button', { name: 'New Rule' }).click();
-  await page.getByLabel('Evaluation Strategy').selectOption('Natural Language');
+  await page.getByLabel('Evaluation Strategy').selectOption('naturalLanguage');
   await page.getByLabel('Rule to enforce').fill('Email must not end with microsoft.com');
 };
 
@@ -87,12 +111,13 @@ test('the admin sees a running timer and can stop a slow review', async ({ page 
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
-test('natural-language rules map to existing types or keep generated code, and are shown and edited safely', async ({ page }) => {
+test('natural-language RuleConfigs show provenance and editable examples, and can be dry-run safely', async ({ page }) => {
   const rules: object[] = [];
   const requests: string[] = [];
-  const manualRules: Array<{ RuleType: string; SqlQuery: string }> = [];
+  const manualRules: Array<{ Config: { type: string; params: Record<string, unknown> } }> = [];
   const updates: object[] = [];
-  const regenerations: string[] = [];
+  const exampleTests: Array<{ Config: { params: Record<string, unknown> }; examples: unknown[] }> = [];
+  const dryRuns: string[] = [];
   await page.addInitScript(() => {
     localStorage.setItem('token', 'header.payload.signature');
     localStorage.setItem('user', JSON.stringify({ id: 'admin', email: 'admin@example.com', Role: 'admin' }));
@@ -105,7 +130,14 @@ test('natural-language rules map to existing types or keep generated code, and a
     if (path.endsWith('/definitions') && method === 'GET') {
       body = { success: true, definitions: [{ Id: 'definition-id', Name: 'Orders', Tables: [] }] };
     } else if (path.endsWith('/admin/file-definitions')) {
-      body = { success: true, definitions: [{ id: 'definition-id', tables: [] }] };
+      body = {
+        success: true,
+        definitions: [{
+          id: 'definition-id',
+          tables: [],
+          contract: { layout: 'single', tables: [{ sheet: null, columns: [{ name: 'Email' }, { name: 'Amount' }] }], lookups: {} },
+        }],
+      };
     } else if (path.endsWith('/rules/definitions/definition-id')) {
       body = { success: true, rules };
     } else if (path.endsWith('/rules/natural-language')) {
@@ -115,11 +147,11 @@ test('natural-language rules map to existing types or keep generated code, and a
       if (Request.startsWith('Customer')) {
         result = { success: true, outcome: 'rejected', reason: 'It needs data from another system.' };
       } else if (Request.startsWith('Amount')) {
-        rules.push(mappedRule);
-        result = { success: true, outcome: 'mapped', reason: 'An inclusive range expresses this exactly.', rule: mappedRule, pseudocode: 'IF Amount outside 0..100: report issue' };
+        rules.push(mappedConfig);
+        result = { success: true, outcome: 'mapped', reason: 'An inclusive range expresses this exactly.', config: mappedConfig };
       } else {
-        rules.push(generatedRule);
-        result = { success: true, outcome: 'natural_language', reason: 'No existing type checks a text suffix.', rule: generatedRule, pseudocode: PSEUDOCODE, typescript: GENERATED_CODE };
+        rules.push(generatedConfig);
+        result = { success: true, outcome: 'natural_language', reason: 'No existing type checks a text suffix.', config: generatedConfig };
       }
       // The review streams its activity as NDJSON, ending with the result.
       await route.fulfill({ status: 200, contentType: 'application/x-ndjson; charset=utf-8', body: ndjson([
@@ -129,26 +161,43 @@ test('natural-language rules map to existing types or keep generated code, and a
         { type: 'result', ...result },
       ]) });
       return;
-    } else if (path.endsWith('/rules') && method === 'POST') {
-      manualRules.push(route.request().postDataJSON());
-      status = 201;
-      body = { success: true, rule: { Name: 'Manual range' } };
-    } else if (path.endsWith('/rules/rule-nl/regenerate') && method === 'POST') {
-      const { Request } = route.request().postDataJSON() as { Request: string };
-      regenerations.push(Request);
-      generatedRule.NaturalLanguageText = Request;
-      generatedRule.Description = Request;
+    } else if (path.endsWith('/rules/validate')) {
+      body = { ok: true, errors: [] };
+    } else if (path.endsWith('/rules/test')) {
+      const payload = route.request().postDataJSON() as { Config: { params: Record<string, unknown> }; examples: unknown[] };
+      exampleTests.push(payload);
+      body = {
+        ok: true,
+        errors: [],
+        results: payload.examples.map((example, index) => ({
+          index: index + 1,
+          table: '',
+          expectedValid: (example as { expectedValid: boolean }).expectedValid,
+          actualValid: (example as { expectedValid: boolean }).expectedValid,
+          passed: true,
+          error: null,
+        })),
+      };
+    } else if (path.endsWith('/uploads/recent')) {
       body = {
         success: true,
-        outcome: 'natural_language',
-        reason: 'The revised request still needs generated code.',
-        rule: generatedRule,
-        pseudocode: PSEUDOCODE,
-        typescript: GENERATED_CODE,
+        uploads: [{
+          Id: 'upload-dry-run',
+          FileDefinitionId: 'definition-id',
+          OriginalFilename: 'recent.csv',
+          Status: 'VALIDATED',
+        }],
       };
+    } else if (path.endsWith('/uploads/upload-dry-run/dry-run') && method === 'POST') {
+      dryRuns.push(path.split('/api/v1').pop() || path);
+      body = { success: true, status: 'completed', structuralIssues: [], checks: [{ id: 'rule-nl', name: 'Contoso email', status: 'PASS', issueCount: 0 }] };
+    } else if (path.endsWith('/rules') && method === 'POST') {
+      manualRules.push(route.request().postDataJSON() as typeof manualRules[number]);
+      status = 201;
+      body = { success: true, rule: route.request().postDataJSON() };
     } else if (path.endsWith('/rules/rule-nl') && method === 'PUT') {
       updates.push(route.request().postDataJSON());
-      body = { success: true, rule: generatedRule };
+      body = { success: true, rule: generatedConfig };
     }
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
@@ -156,8 +205,8 @@ test('natural-language rules map to existing types or keep generated code, and a
   await page.goto('/admin/rules');
   await page.getByRole('button', { name: 'New Rule' }).click();
   const strategy = page.getByLabel('Evaluation Strategy');
-  await expect(strategy).toHaveValue('Schema Validation');
-  await strategy.selectOption('Natural Language');
+  await expect(strategy).toHaveValue('columnsPresent');
+  await strategy.selectOption('naturalLanguage');
   await expect(page.getByLabel('Rule Expression')).toHaveCount(0);
   const requestBox = page.getByLabel('Rule to enforce');
   const submit = page.getByRole('button', { name: 'Review and create rule' });
@@ -176,7 +225,7 @@ test('natural-language rules map to existing types or keep generated code, and a
   // Mapped without loss to an existing type.
   await requestBox.fill('Amount must be between 0 and 100');
   await submit.click();
-  await expect(page.getByRole('status')).toContainText('Created draft rule "Amount range" as Numeric range: Amount: 0..100');
+  await expect(page.getByRole('status')).toContainText('Created draft rule "Amount range" as Range Check: Amount: 0..100');
   // Once saved, the drawer moves on: Done or Create another, with the publish step pointed out.
   await expect(submit).toHaveCount(0);
   await expect(requestBox).toBeDisabled();
@@ -189,53 +238,49 @@ test('natural-language rules map to existing types or keep generated code, and a
   await expect(page.getByRole('log', { name: 'Rule review activity' })).toHaveCount(0);
   await expect(submit).toBeDisabled();
 
-  // Not mappable: kept as a Natural Language rule with pseudocode and TypeScript.
+  // Not mappable to a built-in type: saved as a declarative Natural Language RuleConfig.
   await requestBox.fill('Email must end with @contoso.example');
   await submit.click();
-  const created = page.getByRole('status');
+  const created = page.getByRole('status').filter({ hasText: 'Created draft Natural Language rule' });
   await expect(created).toContainText('Created draft Natural Language rule "Contoso email"');
-  await expect(created.getByText(PSEUDOCODE.split('\n')[1].trim())).toBeVisible();
-  await expect(created.getByLabel('TypeScript implementation')).toContainText('function validateRow');
+  await expect(created).toContainText('Rule explanation');
+  await expect(created).toContainText('Validated SQL expression');
+  await expect(created).toContainText('Model provenance');
+  await expect(created).toContainText('response-123');
+  await expect(created).toContainText('Validated examples (2)');
   expect(requests).toEqual(['Customer must exist in the CRM', 'Amount must be between 0 and 100', 'Email must end with @contoso.example']);
 
-  // Done closes the drawer; the list shows the original text, pseudocode and code of the generated rule.
-  await page.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('heading', { name: 'New Validation Rule' })).toHaveCount(0);
-  const card = page.locator('div.p-5', { has: page.getByRole('heading', { name: 'Contoso email' }) });
-  await expect(card).toContainText('Natural Language');
-  await expect(card).toContainText('Columns read: Email');
-  await expect(card.getByRole('blockquote')).toHaveText('Email must end with @contoso.example');
-  await card.getByText('TypeScript implementation', { exact: true }).click();
-  await expect(card.getByLabel('TypeScript implementation')).toContainText("endsWith('@contoso.example')");
+  await page.getByRole('button', { name: 'Review and edit examples' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Validation Rule' })).toBeVisible();
+  await expect(page.getByLabel('Original request')).toHaveValue('Email must end with @contoso.example');
+  await expect(page.getByLabel('Recent upload for dry run')).toHaveValue('upload-dry-run');
+  await page.getByLabel('Example values as JSON').first().fill('{"Email":"reviewed@contoso.example"}');
+  await page.getByRole('button', { name: 'Run examples' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'All 2 examples matched their expected result.' }))
+    .toBeVisible();
+  expect(exampleTests).toHaveLength(1);
+  expect(exampleTests[0].examples[0]).toMatchObject({ values: { Email: 'reviewed@contoso.example' }, source: 'admin' });
 
-  // Editing a generated rule allows its original request to be revised and safely regenerated.
-  await card.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(page.getByLabel('Rule Expression')).toHaveCount(0);
-  await expect(page.getByLabel('Evaluation Strategy')).toHaveCount(0);
-  const originalRequest = page.getByLabel('Original request');
-  await expect(originalRequest).toHaveValue('Email must end with @contoso.example');
-  await expect(page.getByRole('button', { name: 'Regenerate from request' })).toBeDisabled();
-  await originalRequest.fill('Email must end with @contoso.example and be lowercase');
-  await page.getByRole('button', { name: 'Regenerate from request' }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Validation Rule' })).toHaveCount(0);
-  expect(regenerations).toEqual(['Email must end with @contoso.example and be lowercase']);
+  await page.getByRole('button', { name: 'Dry run' }).click();
+  const dryRunStatus = page.getByRole('status').filter({ hasText: 'Preview status: completed' });
+  await expect(dryRunStatus).toContainText('Contoso email: PASS (0 issue(s))');
+  await expect(dryRunStatus).not.toContainText('reviewed@contoso.example');
+  expect(dryRuns).toEqual(['/uploads/upload-dry-run/dry-run']);
 
-  // Presentation-only updates remain available without another model call.
-  await card.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByPlaceholder('e.g., Amount Cannot Be Negative').fill('Contoso email only');
   await page.getByRole('button', { name: 'Update Rule' }).click();
-  await expect.poll(() => updates).toEqual([{ Name: 'Contoso email only', Description: 'Email must end with @contoso.example and be lowercase', Severity: 'Error', ExecutionOrder: 2 }]);
+  await expect.poll(() => updates).toHaveLength(1);
+  const updatedConfig = (updates[0] as { Config: { name: string; params: { examples: Array<{ values: Record<string, string> }> } } }).Config;
+  expect(updatedConfig.name).toBe('Contoso email only');
+  expect(updatedConfig.params.examples[0].values).toEqual({ Email: 'reviewed@contoso.example' });
 
-  // Generated rules cannot be cloned into a manual rule.
-  await card.getByRole('button').first().click();
-  await expect(page.getByRole('button', { name: 'Clone Logic' })).toHaveCount(0);
-  await page.locator('div.fixed.inset-0.z-10').click();
-
-  // Manual rule creation is unchanged.
+  // Manual rule authoring also uses typed parameters instead of expression text.
   await page.getByRole('button', { name: 'New Rule' }).click();
-  await page.getByLabel('Evaluation Strategy').selectOption('Range Check');
+  await page.getByLabel('Evaluation Strategy').selectOption('range');
   await page.getByPlaceholder('e.g., Amount Cannot Be Negative').fill('Manual range');
-  await page.getByLabel('Rule Expression').fill('Amount: 0..50');
+  await page.getByLabel('Column').fill('Amount');
+  await page.getByRole('spinbutton', { name: 'Minimum' }).fill('0');
+  await page.getByRole('spinbutton', { name: 'Maximum' }).fill('50');
   await page.getByRole('button', { name: 'Save Validation Rule' }).click();
-  await expect.poll(() => manualRules).toMatchObject([{ RuleType: 'Range Check', SqlQuery: 'Amount: 0..50' }]);
+  await expect.poll(() => manualRules).toMatchObject([{ Config: { type: 'range', params: { column: 'Amount', min: 0, max: 50 } } }]);
 });

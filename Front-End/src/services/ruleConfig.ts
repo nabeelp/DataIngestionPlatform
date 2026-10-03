@@ -7,18 +7,10 @@ export interface RuleConfigForm {
   executionOrder: number;
   severity: 'Error' | 'Warning';
   enabled: boolean;
-  ruleType: string;
-  expression: string;
+  ruleType: RuleConfig['type'];
+  params: Record<string, unknown>;
   table: string | null;
 }
-
-const EXPRESSION_TYPES = new Set(['columnsPresent', 'required', 'type', 'enum', 'range']);
-
-const list = (value: string, field: string): [string, ...string[]] => {
-  const values = value.split(',').map(item => item.trim()).filter(Boolean);
-  if (!values.length) throw new Error(`${field} must contain at least one column or value.`);
-  return [values[0], ...values.slice(1)];
-};
 
 const common = (form: RuleConfigForm) => ({
   id: form.id,
@@ -30,60 +22,77 @@ const common = (form: RuleConfigForm) => ({
   table: form.table,
 });
 
-export function ruleConfigFromForm(form: RuleConfigForm): RuleConfig {
-  const base = common(form);
-  switch (form.ruleType) {
-    case 'Schema Validation':
-      return { ...base, type: 'columnsPresent', params: { columns: list(form.expression, 'Columns') } };
-    case 'Required Values':
-      return { ...base, type: 'required', params: { columns: list(form.expression, 'Columns') } };
-    case 'Type Check': {
-      const match = /^\s*([^:]+?)\s*:\s*(string|integer|decimal|date|datetime|boolean)\s*$/i.exec(form.expression);
-      if (!match) throw new Error('Data type must use the form "Column: type".');
+const withoutUndefined = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withoutUndefined);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, withoutUndefined(item)]),
+  );
+};
+
+export function defaultRuleParams(type: RuleConfig['type']): Record<string, unknown> {
+  switch (type) {
+    case 'columnsPresent':
+    case 'required':
+    case 'unique':
+      return { columns: [''] };
+    case 'type':
+      return { column: '', dataType: 'string' };
+    case 'enum':
+      return { column: '', values: [''], caseSensitive: true, trim: true };
+    case 'range':
+      return { column: '', min: undefined, max: undefined, minInclusive: true, maxInclusive: true };
+    case 'pattern':
+      return { column: '', pattern: '', caseSensitive: true };
+    case 'length':
+      return { column: '', min: undefined, max: undefined };
+    case 'lookup':
+      return { column: '', lookupId: '', caseSensitive: true };
+    case 'dateRange':
+      return { column: '', min: undefined, max: undefined };
+    case 'conditionalRequired':
+      return { columns: [''], when: { column: '', op: 'eq', value: '' } };
+    case 'compare':
+      return { left: '', op: 'eq', right: '', as: 'string' };
+    case 'rowCount':
+      return { min: undefined, max: undefined };
+    case 'aggregate':
+      return { column: '', fn: 'sum', min: undefined, max: undefined };
+    case 'reconcile':
       return {
-        ...base,
-        type: 'type',
-        params: { column: match[1].trim(), dataType: match[2].toLowerCase() as 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean' },
+        left: { table: '', column: '', fn: 'sum' },
+        right: { table: '', column: '', fn: 'sum' },
+        tolerance: 0,
       };
-    }
-    case 'Enum Check': {
-      const separator = form.expression.indexOf(':');
-      if (separator < 1) throw new Error('Allowed values must use the form "Column: Value1, Value2".');
-      const column = form.expression.slice(0, separator).trim();
-      if (!column) throw new Error('Allowed values require a column name.');
-      return {
-        ...base,
-        type: 'enum',
-        params: { column, values: list(form.expression.slice(separator + 1), 'Allowed values') },
-      };
-    }
-    case 'Range Check': {
-      const match = /^\s*([^:]+?)\s*:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))?\s*\.\.\s*(-?(?:\d+(?:\.\d*)?|\.\d+))?\s*$/.exec(form.expression);
-      if (!match || (!match[2] && !match[3])) {
-        throw new Error('Numeric range must use "Column: minimum..maximum" with at least one bound.');
-      }
-      return {
-        ...base,
-        type: 'range',
-        params: {
-          column: match[1].trim(),
-          ...(match[2] ? { min: Number(match[2]) } : {}),
-          ...(match[3] ? { max: Number(match[3]) } : {}),
-        },
-      };
-    }
-    default:
-      throw new Error(`The ${form.ruleType} rule editor is not supported.`);
+    case 'naturalLanguage':
+      return {};
   }
 }
 
-export function updateRuleConfigFromForm(config: RuleConfig, form: RuleConfigForm): RuleConfig {
-  if (EXPRESSION_TYPES.has(config.type)) {
-    return ruleConfigFromForm({ ...form, id: config.id });
+export function ruleConfigFromForm(form: RuleConfigForm): RuleConfig {
+  if (form.ruleType === 'naturalLanguage') {
+    throw new Error('Natural Language rules must be created through the review workflow.');
   }
   return {
-    ...config,
-    ...common({ ...form, id: config.id }),
+    ...common(form),
+    type: form.ruleType,
+    params: withoutUndefined(form.params) as Record<string, unknown>,
+  } as RuleConfig;
+}
+
+export function updateRuleConfigFromForm(config: RuleConfig, form: RuleConfigForm): RuleConfig {
+  if (config.type !== form.ruleType) return ruleConfigFromForm({ ...form, id: config.id });
+  if (config.type === 'naturalLanguage') {
+    return {
+      ...config,
+      ...common({ ...form, id: config.id }),
+      params: withoutUndefined(form.params) as RuleConfig['params'],
+    };
+  }
+  return {
+    ...ruleConfigFromForm({ ...form, id: config.id }),
   };
 }
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion } from './adminApi';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import { createFileDefinitionAdmin, getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion } from './adminApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -11,6 +12,46 @@ const stubFetch = (status: number, body: unknown) => {
 };
 
 describe('definition version API', () => {
+  it('sends the fixed validation contract when creating a definition', async () => {
+    const fetchMock = stubFetch(201, { success: true, definition: { id: 'def-1' } });
+    const contract: DefinitionContract = {
+      schemaVersion: 1,
+      layout: 'single',
+      ignoredSheets: ['Notes'],
+      encoding: 'utf-8',
+      tables: [{
+        sheet: null,
+        headerRow: 2,
+        allowExtraColumns: false,
+        minRows: 1,
+        maxRows: 20,
+        columns: [{
+          name: 'Amount',
+          type: 'decimal' as const,
+          mustExist: true,
+          nullable: false,
+          decimalSeparator: ',',
+          thousandsSeparator: '.',
+          precision: 10,
+          scale: 2,
+          maxLength: 12,
+          unique: true,
+        }],
+      }],
+      rules: [],
+      lookups: {},
+    };
+
+    await createFileDefinitionAdmin({
+      name: 'Transactions',
+      columns: [{ name: 'Amount', type: 'decimal', required: true }],
+      contract,
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body).contract).toEqual(contract);
+  });
+
   it('loads the version history and draft changes for a definition', async () => {
     const fetchMock = stubFetch(200, {
       success: true,

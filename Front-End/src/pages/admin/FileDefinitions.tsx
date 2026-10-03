@@ -17,19 +17,37 @@ import {
   IFileDefinitionUser,
   InitialRule
 } from '../../services/adminApi';
+import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../../contracts/definition-contract';
 
 import { Plus, Edit, Trash2, X, Check, Users, History } from 'lucide-react';
-import { Download, FileText, Upload } from 'lucide-react';
+import { Download } from 'lucide-react';
 import DefinitionVersionsModal from './DefinitionVersionsModal';
 import ExampleFileAssistant from './ExampleFileAssistant';
 import ColumnsEditor from './ColumnsEditor';
 import { rulesForLayout, type ColumnHint, type DefinitionLayout, type ExampleProposal } from './exampleProposal';
 
 const INITIAL_COLUMNS: FileDefinitionColumn[] = [
-  { name: 'Column1', type: 'string', required: true }
+  { name: 'Column1', type: 'string', required: true, mustExist: true, nullable: false }
 ];
 
-interface DefinitionForm {
+const EMPTY_CONTRACT: DefinitionContract = {
+  schemaVersion: 1,
+  layout: 'single',
+  ignoredSheets: [],
+  encoding: 'auto',
+  tables: [{
+    sheet: null,
+    headerRow: null,
+    allowExtraColumns: true,
+    minRows: null,
+    maxRows: null,
+    columns: [{ name: 'Column1', type: 'string', mustExist: true, nullable: false }],
+  }],
+  rules: [],
+  lookups: {},
+};
+
+export interface DefinitionForm {
   name: string;
   description: string;
   layout: DefinitionLayout;
@@ -37,6 +55,7 @@ interface DefinitionForm {
   tables: FileDefinitionTable[];
   status: string;
   deliveryFolder: string;
+  contract: DefinitionContract;
 }
 
 const EMPTY_FORM: DefinitionForm = {
@@ -46,10 +65,71 @@ const EMPTY_FORM: DefinitionForm = {
   columns: INITIAL_COLUMNS,
   tables: [],
   status: 'Active',
-  deliveryFolder: ''
+  deliveryFolder: '',
+  contract: EMPTY_CONTRACT,
 };
 
 const pendingRuleKey = (rule: InitialRule) => `${rule.table ?? ''}\u0000${rule.name}`;
+
+const toEditorColumn = (column: ContractColumn | FileDefinitionColumn): FileDefinitionColumn => {
+  const required = 'required' in column && typeof column.required === 'boolean'
+    ? column.required
+    : (column.mustExist ?? false) && !(column.nullable ?? true);
+  return { ...column, required };
+};
+
+const toEditorTable = (legacy: FileDefinitionTable | undefined, contract: ContractTable | undefined): FileDefinitionTable => ({
+  sheet: legacy?.sheet ?? contract?.sheet ?? '',
+  headerRow: contract ? contract.headerRow : legacy?.headerRow ?? null,
+  allowExtraColumns: contract ? contract.allowExtraColumns : legacy?.allowExtraColumns ?? true,
+  minRows: contract ? contract.minRows : legacy?.minRows ?? null,
+  maxRows: contract ? contract.maxRows : legacy?.maxRows ?? null,
+  columns: (contract?.columns.length ? contract.columns : legacy?.columns ?? []).map(toEditorColumn),
+});
+
+const toContractColumn = ({ required, ...column }: FileDefinitionColumn): ContractColumn => ({
+  ...column,
+  mustExist: column.mustExist ?? required,
+  nullable: column.nullable ?? !required,
+} as ContractColumn);
+
+export const buildDefinitionContract = (form: DefinitionForm): DefinitionContract => {
+  const tableDefaults = form.contract.tables;
+  const tables: ContractTable[] = form.layout === 'single'
+    ? [{
+        ...tableDefaults[0],
+        sheet: null,
+        headerRow: tableDefaults[0]?.headerRow ?? null,
+        allowExtraColumns: tableDefaults[0]?.allowExtraColumns ?? true,
+        minRows: tableDefaults[0]?.minRows ?? null,
+        maxRows: tableDefaults[0]?.maxRows ?? null,
+        columns: form.columns.map(toContractColumn),
+      }]
+    : form.tables.map((table, index) => ({
+        ...tableDefaults[index],
+        sheet: table.sheet,
+        headerRow: table.headerRow !== undefined ? table.headerRow : tableDefaults[index]?.headerRow ?? null,
+        allowExtraColumns: table.allowExtraColumns ?? tableDefaults[index]?.allowExtraColumns ?? true,
+        minRows: table.minRows !== undefined ? table.minRows : tableDefaults[index]?.minRows ?? null,
+        maxRows: table.maxRows !== undefined ? table.maxRows : tableDefaults[index]?.maxRows ?? null,
+        columns: table.columns.map(toContractColumn),
+      }));
+
+  const fallbackTable: ContractTable = {
+    sheet: form.layout === 'single' ? null : 'Sheet1',
+    headerRow: null,
+    allowExtraColumns: true,
+    minRows: null,
+    maxRows: null,
+    columns: [],
+  };
+  return {
+    ...form.contract,
+    schemaVersion: 1,
+    layout: form.layout,
+    tables: [tables[0] ?? fallbackTable, ...tables.slice(1)],
+  };
+};
 
 export default function FileDefinitions() {
   const [definitions, setDefinitions] = useState<FileDefinitionAdmin[]>([]);
@@ -69,7 +149,6 @@ export default function FileDefinitions() {
   const [userSearch, setUserSearch] = useState('');
   // User counts for table
   const [definitionUserCounts, setDefinitionUserCounts] = useState<Record<string, number>>({});
-  const [loadingCounts, setLoadingCounts] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [currentTemplateFilename, setCurrentTemplateFilename] = useState<string | null>(null);
@@ -89,13 +168,10 @@ export default function FileDefinitions() {
     const fetchUserCounts = async () => {
       if (definitions.length === 0) return;
       try {
-        setLoadingCounts(true);
         const counts = await getFileDefinitionUserCounts();
         setDefinitionUserCounts(counts);
       } catch (error) {
         console.error('Failed to fetch user counts:', error);
-      } finally {
-        setLoadingCounts(false);
       }
     };
 
@@ -138,7 +214,8 @@ export default function FileDefinitions() {
       columns: formData.layout === 'single' ? formData.columns : [],
       tables: formData.layout === 'sheets' ? formData.tables : [],
       status: formData.status,
-      deliveryFolder: formData.deliveryFolder.trim() || null
+      deliveryFolder: formData.deliveryFolder.trim() || null,
+      contract: buildDefinitionContract(formData),
     };
     const initialRules = editingId ? [] : rulesForLayout(pendingRules, formData).kept;
 
@@ -194,16 +271,37 @@ export default function FileDefinitions() {
   };
 
   const handleEdit = (def: FileDefinitionAdmin) => {
-    const tables = def.tables ?? [];
+    const contract = def.contract ?? EMPTY_CONTRACT;
+    const legacyTables = def.tables ?? [];
+    const tables = legacyTables.length > 0
+      ? legacyTables.map((table, index) => toEditorTable(table, def.contract?.tables[index]))
+      : def.contract?.layout === 'sheets'
+        ? def.contract.tables.map(table => toEditorTable(undefined, table))
+        : [];
+    const layout: DefinitionLayout = def.contract?.layout ?? (tables.length > 0 ? 'sheets' : 'single');
+    const singleContractTable = contract.tables[0];
     setEditingId(def.id);
     setFormData({
       name: def.name,
       description: def.description || '',
-      layout: tables.length > 0 ? 'sheets' : 'single',
-      columns: def.columns.length > 0 ? def.columns : INITIAL_COLUMNS,
+      layout,
+      columns: (singleContractTable?.columns.length ? singleContractTable.columns : def.columns).length > 0
+        ? (singleContractTable?.columns.length ? singleContractTable.columns : def.columns).map(toEditorColumn)
+        : INITIAL_COLUMNS,
       tables,
       status: def.status,
-      deliveryFolder: def.deliveryFolder || ''
+      deliveryFolder: def.deliveryFolder || '',
+      contract: {
+        ...EMPTY_CONTRACT,
+        ...contract,
+        schemaVersion: 1,
+        layout,
+        ignoredSheets: contract.ignoredSheets ?? [],
+        encoding: contract.encoding ?? 'auto',
+        rules: contract.rules ?? [],
+        lookups: contract.lookups ?? {},
+        tables: contract.tables.length ? contract.tables : EMPTY_CONTRACT.tables,
+      },
     });
     setCurrentTemplateFilename(def.templateFilename || null);
     setTemplateFile(null);
@@ -241,6 +339,16 @@ export default function FileDefinitions() {
       ...prev,
       tables: prev.tables.map((table, i) => (i === index ? { ...table, ...changes } : table)),
     }));
+  };
+
+  const updateSingleTable = (changes: Partial<ContractTable>) => {
+    setFormData(prev => {
+      const [first, ...rest] = prev.contract.tables;
+      return {
+        ...prev,
+        contract: { ...prev.contract, tables: [{ ...first, ...changes }, ...rest] },
+      };
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -623,6 +731,44 @@ export default function FileDefinitions() {
 
               {formData.layout === 'single' ? (
                 <div className="mb-4">
+                  <fieldset className="mb-3 rounded-md border border-gray-200 p-3">
+                    <legend className="px-1 text-sm font-medium text-gray-700">Table settings</legend>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <label className="text-xs text-gray-600">
+                        Header row (blank = detect automatically)
+                        <input
+                          aria-label="Header row"
+                          type="number"
+                          min="1"
+                          value={formData.contract.tables[0]?.headerRow ?? ''}
+                          onChange={e => updateSingleTable({ headerRow: e.target.value === '' ? null : Number(e.target.value) })}
+                          className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={formData.contract.tables[0]?.allowExtraColumns ?? true}
+                          onChange={e => updateSingleTable({ allowExtraColumns: e.target.checked })}
+                          className="rounded border-gray-300"
+                        />
+                        Allow extra columns
+                      </label>
+                      {(['minRows', 'maxRows'] as const).map(field => (
+                        <label key={field} className="text-xs text-gray-600">
+                          {field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
+                          <input
+                            aria-label={field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
+                            type="number"
+                            min="0"
+                            value={formData.contract.tables[0]?.[field] ?? ''}
+                            onChange={e => updateSingleTable({ [field]: e.target.value === '' ? null : Number(e.target.value) })}
+                            className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
                   <ColumnsEditor
                     columns={formData.columns}
                     onChange={columns => setFormData(prev => ({ ...prev, columns }))}
@@ -659,6 +805,41 @@ export default function FileDefinitions() {
                           </button>
                         )}
                       </div>
+                      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <label className="text-xs text-gray-600">
+                          Header row (blank = detect automatically)
+                          <input
+                            aria-label={`Header row for ${table.sheet}`}
+                            type="number"
+                            min="1"
+                            value={table.headerRow ?? ''}
+                            onChange={e => updateTable(tableIndex, { headerRow: e.target.value === '' ? null : Number(e.target.value) })}
+                            className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={table.allowExtraColumns ?? true}
+                            onChange={e => updateTable(tableIndex, { allowExtraColumns: e.target.checked })}
+                            className="rounded border-gray-300"
+                          />
+                          Allow extra columns
+                        </label>
+                        {(['minRows', 'maxRows'] as const).map(field => (
+                          <label key={field} className="text-xs text-gray-600">
+                            {field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
+                            <input
+                              aria-label={`${field === 'minRows' ? 'Minimum rows' : 'Maximum rows'} for ${table.sheet}`}
+                              type="number"
+                              min="0"
+                              value={table[field] ?? ''}
+                              onChange={e => updateTable(tableIndex, { [field]: e.target.value === '' ? null : Number(e.target.value) })}
+                              className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            />
+                          </label>
+                        ))}
+                      </div>
                       <ColumnsEditor
                         columns={table.columns}
                         onChange={columns => updateTable(tableIndex, { columns })}
@@ -679,6 +860,48 @@ export default function FileDefinitions() {
                   </button>
                 </div>
               )}
+
+              <fieldset className="mb-4 rounded-md border border-gray-200 p-3">
+                <legend className="px-1 text-sm font-medium text-gray-700">File contract settings</legend>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-sm text-gray-700">
+                    Text encoding
+                    <select
+                      aria-label="Text encoding"
+                      value={formData.contract.encoding}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        contract: { ...prev.contract, encoding: e.target.value as DefinitionContract['encoding'] },
+                      }))}
+                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="auto">Auto detect</option>
+                      <option value="utf-8">UTF-8</option>
+                      <option value="utf-16">UTF-16</option>
+                      <option value="windows-1252">Windows-1252</option>
+                      <option value="iso-8859-1">ISO-8859-1</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-gray-700">
+                    Ignored workbook sheets
+                    <textarea
+                      aria-label="Ignored workbook sheets"
+                      value={formData.contract.ignoredSheets.join('\n')}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        contract: {
+                          ...prev.contract,
+                          ignoredSheets: e.target.value.split('\n').map(sheet => sheet.trim()).filter(Boolean),
+                        },
+                      }))}
+                      rows={3}
+                      placeholder="One sheet name per line"
+                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                    <span className="mt-1 block text-xs text-gray-500">These workbook sheets are skipped during validation.</span>
+                  </label>
+                </div>
+              </fieldset>
 
               {!editingId && pendingRules.length > 0 && (
                 <div className="mb-4">
@@ -908,4 +1131,3 @@ export default function FileDefinitions() {
     </div>
   );
 }
-

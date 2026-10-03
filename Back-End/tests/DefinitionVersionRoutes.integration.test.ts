@@ -161,6 +161,61 @@ describeDb('definition version routes', () => {
         });
     });
 
+    it('creates and updates full sheet contracts while converting supported example suggestions', async () => {
+        const contract = {
+            schemaVersion: 1,
+            layout: 'sheets',
+            ignoredSheets: ['Notes'],
+            encoding: 'auto',
+            tables: [{
+                sheet: 'Summary',
+                headerRow: 2,
+                allowExtraColumns: false,
+                minRows: 1,
+                maxRows: 500,
+                columns: [{ name: 'Status', type: 'string', mustExist: true, nullable: false }],
+            }],
+            rules: [],
+            lookups: {},
+        };
+        const created = await call('admin', 'POST', '/admin/file-definitions', {
+            name: `Contract routes ${Date.now()}`,
+            columns: [],
+            tables: [{ sheet: 'Summary', columns: [{ name: 'Status', type: 'string', required: true }] }],
+            contract,
+            rules: [{
+                name: 'Status allowed values',
+                ruleType: 'Enum Check',
+                expression: 'Status: Closed, Open',
+                severity: 'Error',
+                table: 'Summary',
+            }],
+        });
+        expect(created.status).toBe(201);
+        const id = created.body.definition.id;
+        createdDefinitions.push(id);
+        expect(created.body.definition.contract).toMatchObject({
+            layout: 'sheets',
+            ignoredSheets: ['Notes'],
+            tables: [{ sheet: 'Summary', headerRow: 2, allowExtraColumns: false, minRows: 1, maxRows: 500 }],
+        });
+
+        const history = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
+        expect(history.body.versions[0].rules).toEqual([
+            expect.objectContaining({
+                name: 'Status allowed values',
+                ruleType: 'Enum Check',
+                expression: 'Status: Closed, Open',
+                table: 'Summary',
+            }),
+        ]);
+
+        const updatedContract = { ...contract, encoding: 'utf-8' };
+        const updated = await call('admin', 'PUT', `/admin/file-definitions/${id}`, { contract: updatedContract });
+        expect(updated.status).toBe(200);
+        expect(updated.body.definition.contract).toMatchObject({ encoding: 'utf-8', layout: 'sheets' });
+    });
+
     it.each([
         [{ name: 'Bad', ruleType: 'Custom SQL', expression: 'SELECT 1' }, 'Rule type must be one of'],
         [{ name: 'Missing column', ruleType: 'Enum Check', expression: 'Region: North' }, 'refers to column "Region"'],

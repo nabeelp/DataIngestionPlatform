@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { downloadUploadReport } from '../services/uploadApi';
 import { groupRulesBySheet } from './uploadRuleGroups';
-import { getValidationIssueCount, parseValidationIssues, type ValidationIssue } from './validationIssues';
+import { getValidationIssueCount, mapValidationCheckStatus, parseValidationIssues, type ValidationIssue, type ValidationCheckStatus } from './validationIssues';
 
 // ============================================================================
 // Types
@@ -23,8 +24,7 @@ interface RuleResult {
   /** Sheet the check applies to; null when it applies to every sheet (or the CSV). */
   sheet: string | null;
   time?: string;
-  isLast?: boolean;
-  status?: 'Passed' | 'Failed' | 'Warning';
+  status: ValidationCheckStatus;
   errorCount?: number;
   errors?: ValidationIssue[];
 }
@@ -56,7 +56,7 @@ const getAuthHeaders = (): HeadersInit => {
   };
 };
 
-const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
+export const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
   const baseUrl = apiConfig.getBaseUrl();
   
   const response = await fetch(`${baseUrl}/uploads/${id}`, {
@@ -80,38 +80,35 @@ const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
   // Transform API response to component format
   const upload = data.upload;
   const sheets = data.sheets || [];
-  const validationResult = data.validationResult;
   const ruleDetails = data.ruleDetails || data.validationResult?.ruleDetails || [];
 
-  console.log('Raw sheets from API:', sheets);
   const mappedSheets: SheetSummary[] = sheets.map((sheet: any) => ({
     index: String(sheet.SheetIndex || sheet.sheetIndex || 0),
     name: sheet.SheetName || sheet.sheetName || 'Unknown',
     rows: sheet.RowCountNo || sheet.rowCountNo || 0,
     status: mapSheetStatus(sheet.Status || sheet.status),
     deliveryPath: sheet.DeliveryPath || sheet.deliveryPath || sheet.delivery_path || sheet.Path || sheet.path || '',
-  }));
-  console.log('Mapped sheets:', mappedSheets);
+  })).sort((a: SheetSummary, b: SheetSummary) => Number(a.index) - Number(b.index));
 
   // Map validation rules - handle empty arrays
-  const mappedRules: RuleResult[] = ruleDetails.map((rule: any, idx: number, arr: any[]) => {
-    const status = mapRuleStatus(rule.Status || rule.status);
-    const failedRows = rule.FailedRows ?? rule.failedRows;
-    const errorCount = getValidationIssueCount(
+  const mappedRules: RuleResult[] = ruleDetails.map((rule: any) => {
+    const status = mapValidationCheckStatus(rule.Status || rule.status);
+    const errors = parseValidationIssues(rule.Issues ?? rule.issues ?? rule.FailedRows ?? rule.failedRows);
+    const errorCount = rule.IssueCount ?? rule.issueCount ?? getValidationIssueCount(
       status,
-      rule.ErrorCount ?? rule.errorCount,
-      rule.WarningCount ?? rule.warningCount,
+      rule.ErrorCount ?? rule.errorCount ?? errors.length,
+      rule.WarningCount ?? rule.warningCount ?? errors.length,
     );
+    const elapsedMs = rule.ElapsedMs ?? rule.elapsedMs ?? rule.ExecutionTimeMs ?? rule.executionTimeMs ?? 0;
 
     return {
       title: rule.RuleName || rule.ruleName || 'Unknown Rule',
       type: rule.RuleType || rule.ruleType || 'Unknown',
       sheet: rule.Sheet ?? rule.sheet ?? null,
-      time: rule.ExecutionTimeMs ? `${rule.ExecutionTimeMs}ms` : '0ms',
-      isLast: idx === arr.length - 1,
+      time: `${elapsedMs}ms`,
       status,
       errorCount,
-      errors: parseValidationIssues(failedRows),
+      errors,
     };
   });
 
@@ -208,15 +205,6 @@ const mapSheetStatus = (status: string): string => {
   return statusMap[status] || status;
 };
 
-const mapRuleStatus = (status: string): 'Passed' | 'Failed' | 'Warning' => {
-  const statusMap: Record<string, 'Passed' | 'Failed' | 'Warning'> = {
-    'PASSED': 'Passed',
-    'FAILED': 'Failed',
-    'WARNING': 'Warning',
-  };
-  return statusMap[status] || 'Passed';
-};
-
 const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -238,7 +226,7 @@ const formatDate = (dateString: string): string => {
 };
 
 const statusTextClass = (status: string): string =>
-  status.includes('Failed') ? 'text-[#ef4444]' :
+  status.includes('Failed') || status === 'Error' ? 'text-[#ef4444]' :
   status === 'Delivered' || status === 'Validated' || status.includes('Passed') ? 'text-[#22c55e]' :
   'text-[#f59e0b]';
 
@@ -266,6 +254,7 @@ const UploadDetails = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const { socket, user } = useAuth();
   const historyBase = user?.Role === 'admin' ? '/admin/history' : '/history';
@@ -279,7 +268,7 @@ const UploadDetails = () => {
       const details = await fetchUploadDetails(id);
       setUpload(details);
     } catch (err) {
-      console.error('Failed to fetch upload details:', err);
+      console.error('Failed to fetch upload details');
       setError(err instanceof Error ? err.message : 'Failed to load upload details');
     } finally {
       if (!options.silent) setLoading(false);
@@ -378,6 +367,19 @@ const UploadDetails = () => {
     }
   };
 
+  const handleDownloadReport = async () => {
+    if (!id || reportLoading) return;
+    setReportLoading(true);
+    setActionMessage(null);
+    try {
+      await downloadUploadReport(id);
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to download issues report' });
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-[1600px] mx-auto space-y-6">
@@ -404,6 +406,13 @@ const UploadDetails = () => {
   const isFailed = upload.status === 'Failed' || upload.status === 'Validation Failed';
   const isProcessing = upload.status === 'Validation In Progress' || upload.status === 'Delivery In Progress';
   const isPending = upload.status === 'Pending';
+  const validationResults = (
+    <UploadValidationResults
+      upload={upload}
+      reportLoading={reportLoading}
+      onDownloadReport={handleDownloadReport}
+    />
+  );
 
   // Render failed/validation results view
   if (isFailed) {
@@ -442,7 +451,7 @@ const UploadDetails = () => {
 
         {/* Action Message */}
         {actionMessage && (
-          <div className={`p-3 rounded text-sm ${
+          <div role="alert" className={`p-3 rounded text-sm ${
             actionMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
           }`}>
             {actionMessage.text}
@@ -469,12 +478,7 @@ const UploadDetails = () => {
           </div>
         </section>
 
-        <h2 className="text-xl font-bold text-[#1e293b] mb-4">Validation Results</h2>
-
-        {/* Validation Rules with Errors */}
-        {upload.rules.map((rule, idx) => (
-          <RuleResultSection key={idx} rule={rule} />
-        ))}
+        {validationResults}
       </div>
     );
   }
@@ -516,7 +520,7 @@ const UploadDetails = () => {
 
         {/* Action Message */}
         {actionMessage && (
-          <div className={`p-3 rounded text-sm ${
+          <div role="alert" className={`p-3 rounded text-sm ${
             actionMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
           }`}>
             {actionMessage.text}
@@ -540,6 +544,7 @@ const UploadDetails = () => {
             <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
           </div>
         </section>
+        {upload.rules.length > 0 && validationResults}
       </div>
     );
   }
@@ -566,6 +571,14 @@ const UploadDetails = () => {
           Delete
         </button>
       </div>
+
+      {actionMessage && (
+        <div role="alert" className={`p-3 rounded text-sm ${
+          actionMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+        }`}>
+          {actionMessage.text}
+        </div>
+      )}
 
       {/* Primary Status Card */}
       <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
@@ -629,31 +642,7 @@ const UploadDetails = () => {
         </section>
       )}
 
-      {/* Rule Results, one section per sheet */}
-      {groupRulesBySheet(upload.rules, upload.sheets, upload.status).map((group) => (
-        <section key={group.key} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
-          <div className="flex justify-between items-center pb-4 border-b border-gray-50 mb-6">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-bold text-gray-700">{group.label}</span>
-              <span className="text-[10px] text-gray-400">{group.rules.length} rule(s)</span>
-            </div>
-            <span className={`text-[10px] ${statusTextClass(group.status)} font-bold uppercase`}>{group.status}</span>
-          </div>
-
-          <div className="space-y-4">
-            {group.rules.map((ruleItem, ruleIdx) => (
-              <RuleItem 
-                key={ruleIdx}
-                title={ruleItem.title}
-                type={ruleItem.type}
-                time={ruleItem.time}
-                isLast={ruleIdx === group.rules.length - 1}
-                status={ruleItem.status}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      {validationResults}
     </div>
   );
 };
@@ -696,34 +685,39 @@ const SheetRow = ({ index, name, rows, status, path }: { index: string; name: st
   );
 };
 
-const RuleItem = ({ title, type, time, isLast, status }: { title: string; type: string; time?: string; isLast?: boolean; status?: 'Passed' | 'Failed' | 'Warning' }) => {
-  const titleColor = status === 'Failed' ? 'text-[#ef4444]' : 
-                     status === 'Warning' ? 'text-[#f59e0b]' : 
-                     'text-[#22c55e]';
-  const badgeColor = status === 'Failed' ? 'text-[#ef4444]' : 
-                     status === 'Warning' ? 'text-[#f59e0b]' : 
-                     'text-[#22c55e]';
-  const bgColor = status === 'Failed' ? 'bg-[#fef2f2]' : 
-                  status === 'Warning' ? 'bg-[#fffbeb]' : 
-                  'bg-[#f0fdf4]';
-
-  return (
-    <div className={`pb-4 ${!isLast ? 'border-b border-gray-50' : ''}`}>
-      <div className="flex justify-between items-center mb-1">
-        <div className="flex items-center gap-2">
-          <h4 className={`text-[13px] font-bold ${titleColor}`}>{title}</h4>
-          <span className="text-[10px] text-gray-400">{type}</span>
-        </div>
-        <span className={`${badgeColor} text-[10px] font-bold uppercase`}>
-          {status || 'Passed'}
-        </span>
-      </div>
-      {time && <p className="text-[10px] text-gray-400 font-medium">Executed in {time}</p>}
+export const UploadValidationResults = ({ upload, reportLoading, onDownloadReport }: {
+  upload: Pick<UploadDetail, 'id' | 'rules' | 'sheets' | 'status'>;
+  reportLoading: boolean;
+  onDownloadReport: () => void;
+}) => (
+  <div className="space-y-6">
+    <div className="flex justify-between items-center gap-4">
+      <h2 className="text-xl font-bold text-[#1e293b]">Validation Results</h2>
+      <a
+        href={`${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(upload.id)}/report`}
+        aria-disabled={reportLoading}
+        onClick={event => {
+          event.preventDefault();
+          if (!reportLoading) onDownloadReport();
+        }}
+        className={`text-xs text-blue-600 hover:underline ${reportLoading ? 'opacity-50' : ''}`}
+      >
+        {reportLoading ? 'Downloading issues report...' : 'Download full issues report'}
+      </a>
     </div>
-  );
-};
-
-// --- Components for Failed Validation Results ---
+    {groupRulesBySheet(upload.rules, upload.sheets, upload.status).map(group => (
+      <section key={group.key} className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm font-bold text-gray-700">
+            {group.label} <span className="text-xs font-normal text-gray-400">{group.rules.length} check(s)</span>
+          </h3>
+          <span className={`text-[10px] ${statusTextClass(group.status)} font-bold uppercase`}>{group.status}</span>
+        </div>
+        {group.rules.map((rule, index) => <RuleResultSection key={index} rule={rule} />)}
+      </section>
+    ))}
+  </div>
+);
 
 interface RuleResultSectionProps {
   rule: RuleResult;
@@ -732,96 +726,46 @@ interface RuleResultSectionProps {
 const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
   const isPassed = rule.status === 'Passed';
   const isWarning = rule.status === 'Warning';
+  const isError = rule.status === 'Error';
+  const samples = rule.errors?.slice(0, 10) ?? [];
+  const issueCount = rule.errorCount ?? samples.length;
+  const color = statusTextClass(rule.status);
+  const badgeBackground = isPassed ? 'bg-[#f0fdf4]' :
+    rule.status === 'Failed' || isError ? 'bg-[#fef2f2]' : 'bg-[#fffbeb]';
 
-  if (isPassed) {
-    return (
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 flex justify-between items-center">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-[15px] font-bold text-[#22c55e]">{rule.title}</h3>
-            <span className="text-[11px] text-gray-400 font-medium">{rule.type}</span>
-          </div>
-          <p className="text-[10px] text-gray-300 mt-1">Executed in {rule.time || '0ms'}</p>
-        </div>
-        <span className="bg-[#f0fdf4] text-[#22c55e] text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-tight">
-          Passed
-        </span>
-      </div>
-    );
-  }
-
-  if (isWarning) {
-    return (
-      <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        <div className="flex justify-between items-center mb-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-[15px] font-bold text-[#f59e0b]">{rule.title}</h3>
-            <span className="text-[11px] text-gray-400 font-medium">{rule.type}</span>
-          </div>
-          <span className="bg-[#fffbeb] text-[#f59e0b] text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-tight">
-            Warning
-          </span>
-        </div>
-        
-        {rule.errorCount !== undefined && rule.errorCount > 0 && (
-          <>
-            <p className="text-[13px] text-[#f59e0b] font-bold mb-1">{rule.errorCount} warning row{rule.errorCount > 1 ? 's' : ''}</p>
-            <p className="text-[11px] text-gray-400 mb-4">Sample warnings (showing {Math.min(rule.errorCount, 10)} of {rule.errorCount}):</p>
-
-            <div className="overflow-hidden border border-gray-100 rounded">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-50/50 text-[11px] text-gray-500 border-b border-gray-100">
-                    <th className="px-4 py-2 font-medium">column</th>
-                    <th className="px-4 py-2 font-medium">error</th>
-                    <th className="px-4 py-2 font-medium">row</th>
-                    <th className="px-4 py-2 font-medium">value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rule.errors?.slice(0, 10).map((err, idx) => (
-                    <ErrorRow key={idx} col={err.column} err={err.error} row={err.rowNumber} val={err.value} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-        <p className="text-[10px] text-gray-300 mt-2">Executed in {rule.time || '0ms'}</p>
-      </section>
-    );
-  }
-
-  // Failed rule
   return (
     <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
       <div className="flex justify-between items-center mb-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-[15px] font-bold text-[#ef4444]">{rule.title}</h3>
+          <h4 className={`text-[15px] font-bold ${color}`}>{rule.title}</h4>
           <span className="text-[11px] text-gray-400 font-medium">{rule.type}</span>
         </div>
-        <span className="bg-[#fef2f2] text-[#ef4444] text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-tight">
-          Failed
+        <span className={`${badgeBackground} ${color} text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-tight`}>
+          {isError ? 'ERROR' : rule.status}
         </span>
       </div>
-      
-      {rule.errorCount !== undefined && rule.errorCount > 0 && (
+      {isError && (
+        <p className="text-xs text-red-700 mb-2">This check could not complete. Review the issue details before retrying.</p>
+      )}
+      {!isPassed && (issueCount > 0 || samples.length > 0) && (
         <>
-          <p className="text-[13px] text-[#ef4444] font-bold mb-1">{rule.errorCount} failed row{rule.errorCount > 1 ? 's' : ''}</p>
-          <p className="text-[11px] text-gray-400 mb-4">Sample errors (showing {Math.min(rule.errorCount, 10)} of {rule.errorCount}):</p>
+          <p className={`text-[13px] ${color} font-bold mb-1`}>{issueCount} {isWarning ? 'warning' : 'issue'}{issueCount !== 1 ? 's' : ''}</p>
+          <p className="text-[11px] text-gray-400 mb-4">
+            Sample {isWarning ? 'warnings' : 'issues'} (showing {samples.length} of {issueCount}):
+          </p>
 
-          <div className="overflow-hidden border border-gray-100 rounded">
+          <div className="overflow-x-auto border border-gray-100 rounded">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50/50 text-[11px] text-gray-500 border-b border-gray-100">
                   <th className="px-4 py-2 font-medium">column</th>
                   <th className="px-4 py-2 font-medium">error</th>
-                  <th className="px-4 py-2 font-medium">row</th>
+                  <th className="px-4 py-2 font-medium">row / scope</th>
                   <th className="px-4 py-2 font-medium">value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {rule.errors?.slice(0, 10).map((err, idx) => (
+                {samples.map((err, idx) => (
                   <ErrorRow key={idx} col={err.column} err={err.error} row={err.rowNumber} val={err.value} />
                 ))}
               </tbody>
@@ -838,7 +782,7 @@ const ErrorRow = ({ col, err, row, val }: { col: string; err: string; row?: numb
   <tr className="text-[12px] text-gray-700">
     <td className="px-4 py-2 font-medium">{col}</td>
     <td className="px-4 py-2">{err}</td>
-    <td className="px-4 py-2 text-[#991b1b] font-bold">{row ?? '-'}</td>
+    <td className="px-4 py-2 text-[#991b1b] font-bold">{row ?? 'File-level'}</td>
     <td className="px-4 py-2 font-mono text-[11px]">{val}</td>
   </tr>
 );

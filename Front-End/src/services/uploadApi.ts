@@ -253,6 +253,40 @@ export const getUploadById = async (id: string): Promise<IUploadDetailResponse> 
   return handleResponse<IUploadDetailResponse>(response);
 };
 
+/** Download via the API so upload access checks and bearer authentication are preserved. */
+export const downloadUploadReport = async (id: string): Promise<void> => {
+  const response = await fetch(`${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(id)}/report`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    let message = `Failed to download issues report (HTTP ${response.status})`;
+    if (response.headers.get('Content-Type')?.includes('application/json')) {
+      const error: unknown = await response.json();
+      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        message = error.message || message;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const filename = response.headers.get('Content-Disposition')
+    ?.match(/filename="([^"]+)"/i)?.[1] ?? `${id}-issues.csv`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  try {
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+};
+
 /**
  * Get upload progress
  */
@@ -396,4 +430,3 @@ export default {
   canRetry,
   canDelete,
 };
-

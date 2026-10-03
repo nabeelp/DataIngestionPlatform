@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { apiConfig } from '../config/api';
+import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../contracts/definition-contract';
 import { apiRequest } from './http';
 
 const getBaseUrl = () => apiConfig.getBaseUrl();
@@ -281,17 +282,15 @@ export const getQueueStats = async (): Promise<{
 // File Definitions (Admin)
 // ============================================================================
 
-export interface FileDefinitionColumn {
-  name: string;
-  type: string;
-  required: boolean;
-}
+export type FileDefinitionColumn = Pick<ContractColumn, 'name'> & { type: string }
+  & Partial<Omit<ContractColumn, 'name' | 'type'>>
+  & { required: boolean };
 
 /** A table for one workbook sheet (definitions with one table per sheet). */
-export interface FileDefinitionTable {
+export type FileDefinitionTable = Partial<Omit<ContractTable, 'sheet' | 'columns'>> & {
   sheet: string;
   columns: FileDefinitionColumn[];
-}
+};
 
 export interface FileDefinitionAdmin {
   id: string;
@@ -301,6 +300,8 @@ export interface FileDefinitionAdmin {
   columns: FileDefinitionColumn[];
   /** One table per workbook sheet; empty for single-table definitions. */
   tables?: FileDefinitionTable[];
+  /** Full validation contract. Optional while older definitions are being migrated. */
+  contract?: DefinitionContract | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -330,6 +331,7 @@ export interface DefinitionVersion {
   status: 'Active' | 'Superseded';
   columns: FileDefinitionColumn[];
   tables?: FileDefinitionTable[];
+  contract?: DefinitionContract;
   rules: DefinitionVersionRule[];
   changeNote: string | null;
   createdByName: string | null;
@@ -436,6 +438,7 @@ export const createFileDefinitionAdmin = async (defData: {
   description?: string;
   columns: FileDefinitionColumn[];
   tables?: FileDefinitionTable[];
+  contract?: DefinitionContract;
   status?: string;
   deliveryFolder?: string | null;
   rules?: InitialRule[];
@@ -458,6 +461,7 @@ export const updateFileDefinitionAdmin = async (
     description?: string;
     columns?: FileDefinitionColumn[];
     tables?: FileDefinitionTable[];
+    contract?: DefinitionContract;
     status?: string;
     deliveryFolder?: string | null;
   }

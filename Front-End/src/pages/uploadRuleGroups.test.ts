@@ -41,4 +41,27 @@ describe('groupRulesBySheet', () => {
   it('returns no groups when there are no checks', () => {
     expect(groupRulesBySheet([], [{ name: 'Data', status: 'Validated' }], 'Validated')).toEqual([]);
   });
+
+  it('puts structural checks first without changing workbook or rule order', () => {
+    const rules = [
+      { ...rule('Second sheet rule', 'Second'), type: 'required' },
+      { ...rule('First rule', 'First'), type: 'required' },
+      { ...rule('First structure', 'FIRST'), type: 'structural' },
+      { ...rule('Second rule', 'First'), type: 'range' },
+      { ...rule('File rule', null), type: 'reconcile' },
+      { ...rule('File structure', null), type: 'structural' },
+    ];
+    const groups = groupRulesBySheet(rules, [
+      { name: 'First', status: 'Failed' },
+      { name: 'Second', status: 'Validated' },
+    ], 'Validation Failed');
+    expect(groups.map(group => group.rules.map(check => check.title))).toEqual([
+      ['File structure', 'File rule'],
+      ['First structure', 'First rule', 'Second rule'],
+      ['Second sheet rule'],
+    ]);
+    expect(rules.map(check => check.title)).toEqual([
+      'Second sheet rule', 'First rule', 'First structure', 'Second rule', 'File rule', 'File structure',
+    ]);
+  });
 });

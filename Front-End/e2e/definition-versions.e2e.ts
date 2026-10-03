@@ -86,9 +86,20 @@ test('admins publish definition versions and uploads keep the version they arriv
     await expect(page.getByRole('status')).toContainText('has unpublished changes. Uploads keep using v1');
     await expect(row).toContainText('Unpublished');
     const rule = await api(page, 'POST', '/rules', {
-      FileDefinitionId: definitionId, Name: 'Amount range', RuleType: 'Range Check', SqlQuery: 'Amount: 0..10',
+      FileDefinitionId: definitionId,
+      Config: {
+        id: crypto.randomUUID(),
+        name: 'Amount range',
+        description: '',
+        severity: 'Error',
+        executionOrder: 1,
+        enabled: true,
+        table: null,
+        type: 'range',
+        params: { column: 'Amount', min: 0, max: 10, minInclusive: true, maxInclusive: true },
+      },
     });
-    ruleId = rule.rule.Id;
+    ruleId = rule.rule.id;
 
     // Draft changes do not apply to new uploads yet.
     uploads.push(await uploadCsv(page, name, 'amounts-draft.csv', 'Amount\n1.5\n'));

@@ -1,6 +1,7 @@
 export interface GroupableRule {
   /** Sheet the check applies to; null when it applies to every sheet (or the CSV). */
   sheet: string | null;
+  type?: string;
 }
 
 export interface GroupableSheet {
@@ -20,7 +21,7 @@ const sheetKey = (name: string): string => name.trim().toLowerCase();
 
 /**
  * One group per sheet that has checks, in workbook order; checks that apply to every sheet (or the CSV) come first,
- * and checks for sheets missing from the file come last.
+ * and checks for sheets missing from the file come last. Structural checks precede rule checks within each group.
  */
 export const groupRulesBySheet = <R extends GroupableRule>(
   rules: R[],
@@ -49,5 +50,13 @@ export const groupRulesBySheet = <R extends GroupableRule>(
     const index = sheets.findIndex(s => sheetKey(s.name) === key);
     return index === -1 ? sheets.length : index;
   };
-  return [...groups.values()].sort((a, b) => order(a.key) - order(b.key));
+  return [...groups.values()]
+    .sort((a, b) => order(a.key) - order(b.key))
+    .map(group => ({
+      ...group,
+      rules: [
+        ...group.rules.filter(rule => rule.type?.toLowerCase() === 'structural'),
+        ...group.rules.filter(rule => rule.type?.toLowerCase() !== 'structural'),
+      ],
+    }));
 };
