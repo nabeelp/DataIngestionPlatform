@@ -180,15 +180,6 @@ router.get(
     AdminController.getQueueStats
 );
 
-/**
- * GET /api/admin/processing-files
- * Get files currently being processed
- */
-router.get(
-    '/processing-files',
-    AdminController.getProcessingFiles
-);
-
 // ============================================================================
 // File Definitions Management (Admin view)
 // ============================================================================
@@ -428,4 +419,3 @@ router.delete(
 );
 
 export default router;
-

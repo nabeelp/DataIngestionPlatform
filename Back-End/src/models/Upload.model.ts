@@ -331,6 +331,20 @@ export class Upload {
             .query(`UPDATE ${this.TABLE_NAME} SET Status = @Status WHERE Id = @Id`);
     }
 
+    static async transitionStatus(id: string, from: UploadStatus, to: UploadStatus): Promise<boolean> {
+        const pool = await getConnection();
+        const result = await pool.request()
+            .input('Id', id)
+            .input('FromStatus', from)
+            .input('ToStatus', to)
+            .query(`
+                UPDATE ${this.TABLE_NAME}
+                SET Status = @ToStatus
+                WHERE Id = @Id AND Status = @FromStatus
+            `);
+        return (result.rowsAffected[0] ?? 0) > 0;
+    }
+
     /**
      * Delete upload
      */

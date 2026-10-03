@@ -1,20 +1,9 @@
-// =============================================================================
-// Rule Service - Business logic for Rules
-// =============================================================================
-
 import { Rule } from '../models/Rule.model';
-import type { 
-    IRule, 
-    ICreateRuleDto, 
-    IUpdateRuleDto 
-} from '../interfaces/rule.interface';
-import { NATURAL_LANGUAGE_RULE_TYPE, SUPPORTED_RULE_TYPES, parseRuleExpression } from './validation/ValidationEngine';
-import { contractRuleColumns } from './validation/DefinitionContract';
+import type { IRule, ICreateRuleDto, IUpdateRuleDto } from '../interfaces/rule.interface';
+import type { RuleConfig } from '../contracts/rule-config';
 import { DefinitionVersionService } from './DefinitionVersion.service';
+import { RulesService } from './RulesService.service';
 
-/**
- * Raised when a rule's type or expression is invalid (maps to HTTP 400).
- */
 export class RuleValidationError extends Error {
     constructor(message: string) {
         super(message);
@@ -22,65 +11,44 @@ export class RuleValidationError extends Error {
     }
 }
 
-/**
- * Ensure a rule type is supported and its expression parses.
- */
-export function assertValidRule(ruleType: string | undefined, expression: string | undefined): void {
-    if (!ruleType || !(SUPPORTED_RULE_TYPES as readonly string[]).includes(ruleType)) {
-        throw new RuleValidationError(`Rule type must be one of: ${SUPPORTED_RULE_TYPES.join(', ')}`);
-    }
-    try {
-        parseRuleExpression(ruleType, expression || '');
-    } catch (error) {
-        throw new RuleValidationError(error instanceof Error ? error.message : 'Invalid rule expression');
+function legacyRuleType(type: RuleConfig['type']): IRule['RuleType'] {
+    switch (type) {
+        case 'columnsPresent': return 'Schema Validation';
+        case 'required': return 'Required Values';
+        case 'type': return 'Type Check';
+        case 'enum': return 'Enum Check';
+        case 'range': return 'Range Check';
+        default: return 'Natural Language';
     }
 }
 
-/**
- * Ensure a stored rule (declarative or natural-language) can run before it is enabled.
- */
-function assertRuleCanRun(rule: Pick<IRule, 'RuleType' | 'SqlQuery' | 'GeneratedCode'>): void {
-    if (rule.RuleType !== NATURAL_LANGUAGE_RULE_TYPE) {
-        assertValidRule(rule.RuleType, rule.SqlQuery);
-        return;
+export async function validateRuleConfig(fileDefinitionId: string, rule: RuleConfig): Promise<RuleConfig> {
+    const contract = await DefinitionVersionService.getDraftContract(fileDefinitionId);
+    const result = await RulesService.validateRule(contract, rule);
+    if (!result.ok) {
+        const message = result.errors.map(error => `${error.path}: ${error.message}`).join('; ');
+        throw new RuleValidationError(message || 'Rule configuration is invalid.');
     }
-    try {
-        contractRuleColumns({ RuleType: rule.RuleType, SqlQuery: rule.SqlQuery, GeneratedCode: rule.GeneratedCode ?? undefined });
-    } catch (error) {
-        throw new RuleValidationError(error instanceof Error ? error.message : 'Invalid natural-language rule');
-    }
+    return result.normalizedRule ?? rule;
 }
 
-/**
- * Get all rules for a file definition (with access control)
- */
 export async function getRulesByFileDefinitionId(
-    fileDefinitionId: string, 
-    userId: string
+    fileDefinitionId: string,
+    userId: string,
 ): Promise<(IRule & { CreatorName?: string })[]> {
-    // Check if user has access to this file definition
-    const hasAccess = await Rule.hasAccessToFileDefinition(fileDefinitionId, userId);
-    
-    if (!hasAccess) {
+    if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
         throw new Error('Access denied to this file definition');
     }
-
-    return await Rule.findByFileDefinitionIdWithCreator(fileDefinitionId);
+    return Rule.findByFileDefinitionIdWithCreator(fileDefinitionId);
 }
 
-/**
- * Rules of the active version (with access control). Falls back to the enabled rules for a
- * definition that has never been versioned.
- */
 export async function getPublishedRules(
     fileDefinitionId: string,
-    userId: string
+    userId: string,
 ): Promise<{ rules: (IRule & { CreatorName?: string | null })[]; versionNumber: number | null }> {
-    const hasAccess = await Rule.hasAccessToFileDefinition(fileDefinitionId, userId);
-    if (!hasAccess) {
+    if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
         throw new Error('Access denied to this file definition');
     }
-
     const { activeVersion } = await DefinitionVersionService.getDraftState(fileDefinitionId);
     if (!activeVersion) {
         return { rules: await Rule.findEnabledByFileDefinitionId(fileDefinitionId), versionNumber: null };
@@ -94,17 +62,21 @@ export async function getPublishedRules(
             FileDefinitionId: fileDefinitionId,
             Config: config,
             ConfigSchemaVersion: 1,
-            Name: rule.Name,
-            Description: rule.Description,
-            RuleType: rule.RuleType as IRule['RuleType'],
-            Severity: rule.Severity as IRule['Severity'],
-            ExecutionOrder: rule.ExecutionOrder,
+            Name: config.name,
+            Description: config.description,
+            RuleType: legacyRuleType(config.type),
+            Severity: config.severity,
+            ExecutionOrder: config.executionOrder,
             SqlQuery: rule.SqlQuery,
-            TableName: rule.Table,
-            NaturalLanguageText: rule.NaturalLanguageText ?? null,
-            Pseudocode: rule.Pseudocode ?? null,
-            GeneratedCode: rule.GeneratedCode ?? null,
-            IsEnabled: true,
+            TableName: config.table,
+            NaturalLanguageText: config.type === 'naturalLanguage' && typeof config.params.request === 'string'
+                ? config.params.request
+                : null,
+            Pseudocode: config.type === 'naturalLanguage' && typeof config.params.explanation === 'string'
+                ? config.params.explanation
+                : null,
+            GeneratedCode: null,
+            IsEnabled: config.enabled,
             CreatedBy: activeVersion.CreatedBy,
             CreatorName: activeVersion.CreatedByName,
             CreatedAt: activeVersion.ActivatedAt,
@@ -114,128 +86,84 @@ export async function getPublishedRules(
     return { rules, versionNumber: activeVersion.VersionNumber };
 }
 
-/**
- * Get enabled rules for a file definition (for validation execution)
- */
-export async function getEnabledRulesByFileDefinitionId(
-    fileDefinitionId: string
-): Promise<IRule[]> {
-    return await Rule.findEnabledByFileDefinitionId(fileDefinitionId);
+export async function getEnabledRulesByFileDefinitionId(fileDefinitionId: string): Promise<IRule[]> {
+    return Rule.findEnabledByFileDefinitionId(fileDefinitionId);
 }
 
-/**
- * Get a single rule by ID (with access control)
- */
 export async function getRuleById(ruleId: string, userId: string): Promise<IRule | null> {
-    // Check if user has access to the rule's file definition
-    const hasAccess = await Rule.hasAccessToRule(ruleId, userId);
-    
-    if (!hasAccess) {
+    if (!await Rule.hasAccessToRule(ruleId, userId)) {
         throw new Error('Access denied to this rule');
     }
-
-    return await Rule.findById(ruleId);
+    return Rule.findById(ruleId);
 }
 
-/**
- * Create a new rule (with access control)
- */
-export async function createRule(
-    dto: ICreateRuleDto, 
-    userId: string
-): Promise<IRule> {
-    // Check if user has access to the file definition
-    const hasAccess = await Rule.hasAccessToFileDefinition(dto.FileDefinitionId, userId);
-    
-    if (!hasAccess) {
+export async function createRule(dto: ICreateRuleDto, userId: string): Promise<IRule> {
+    if (!await Rule.hasAccessToFileDefinition(dto.FileDefinitionId, userId)) {
         throw new Error('Access denied to this file definition');
     }
+    if (!dto.Config) throw new RuleValidationError('RuleConfig is required.');
 
-    assertValidRule(dto.RuleType, dto.SqlQuery);
-    return await Rule.create(dto, userId);
+    const config = await validateRuleConfig(dto.FileDefinitionId, dto.Config);
+    return Rule.create({
+        FileDefinitionId: dto.FileDefinitionId,
+        Config: config,
+        Name: config.name,
+        Description: config.description,
+        RuleType: 'Required Values',
+        Severity: config.severity,
+        ExecutionOrder: config.executionOrder,
+        SqlQuery: '',
+        IsEnabled: config.enabled,
+        TableName: config.table,
+    }, userId);
 }
 
-/**
- * Update a rule (with access control)
- */
 export async function updateRule(
-    ruleId: string, 
+    ruleId: string,
     updates: IUpdateRuleDto,
-    userId: string
+    userId: string,
 ): Promise<IRule | null> {
-    // Check if user has access to the rule's file definition
-    const hasAccess = await Rule.hasAccessToRule(ruleId, userId);
-    
-    if (!hasAccess) {
+    if (!await Rule.hasAccessToRule(ruleId, userId)) {
         throw new Error('Access denied to this rule');
     }
-
     const existing = await Rule.findById(ruleId);
-    if (!existing) {
-        return null;
-    }
+    if (!existing) return null;
 
-    if (existing.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
-        // Generated code is bound to its columns, sheet and type; regenerate the rule to change its behaviour.
-        const changesLogic = (updates.RuleType !== undefined && updates.RuleType !== existing.RuleType) ||
-            (updates.SqlQuery !== undefined && updates.SqlQuery !== existing.SqlQuery) ||
-            (updates.TableName !== undefined && (updates.TableName ?? null) !== (existing.TableName ?? null));
-        if (changesLogic) {
-            throw new RuleValidationError('The type, columns and sheet table of a natural-language rule cannot be changed; create a new rule instead');
-        }
-        if ((updates.IsEnabled ?? existing.IsEnabled) && !existing.IsEnabled) {
-            assertRuleCanRun(existing);
-        }
-        return await Rule.update(ruleId, updates);
-    }
+    const config: RuleConfig = {
+        ...existing.Config,
+        ...updates.Config,
+        id: existing.Id,
+        name: updates.Config?.name ?? updates.Name ?? existing.Config.name,
+        description: updates.Config?.description ?? updates.Description ?? existing.Config.description,
+        severity: updates.Config?.severity ?? updates.Severity ?? existing.Config.severity,
+        executionOrder: updates.Config?.executionOrder ?? updates.ExecutionOrder ?? existing.Config.executionOrder,
+        enabled: updates.Config?.enabled ?? updates.IsEnabled ?? existing.Config.enabled,
+        table: updates.Config
+            ? updates.Config.table
+            : updates.TableName !== undefined
+                ? updates.TableName ?? null
+                : existing.Config.table,
+    };
 
-    const effectiveType = updates.RuleType ?? existing.RuleType;
-    const effectiveExpression = updates.SqlQuery ?? existing.SqlQuery;
-    const willBeEnabled = updates.IsEnabled ?? existing.IsEnabled;
-    if (updates.RuleType !== undefined || updates.SqlQuery !== undefined || (willBeEnabled && !existing.IsEnabled)) {
-        assertValidRule(effectiveType, effectiveExpression);
+    if (updates.Config || (config.enabled && !existing.Config.enabled)) {
+        config.id = existing.Id;
+        Object.assign(config, await validateRuleConfig(existing.FileDefinitionId, config));
     }
-
-    return await Rule.update(ruleId, updates);
+    return Rule.update(ruleId, { Config: config, IsEnabled: config.enabled });
 }
 
-/**
- * Delete a rule (with access control)
- */
 export async function deleteRule(ruleId: string, userId: string): Promise<void> {
-    // Check if user has access to the rule's file definition
-    const hasAccess = await Rule.hasAccessToRule(ruleId, userId);
-    
-    if (!hasAccess) {
+    if (!await Rule.hasAccessToRule(ruleId, userId)) {
         throw new Error('Access denied to this rule');
     }
-
     await Rule.delete(ruleId);
 }
 
-/**
- * Toggle rule enabled/disabled status (with access control)
- */
-export async function toggleRuleEnabled(
-    ruleId: string, 
-    userId: string
-): Promise<IRule | null> {
-    // Check if user has access to the rule's file definition
-    const hasAccess = await Rule.hasAccessToRule(ruleId, userId);
-    
-    if (!hasAccess) {
+export async function toggleRuleEnabled(ruleId: string, userId: string): Promise<IRule | null> {
+    if (!await Rule.hasAccessToRule(ruleId, userId)) {
         throw new Error('Access denied to this rule');
     }
-
     const rule = await Rule.findById(ruleId);
-    
-    if (!rule) {
-        return null;
-    }
-
-    if (!rule.IsEnabled) {
-        assertRuleCanRun(rule);
-    }
-
-    return await Rule.update(ruleId, { IsEnabled: !rule.IsEnabled });
+    if (!rule) return null;
+    return updateRule(ruleId, { Config: { ...rule.Config, enabled: !rule.Config.enabled } }, userId);
 }

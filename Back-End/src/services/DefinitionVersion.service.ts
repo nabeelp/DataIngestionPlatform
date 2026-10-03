@@ -9,8 +9,6 @@ import { getConnection } from '../config/database';
 import { FileDefinitionVersion } from '../models/FileDefinitionVersion.model';
 import { logger } from '../utils/logger';
 import {
-    ContractValidationError,
-    assertPublishable,
     diffContracts,
     type ContractDiff,
     type ContractSnapshot,
@@ -18,6 +16,7 @@ import {
 import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import type { DefinitionContract } from '../contracts/definition-contract';
 import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
+import { RulesService } from './RulesService.service';
 
 export class DefinitionVersionError extends Error {
     constructor(message: string, readonly statusCode: 400 | 404 | 409) {
@@ -117,6 +116,12 @@ export class DefinitionVersionService {
 
         const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
         return { activeVersion, draft: draft.snapshot, diff: diffContracts(contractOf(activeVersion), draft.snapshot) };
+    }
+
+    static async getDraftContract(fileDefinitionId: string): Promise<DefinitionContract> {
+        const draft = await readDraft(await getConnection(), fileDefinitionId);
+        if (!draft) throw new DefinitionVersionError('File definition not found', 404);
+        return draft.contract;
     }
 
     /**
@@ -237,11 +242,12 @@ export class DefinitionVersionService {
                 throw new DefinitionVersionError(`There are no changes to publish; version ${active.VersionNumber} is already active`, 409);
             }
             if (options.validate) {
-                try {
-                    assertPublishable(draft.snapshot);
-                } catch (error) {
-                    if (error instanceof ContractValidationError) throw new DefinitionVersionError(error.message, 400);
-                    throw error;
+                const validation = await RulesService.validateContract(draft.contract);
+                if (!validation.ok) {
+                    const details = validation.errors
+                        .map(item => `${item.path}: ${item.message}`)
+                        .join('; ');
+                    throw new DefinitionVersionError(`Definition contract validation failed: ${details}`, 400);
                 }
             }
 

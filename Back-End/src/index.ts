@@ -104,28 +104,14 @@ const startServer = async () => {
         logger.warn('DEV_BYPASS_AUTH is ignored outside NODE_ENV=development');
     }
 
-    const { cacheService } = await import('./services/Cache.service');
-    await cacheService.initialize();
-    const { initializeQueues } = await import('./services/Queue.service');
-    await initializeQueues();
-    const { initializeValidationWorker } = await import('./services/ValidationWorker.service');
-    const validationWorker = initializeValidationWorker();
-    const { initializeDeliveryWorker } = await import('./services/DeliveryWorker.service');
-    const deliveryWorker = initializeDeliveryWorker();
-    if (appConfig.redis.enabled) {
-        let timeout: NodeJS.Timeout | undefined;
-        try {
-            await Promise.race([
-                Promise.all([validationWorker.waitUntilReady(), deliveryWorker.waitUntilReady()]),
-                new Promise<never>((_, reject) => {
-                    timeout = setTimeout(() => reject(new Error('Redis workers did not become ready within 5 seconds')), 5000);
-                })
-            ]);
-        } finally {
-            if (timeout) clearTimeout(timeout);
-        }
-    }
-    logger.info('Cache, queues, and upload workers initialized successfully');
+    const { serviceBusService } = await import('./services/ServiceBus.service');
+    const { UploadService } = await import('./services/Upload.service');
+    const { processDeliveryRequest } = await import('./services/DeliveryWorker.service');
+    await serviceBusService.initialize(
+        event => UploadService.handleValidationEvent(event),
+        request => processDeliveryRequest(request),
+    );
+    logger.info('Service Bus receivers initialized successfully');
 
     httpServer.listen(PORT, '0.0.0.0', () => {
         logger.info(`Server running on port ${PORT} (${appConfig.nodeEnv})`);
@@ -146,10 +132,8 @@ const shutdown = async (signal: string) => {
     try {
         // Closing Socket.IO also closes the HTTP server, so new requests stop first.
         await closeSocket();
-        const { closeAllQueues } = await import('./services/Queue.service');
-        await closeAllQueues();
-        const { cacheService } = await import('./services/Cache.service');
-        await cacheService.close();
+        const { serviceBusService } = await import('./services/ServiceBus.service');
+        await serviceBusService.close();
         const { closeConnection } = await import('./config/database');
         await closeConnection();
         logger.info('Shutdown complete');

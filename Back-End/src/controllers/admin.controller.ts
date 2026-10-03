@@ -5,28 +5,27 @@
 import { Request, Response, NextFunction } from 'express';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../models/User.model';
-import { Upload } from '../models/Upload.model';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { AuditLog } from '../models/AuditLog.model';
 import { StatsService } from '../services/Stats.service';
 import { UserService, type GetUsersResult } from '../services/User.service';
-import { getConnection } from '../config/database';
 import { logAction } from '../models/AuditLog.model';
-import { getAllQueueStats, getStuckJobs } from '../services/Queue.service';
 import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
-import type { IUser, ICreateUserDto, UserRole } from '../interfaces/user.interface';
-import type { IUpload, UploadStatus } from '../interfaces/upload.interface';
+import type { IUser } from '../interfaces/user.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
-import { COLUMN_TYPES, parseRuleExpression, sameSheet } from '../services/validation/ValidationEngine';
-import { MAX_SHEET_NAME_LENGTH, ruleColumns } from '../services/validation/DefinitionContract';
+import { COLUMN_TYPES } from '../services/validation/ValidationEngine';
+import { MAX_SHEET_NAME_LENGTH } from '../services/validation/DefinitionContract';
 import type { IColumn, ITable } from '../interfaces/fileDefinition.interface';
-import { assertValidRule } from '../services/Rule.service';
-import type { ICreateRuleDto, RuleSeverity, RuleType } from '../interfaces/rule.interface';
+import type { ICreateRuleDto } from '../interfaces/rule.interface';
+import type { RuleConfig } from '../contracts/rule-config';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import { contractFromLegacyColumns } from '../models/contractMapper';
+import { RulesService, RulesServiceError } from '../services/RulesService.service';
 import { logger } from '../utils/logger';
 
 // Extend Request to include user
@@ -50,7 +49,7 @@ export const getStats = async (req: AuthRequest, res: Response, next: NextFuncti
             stats
         });
     } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting stats:', error);
+        logger.error(`[ADMIN_CONTROLLER] Stats lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         next(error);
     }
 };
@@ -401,121 +400,14 @@ export const getRecentAuditLogs = async (req: AuthRequest, res: Response, next: 
  */
 export const getQueueStats = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        let stats;
-        
-        try {
-            stats = await getAllQueueStats();
-        } catch (error) {
-            logger.warn('[ADMIN_CONTROLLER] Failed to get queue stats:', error);
-            stats = {
-                validation: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-                delivery: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-                retry: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }
-            };
-        }
-
+        const { stats, recentUploadThroughput } = await StatsService.getQueueMonitoring();
         res.json({
             success: true,
-            stats
+            stats,
+            recentUploadThroughput,
         });
     } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting queue stats:', error);
-        next(error);
-    }
-};
-
-/**
- * Get files currently being processed
- */
-export const getProcessingFiles = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const pool = await getConnection();
-        
-        // Get files currently in validation or delivery
-        const result = await pool.request()
-            .query(`
-                SELECT 
-                    u.Id,
-                    u.OriginalFilename,
-                    u.Status,
-                    u.UploadedAt,
-                    u.ValidationStartedAt,
-                    u.ValidationCompletedAt,
-                    u.DeliveryStartedAt,
-                    u.DeliveryCompletedAt,
-                    u.ErrorMessage,
-                    fd.Name as DefinitionName,
-                    u.UploadedBy
-                FROM Uploads u
-                LEFT JOIN FileDefinitions fd ON u.FileDefinitionId = fd.Id
-                WHERE u.Status IN (
-                    'UPLOADED',
-                    'VALIDATION_QUEUED',
-                    'VALIDATION_IN_PROGRESS',
-                    'VALIDATION_COMPLETED',
-                    'DELIVERY_QUEUED',
-                    'DELIVERY_IN_PROGRESS'
-                )
-                ORDER BY u.UploadedAt DESC
-            `);
-
-        // Calculate progress for each file
-        const files = result.recordset.map((file: any) => {
-            let progress = 0;
-            let stage = 'pending';
-            
-            if (file.Status === 'VALIDATING') {
-                stage = 'validating';
-                // Estimate progress based on time elapsed (placeholder logic)
-                const elapsed = file.ValidationStartedAt 
-                    ? Date.now() - new Date(file.ValidationStartedAt).getTime()
-                    : 0;
-                progress = Math.min(50, Math.round(elapsed / 1000)); // Simplified progress
-            } else if (file.Status === 'DELIVERING') {
-                stage = 'delivering';
-                const elapsed = file.DeliveryStartedAt 
-                    ? Date.now() - new Date(file.DeliveryStartedAt).getTime()
-                    : 0;
-                progress = Math.min(100, 50 + Math.round(elapsed / 1000)); // Simplified progress
-            } else if (file.Status === 'VALIDATION_COMPLETED') {
-                stage = 'ready_for_delivery';
-                progress = 75;
-            } else if (file.Status === 'QUEUED') {
-                stage = 'queued';
-                progress = 10;
-            }
-
-            // Calculate processing time
-            let processingTimeMs = 0;
-            if (file.ValidationStartedAt) {
-                const endTime = file.ValidationCompletedAt || new Date();
-                processingTimeMs = new Date(endTime).getTime() - new Date(file.ValidationStartedAt).getTime();
-            }
-
-            return {
-                ...file,
-                progress,
-                stage,
-                processingTimeMs,
-                processingTimeFormatted: formatProcessingTime(processingTimeMs)
-            };
-        });
-
-        // Get stuck jobs
-        let stuckJobs = { validationJobs: [] as any[], deliveryJobs: [] as any[] };
-        try {
-            stuckJobs = await getStuckJobs();
-        } catch (error) {
-            logger.warn('[ADMIN_CONTROLLER] Failed to get stuck jobs:', error);
-        }
-
-        res.json({
-            success: true,
-            files,
-            stuckJobs
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting processing files:', error);
+        logger.error(`[ADMIN_CONTROLLER] Queue metrics lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         next(error);
     }
 };
@@ -568,8 +460,9 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
         try {
             layout = validateDefinitionLayout(columns, tables);
             normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
-            initialRules = validateInitialRules(rules, layout);
+            initialRules = await validateInitialRules(rules, layout);
         } catch (validationError) {
+            if (validationError instanceof RulesServiceError) return next(validationError);
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
 
@@ -704,14 +597,6 @@ export const deleteFileDefinition = async (req: AuthRequest, res: Response, next
 // Helper Functions
 // ============================================================================
 
-function formatProcessingTime(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
-    const minutes = Math.floor(ms / 60000);
-    const seconds = Math.round((ms % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-}
-
 /**
  * Map FileDefinition from DB PascalCase to frontend camelCase
  */
@@ -789,54 +674,37 @@ type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
 const MAX_INITIAL_RULES = 50;
 
 /**
- * Validate the optional rules created together with a new definition (for example accepted suggestions from
- * an example file): supported type, valid expression, the sheet table (for sheet-table definitions), and every
- * referenced column defined in that table.
+ * Validate optional initial RuleConfig values with the Python contract validator.
  */
-function validateInitialRules(rules: unknown, layout: DefinitionLayout): InitialRule[] {
+async function validateInitialRules(rules: unknown, layout: DefinitionLayout): Promise<InitialRule[]> {
     if (rules === undefined || rules === null) return [];
     if (!Array.isArray(rules)) throw new Error('Rules must be an array');
     if (rules.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
 
-    return rules.map((rule, index) => {
-        const name = typeof rule?.name === 'string' ? rule.name.trim() : '';
-        if (!name || name.length > 255) throw new Error(`Rule ${index + 1} needs a name of at most 255 characters`);
-        const severity = rule.severity ?? 'Error';
-        if (severity !== 'Error' && severity !== 'Warning') throw new Error(`Rule "${name}" severity must be Error or Warning`);
-
-        const expression = typeof rule.expression === 'string' ? rule.expression.trim() : '';
-        try {
-            assertValidRule(rule.ruleType, expression);
-        } catch (error) {
-            throw new Error(`Rule "${name}": ${(error as Error).message}`);
+    const configs = rules.map((value, index) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            throw new Error(`Rule ${index + 1} must be a RuleConfig object`);
         }
-
-        const tableName = typeof rule.table === 'string' && rule.table.trim() ? rule.table.trim() : null;
-        let columns: IColumn[] = layout.columns;
-        let where = 'the definition';
-        if (layout.tables.length > 0) {
-            const table = tableName ? layout.tables.find(t => sameSheet(t.sheet, tableName)) : undefined;
-            if (!tableName) throw new Error(`Rule "${name}" must name the sheet table it applies to`);
-            if (!table) throw new Error(`Rule "${name}" is for sheet "${tableName}", which is not defined`);
-            columns = table.columns;
-            where = `sheet "${table.sheet}"`;
-        } else if (tableName) {
-            throw new Error(`Rule "${name}" is for sheet "${tableName}", but this definition has a single table`);
-        }
-
-        const columnNames = new Set(columns.map(column => column.name.trim()));
-        const missing = ruleColumns(parseRuleExpression(rule.ruleType, expression)).find(column => !columnNames.has(column));
-        if (missing) throw new Error(`Rule "${name}" refers to column "${missing}", which is not in ${where}`);
-
-        return {
-            Name: name,
-            Description: typeof rule.description === 'string' ? rule.description.slice(0, 1000) : '',
-            RuleType: rule.ruleType as RuleType,
-            Severity: severity as RuleSeverity,
-            SqlQuery: expression,
-            TableName: tableName,
-        };
+        return value as RuleConfig;
     });
+    const baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
+    const contract: DefinitionContract = { ...baseContract, rules: configs };
+    const validation = await RulesService.validateContract(contract);
+    if (!validation.ok) {
+        throw new Error(validation.errors.map(error => `${error.path}: ${error.message}`).join('; '));
+    }
+
+    return configs.map(config => ({
+        Config: config,
+        Name: config.name,
+        Description: config.description,
+        RuleType: config.type === 'naturalLanguage' ? 'Natural Language' : 'Required Values',
+        Severity: config.severity,
+        ExecutionOrder: config.executionOrder,
+        SqlQuery: '',
+        IsEnabled: config.enabled,
+        TableName: config.table,
+    }));
 }
 
 function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {

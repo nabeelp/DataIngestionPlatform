@@ -118,9 +118,28 @@ export const appConfig = {
         },
         storage: {
             connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',
-            containerName: process.env.AZURE_STORAGE_CONTAINER || 'uploads',
+            accountUrl: process.env.AZURE_STORAGE_ACCOUNT_URL || '',
+            containerName: process.env.AZURE_STORAGE_UPLOADS_CONTAINER || 'uploads',
+            reportsContainerName: process.env.AZURE_STORAGE_REPORTS_CONTAINER || 'reports',
+            stagingContainerName: process.env.AZURE_STORAGE_STAGING_CONTAINER || 'staging',
             compressedContainerName: process.env.AZURE_STORAGE_COMPRESSED_CONTAINER || 'compressed',
         }
+    },
+
+    rulesService: {
+        url: process.env.RULES_SERVICE_URL || 'http://localhost:8000',
+        internalKey: process.env.RULES_SERVICE_DEV_KEY || '',
+        timeoutMs: parseInt(process.env.RULES_SERVICE_TIMEOUT_MS || '30000', 10),
+    },
+
+    serviceBus: {
+        connectionString: process.env.SERVICEBUS_CONNECTION_STRING || '',
+        namespace: process.env.SERVICEBUS_NAMESPACE || '',
+        validationQueue: process.env.SERVICEBUS_VALIDATION_QUEUE || 'validation-requests',
+        eventsTopic: process.env.SERVICEBUS_EVENTS_TOPIC || 'validation-events',
+        eventsSubscription: process.env.SERVICEBUS_EVENTS_SUBSCRIPTION || 'api',
+        deliveryQueue: process.env.SERVICEBUS_DELIVERY_QUEUE || 'delivery-requests',
+        deliveryRetryBaseMs: parseInt(process.env.SERVICEBUS_DELIVERY_RETRY_BASE_MS || '5000', 10),
     },
 
     // SharePoint/Local Storage Configuration (Temporary replacement for Azure)
@@ -131,7 +150,8 @@ export const appConfig = {
 
     // Storage Provider Configuration
     storage: {
-        provider: process.env.STORAGE_PROVIDER || 'sharepoint', // 'azure' or 'sharepoint'
+        provider: process.env.STORAGE_PROVIDER ||
+            (process.env.AZURE_STORAGE_CONNECTION_STRING || process.env.AZURE_STORAGE_ACCOUNT_URL ? 'azure' : 'sharepoint'),
     },
 
     // Stats Configuration
@@ -148,7 +168,7 @@ export const appConfig = {
         tempDirectory: process.env.UPLOAD_TEMP_DIR || path.join(process.cwd(), 'temp'),
         maxFileSize: parseInt(process.env.UPLOAD_MAX_FILE_SIZE || '100'), // MB
         // Only tabular formats can be validated against a file definition.
-        allowedExtensions: ['.csv', '.tsv', '.txt', '.xlsx', '.xls'],
+        allowedExtensions: ['.csv', '.tsv', '.txt', '.xlsx', '.xlsm', '.xls', '.xlsb'],
     },
 
     // Optional file-copy delivery. Definition delivery folders are resolved under this root.

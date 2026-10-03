@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getFileDefinitionVersions, publishFileDefinitionVersion } from './adminApi';
+import { getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion } from './adminApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,6 +18,21 @@ describe('definition version API', () => {
       hasUnpublishedChanges: true,
       changes: { columns: { added: ['Email'], removed: [], changed: [] }, rules: { added: [], removed: [], changed: [] } },
       versions: [{ id: 'v2', versionNumber: 2, status: 'Active' }],
+    });
+
+    describe('queue monitoring API', () => {
+      it('returns Service Bus availability and SQL upload throughput', async () => {
+        stubFetch(200, {
+          success: true,
+          stats: { available: false, validation: null, delivery: null },
+          recentUploadThroughput: { windowMinutes: 60, uploads: 12, uploadsPerMinute: 0.2 },
+        });
+
+        await expect(getQueueStats()).resolves.toEqual({
+          stats: { available: false, validation: null, delivery: null },
+          recentUploadThroughput: { windowMinutes: 60, uploads: 12, uploadsPerMinute: 0.2 },
+        });
+      });
     });
 
     const history = await getFileDefinitionVersions('def/1');

@@ -6,7 +6,6 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import * as RuleController from '../controllers/rule.controller';
-import { SUPPORTED_RULE_TYPES } from '../services/validation/ValidationEngine';
 
 const router = Router();
 
@@ -64,6 +63,31 @@ router.post(
     RuleController.regenerateRuleFromDescription
 );
 
+router.post(
+    '/validate',
+    authenticate,
+    authorize('admin'),
+    [
+        body('FileDefinitionId').isUUID(),
+        body('Config').isObject(),
+    ],
+    validateRequest,
+    RuleController.validateRuleConfiguration,
+);
+
+router.post(
+    '/test',
+    authenticate,
+    authorize('admin'),
+    [
+        body('FileDefinitionId').isUUID(),
+        body('Config').isObject(),
+        body('examples').optional().isArray(),
+    ],
+    validateRequest,
+    RuleController.testRuleConfiguration,
+);
+
 /**
  * POST /api/rules
  * Create a new rule
@@ -75,14 +99,7 @@ router.post(
     authorize('admin'),
     [
         body('FileDefinitionId').isUUID(),
-        body('Name').isLength({ min: 1, max: 200 }).trim(),
-        body('Description').optional().isLength({ max: 1000 }),
-        body('RuleType').isIn([...SUPPORTED_RULE_TYPES]),
-        body('Severity').optional().isIn(['Error', 'Warning']),
-        body('ExecutionOrder').optional().isInt({ min: 1 }),
-        body('SqlQuery').isString().isLength({ min: 1, max: 4000 }),
-        body('IsEnabled').optional().isBoolean(),
-        body('TableName').optional({ values: 'null' }).isString().isLength({ max: 255 }),
+        body('Config').isObject(),
     ],
     validateRequest,
     RuleController.createRule
@@ -98,14 +115,7 @@ router.put(
     authenticate,
     authorize('admin'),
     [
-        body('Name').optional().isLength({ min: 1, max: 200 }).trim(),
-        body('Description').optional().isLength({ max: 1000 }),
-        body('RuleType').optional().isIn([...SUPPORTED_RULE_TYPES]),
-        body('Severity').optional().isIn(['Error', 'Warning']),
-        body('ExecutionOrder').optional().isInt({ min: 1 }),
-        body('SqlQuery').optional().isString().isLength({ min: 1, max: 4000 }),
-        body('IsEnabled').optional().isBoolean(),
-        body('TableName').optional({ values: 'null' }).isString().isLength({ max: 255 }),
+        body('Config').isObject(),
     ],
     validateRequest,
     RuleController.updateRule

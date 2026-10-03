@@ -12,47 +12,12 @@ export interface AdminStats {
   filesInQueue: number;
   filesValidating: number;
   filesDelivering: number;
-  queueStats: {
-    validation: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-    delivery: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-    retry: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  };
+  queueStats: QueueStats;
+  recentUploadThroughput: { windowMinutes: number; uploads: number; uploadsPerMinute: number };
 }
 
 export interface QueueStats {
-  validation: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  delivery: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  retry: { waiting: number; active: number; completed: number; failed: number; delayed: number };
+  available: boolean;
+  validation: { activeMessageCount: number; deadLetterMessageCount: number } | null;
+  delivery: { activeMessageCount: number; deadLetterMessageCount: number } | null;
 }
-
-export interface ProcessingFile {
-  id: string;
-  originalFilename: string;
-  status: string;
-  uploadedAt: string;
-  definitionName?: string | null;
-  uploadedBy: string;
-  progress: number;
-  stage: string;
-  processingTimeMs: number;
-  processingTimeFormatted: string;
-  errorMessage?: string | null;
-}
-
-export interface StuckJob {
-  jobId: string;
-  uploadId: string;
-  stuckDurationMs: number;
-  startedAt: number;
-}
-
-export interface AdminHealthMetrics {
-  cpuUsage: number;
-  memoryUsage: number;
-  dbConnections: number;
-  redisConnections: number;
-  responseTimeMs: number;
-  errorRate: number;
-  uptime: number;  // seconds
-}
-

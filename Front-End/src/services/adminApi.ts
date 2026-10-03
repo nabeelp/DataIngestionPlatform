@@ -21,11 +21,20 @@ export interface AdminStats {
   filesInQueue: number;
   filesValidating: number;
   filesDelivering: number;
-  queueStats: {
-    validation: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-    delivery: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-    retry: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  };
+  queueStats: QueueStats;
+  recentUploadThroughput: RecentUploadThroughput;
+}
+
+export interface QueueStats {
+  available: boolean;
+  validation: { activeMessageCount: number; deadLetterMessageCount: number } | null;
+  delivery: { activeMessageCount: number; deadLetterMessageCount: number } | null;
+}
+
+export interface RecentUploadThroughput {
+  windowMinutes: number;
+  uploads: number;
+  uploadsPerMinute: number;
 }
 
 export interface AdminUser {
@@ -52,20 +61,6 @@ export interface AuditLog {
   ipAddress: string | null;
   userAgent: string | null;
   timestamp: string;
-}
-
-export interface ProcessingFile {
-  id: string;
-  originalFilename: string;
-  status: string;
-  uploadedAt: string;
-  definitionName: string | null;
-  uploadedBy: string;
-  progress: number;
-  stage: string;
-  processingTimeMs: number;
-  processingTimeFormatted: string;
-  errorMessage: string | null;
 }
 
 // ============================================================================
@@ -268,44 +263,17 @@ export const getRecentAuditLogs = async (limit: number = 20): Promise<AuditLog[]
 // ============================================================================
 
 export const getQueueStats = async (): Promise<{
-  validation: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  delivery: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  retry: { waiting: number; active: number; completed: number; failed: number; delayed: number };
+  stats: QueueStats;
+  recentUploadThroughput: RecentUploadThroughput;
 }> => {
   const response = await fetch(`${getBaseUrl()}/admin/queue-stats`, getFetchOptions('GET'));
   const data = await response.json();
   if (!data.success) {
     throw new Error(data.message || 'Failed to fetch queue stats');
   }
-  return data.stats;
-};
-
-export const getProcessingFiles = async (): Promise<{
-  files: ProcessingFile[];
-  stuckJobs: {
-    validationJobs: Array<{ jobId: string; uploadId: string; stuckDurationMs: number }>;
-    deliveryJobs: Array<{ jobId: string; uploadId: string; stuckDurationMs: number }>;
-  };
-}> => {
-  const response = await fetch(`${getBaseUrl()}/admin/processing-files`, getFetchOptions('GET'));
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch processing files');
-  }
   return {
-    ...data,
-    files: data.files.map((file: any) => ({
-      id: file.id ?? file.Id,
-      originalFilename: file.originalFilename ?? file.OriginalFilename,
-      status: file.status ?? file.Status,
-      uploadedAt: file.uploadedAt ?? file.UploadedAt,
-      definitionName: file.definitionName ?? file.DefinitionName,
-      uploadedBy: file.uploadedBy ?? file.UploadedBy,
-      progress: file.progress,
-      stage: file.stage,
-      processingTimeMs: file.processingTimeMs,
-      processingTimeFormatted: file.processingTimeFormatted,
-    })),
+    stats: data.stats,
+    recentUploadThroughput: data.recentUploadThroughput,
   };
 };
 

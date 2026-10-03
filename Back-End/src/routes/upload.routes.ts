@@ -32,6 +32,8 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
     'text/plain',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel.sheet.macroEnabled.12',
+    'application/vnd.ms-excel.sheet.binary.macroEnabled.12',
     // Some browsers/OSes send a generic type for spreadsheets and CSV files.
     'application/octet-stream',
 ]);
@@ -100,14 +102,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/uploads/stuck (declared before /:id so it is not treated as an id)
- * Get list of stuck jobs (jobs that have been running longer than timeout)
- */
-router.get('/stuck', async (req: Request, res: Response) => {
-    await UploadController.getStuckJobs(req, res);
-});
-
-/**
  * GET /api/uploads/:id
  * Get single upload details
  */
@@ -121,6 +115,22 @@ router.get('/:id', async (req: Request, res: Response) => {
  */
 router.get('/:id/progress', async (req: Request, res: Response) => {
     await UploadController.getUploadProgress(req, res);
+});
+
+/**
+ * POST /api/uploads/:id/dry-run
+ * Preview validation using the upload's pinned definition version.
+ */
+router.post('/:id/dry-run', async (req: Request, res: Response) => {
+    await UploadController.dryRun(req, res);
+});
+
+/**
+ * GET /api/uploads/:id/report
+ * Stream the persisted issues report after checking upload access.
+ */
+router.get('/:id/report', async (req: Request, res: Response) => {
+    await UploadController.downloadReport(req, res);
 });
 
 /**
@@ -148,14 +158,6 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/uploads/fail-stuck
- * Fail all jobs that have been stuck for longer than the timeout
- */
-router.post('/fail-stuck', async (req: Request, res: Response) => {
-    await UploadController.failStuckJobs(req, res);
-});
-
-/**
  * DELETE /api/uploads/:id
  * Delete an upload
  */
@@ -167,8 +169,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // Error handling for multer
 // ============================================================================
 
-router.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    logger.error(`[MULTER-ERROR] File upload failed: ${err.message}, File: ${req.file?.originalname || 'unknown'}`, err);
+router.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    logger.error(`[MULTER-ERROR] File upload rejected: ${err instanceof Error ? err.name : 'UnknownError'}`);
     if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
             res.status(400).json({
@@ -194,4 +196,3 @@ router.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 export default router;
-

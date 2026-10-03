@@ -2,6 +2,8 @@
 // Natural-language rule authoring API - streams the review's activity while the model works
 // =============================================================================
 
+import type { RuleConfig } from '../contracts/rule-config';
+
 export type ActivityLevel = 'info' | 'success' | 'warning' | 'error';
 
 export interface ReviewActivity {
@@ -11,17 +13,9 @@ export interface ReviewActivity {
   elapsedMs: number;
 }
 
-export interface ReviewedRule {
-  Name: string;
-  RuleType: string;
-  SqlQuery: string;
-  NaturalLanguageText?: string | null;
-}
-
 export type ReviewResult =
   | { outcome: 'rejected'; reason: string }
-  | { outcome: 'mapped'; reason: string; rule: ReviewedRule; pseudocode: string }
-  | { outcome: 'natural_language'; reason: string; rule: ReviewedRule; pseudocode: string; typescript: string };
+  | { outcome: 'mapped' | 'natural_language'; reason: string; config: RuleConfig };
 
 const NDJSON = 'application/x-ndjson';
 

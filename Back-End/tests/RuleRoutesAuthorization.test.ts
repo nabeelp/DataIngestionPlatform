@@ -14,6 +14,9 @@ jest.mock('../src/controllers/rule.controller', () => {
         getRuleById: ok,
         createRule: ok,
         createRuleFromDescription: ok,
+        regenerateRuleFromDescription: ok,
+        validateRuleConfiguration: ok,
+        testRuleConfiguration: ok,
         updateRule: ok,
         deleteRule: ok,
         toggleRule: ok,
@@ -33,9 +36,17 @@ const tokenFor = (role: 'admin' | 'user') =>
 
 const validRule = {
     FileDefinitionId: DEFINITION_ID,
-    Name: 'Amount range',
-    RuleType: 'Range Check',
-    SqlQuery: 'Amount: 0..100',
+    Config: {
+        id: 'd318c2a1-d431-44e3-9f28-cdf7de845707',
+        name: 'Amount range',
+        description: 'Amount must be between 0 and 100',
+        severity: 'Error',
+        executionOrder: 1,
+        enabled: true,
+        table: null,
+        type: 'range',
+        params: { column: 'Amount', min: 0, max: 100 },
+    },
 };
 
 describe('rule routes authorization', () => {
@@ -66,7 +77,9 @@ describe('rule routes authorization', () => {
     const mutations: Array<[string, string, unknown]> = [
         ['POST', '', validRule],
         ['POST', '/natural-language', { FileDefinitionId: DEFINITION_ID, Request: 'Amount must be positive' }],
-        ['PUT', `/${RULE_ID}`, { Name: 'Renamed' }],
+        ['POST', '/validate', validRule],
+        ['POST', '/test', { ...validRule, examples: [] }],
+        ['PUT', `/${RULE_ID}`, { Config: { ...validRule.Config, id: RULE_ID } }],
         ['DELETE', `/${RULE_ID}`, null],
         ['PATCH', `/${RULE_ID}/toggle`, null],
     ];

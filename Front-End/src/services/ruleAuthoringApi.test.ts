@@ -88,15 +88,32 @@ describe('reviewNaturalLanguageRule', () => {
   });
 
   it('regenerates an existing rule from revised natural-language text', async () => {
-    const fetchMock = stubStream(['{"type":"result","success":true,"outcome":"natural_language","reason":"revised","rule":{"Name":"Revised","RuleType":"Natural Language","SqlQuery":"Email"},"pseudocode":"p","typescript":"t"}\n']);
+    const config = {
+      id: 'rule-1',
+      name: 'Revised',
+      description: 'Email must be lowercase',
+      severity: 'Error',
+      executionOrder: 1,
+      enabled: true,
+      table: null,
+      type: 'naturalLanguage',
+      params: { mode: 'row', failWhen: 'Email != LOWER(Email)' },
+    };
+    const fetchMock = stubStream([JSON.stringify({
+      type: 'result',
+      success: true,
+      outcome: 'natural_language',
+      reason: 'revised',
+      config,
+    }) + '\n']);
 
-    await regenerateNaturalLanguageRule({
+    await expect(regenerateNaturalLanguageRule({
       baseUrl: '/api/v1',
       token: 'tkn',
       ruleId: 'rule-1',
       request: 'Email must be lowercase',
       onActivity: () => undefined,
-    });
+    })).resolves.toMatchObject({ outcome: 'natural_language', config });
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/v1/rules/rule-1/regenerate');

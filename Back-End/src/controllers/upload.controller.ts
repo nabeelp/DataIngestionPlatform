@@ -8,34 +8,15 @@ import { Upload } from '../models/Upload.model';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { sanitizeFilename } from '../services/TemplateStorage.service';
-import { sharePointStorage } from '../services/SharePointStorage.service';
-import { desktopStorage } from '../services/DesktopStorage.service';
 import { azureStorage } from '../services/AzureStorage.service';
-import { failStuckJobs, getStuckJobs } from '../services/Queue.service';
-import { appConfig } from '../config/appConfig';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
+import { pipeline } from 'stream/promises';
+import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
-
-const EXCEL_FILE_TYPES = ['xlsx', 'xls'];
-
-const getStorageService = () => {
-    switch (appConfig.storage.provider) {
-        case 'desktop':
-            if (desktopStorage) return desktopStorage;
-            break;
-        case 'sharepoint':
-            if (sharePointStorage) return sharePointStorage;
-            break;
-        case 'azure':
-            if (azureStorage && appConfig.azure.storage.connectionString) return azureStorage;
-            break;
-        default:
-            throw new Error(`Unsupported STORAGE_PROVIDER: ${appConfig.storage.provider}`);
-    }
-    throw new Error(`STORAGE_PROVIDER ${appConfig.storage.provider} is not configured`);
-};
+import { RulesService, RulesServiceError } from '../services/RulesService.service';
+const EXCEL_FILE_TYPES = ['xlsx', 'xlsm', 'xls', 'xlsb'];
 
 export class UploadController {
 
@@ -63,7 +44,7 @@ export class UploadController {
                 pageSize: parseInt(pageSize)
             });
         } catch (error: any) {
-            logger.error('Error fetching uploads:', error);
+            logger.error(`[UPLOAD] Listing failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to fetch uploads'
@@ -101,7 +82,7 @@ export class UploadController {
 
             res.json(result);
         } catch (error: any) {
-            logger.error('Error fetching upload:', error);
+            logger.error(`[UPLOAD] Lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to fetch upload'
@@ -113,7 +94,6 @@ export class UploadController {
      * Get upload progress (for real-time updates)
      */
     static async getUploadProgress(req: Request, res: Response): Promise<void> {
-        logger.debug('Getting upload progress...');
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
             const userId = (req as any).user?.userId;
@@ -143,7 +123,7 @@ export class UploadController {
                 ...progress
             });
         } catch (error: any) {
-            logger.error('Error fetching upload progress:', error);
+            logger.error(`[UPLOAD] Progress lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to fetch upload progress'
@@ -151,10 +131,39 @@ export class UploadController {
         }
     }
 
+    static async dryRun(req: Request, res: Response): Promise<void> {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const userId = (req as any).user?.userId;
+        try {
+            if (!await Upload.hasAccessToUpload(id, userId)) {
+                res.status(403).json({ success: false, message: 'Access denied' });
+                return;
+            }
+            const upload = await Upload.findById(id);
+            if (!upload) {
+                res.status(404).json({ success: false, message: 'Upload not found' });
+                return;
+            }
+            const contract = await DefinitionVersionService.loadValidationContract(upload);
+            const result = await RulesService.dryRun(contract.contract, upload.Id);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            logger.error(`[UPLOAD-DRY-RUN] Failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+            if (error instanceof RulesServiceError && error.statusCode === 400) {
+                res.status(422).json({ success: false, message: 'The uploaded file could not be previewed.' });
+                return;
+            }
+            res.status(500).json({ success: false, message: 'Failed to run validation preview' });
+        }
+    }
+
     /**
      * Upload a file (multipart form data)
      */
     static async uploadFile(req: Request, res: Response): Promise<void> {
+        let uploadId = '';
+        let uploadedBlobName: string | null = null;
+        let uploadRecordCreationAttempted = false;
         try {
             const userId = (req as any).user?.userId;
             const definitionId = Array.isArray(req.body.definitionId) ? req.body.definitionId[0] : req.body.definitionId as string;
@@ -197,54 +206,32 @@ export class UploadController {
                 });
                 return;
             }
-            logger.info(`[UPLOAD-START] User: ${userId}, File: ${req.file.originalname}, Size: ${fileSize}B, Type: ${fileType}, DefId: ${definitionId}`);
+            logger.info(`[UPLOAD-START] UserId: ${userId}, DefinitionId: ${definitionId}, Size: ${fileSize}B, Type: ${fileType}`);
 
-            // Generate unique IDs
-            const uploadId = uuidv4();
+            uploadId = uuidv4();
             const safeFilename = sanitizeFilename(req.file.originalname);
             const storedFilename = `${uploadId}_${safeFilename}`;
-            const tempFilename = `${uploadId}_${safeFilename}`;
-            
-            // 1. FIRST: Persist copy to temp directory for validation worker
-            const tempDir = appConfig.upload.tempDirectory;
-            const tempPath = path.join(tempDir, tempFilename);
-            
-            // Ensure temp dir exists
-            const { mkdirSync } = await import('fs');
-            mkdirSync(tempDir, { recursive: true });
-            
-            // Copy multer temp → persistent temp
-            const { copyFileSync } = await import('fs');
-            copyFileSync(req.file.path, tempPath);
-            logger.info(`[UPLOAD-TEMP] Persisted: ${tempPath}`);
-            
-            // 2. THEN: Copy to configured storage
-            const storageService = getStorageService();
-            const uploadResult = await storageService.uploadFile(req.file.path, storedFilename);
-            
-            const storedUrl = 'fileUrl' in uploadResult ? uploadResult.fileUrl : uploadResult.blobUrl;
-            logger.info(`[UPLOAD-STORAGE] UploadId: ${uploadId}, Path: ${storedUrl}`);
-            
+            const blobName = `${uploadId}/${safeFilename}`;
+            if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
+            const uploadResult = await azureStorage.uploadFile(req.file.path, blobName);
+            uploadedBlobName = blobName;
 
-            // 3. Create upload record WITH TempLocalPath
+            uploadRecordCreationAttempted = true;
             const upload = await UploadService.createUpload({
                 FileDefinitionId: definitionId,
+                FileDefinitionVersionId: activeVersion.Id,
                 OriginalFilename: req.file.originalname,
                 StoredFilename: storedFilename,
-                TempLocalPath: tempPath,  // ← CRITICAL: Set temp path
+                BlobContainer: uploadResult.containerName,
+                BlobName: uploadResult.blobName,
+                FileSha256: uploadResult.sha256,
+                AzureBlobUrl: uploadResult.blobUrl,
+                ValidationDate: new Date(),
                 FileSize: fileSize,
                 FileType: fileType,
                 RowCountNo: 0,
                 SheetCount: 1
             }, userId);
-            
-            // 4. Update with storage URL (keep TempLocalPath)
-            await Upload.update(upload.Id!, {
-                AzureBlobUrl: storedUrl
-                // TempLocalPath preserved from createUpload
-            });
-
-            // Queue validation only after the upload record and storage URL exist.
             await UploadService.startValidation(upload.Id!);
             const queuedUpload = await Upload.findById(upload.Id!);
 
@@ -255,15 +242,25 @@ export class UploadController {
             });
 
         } catch (error: any) {
-            logger.error('Error uploading file:', error);
+            logger.error(`[UPLOAD] Failed for upload ${uploadId || 'not-created'}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+            if (uploadedBlobName && !uploadRecordCreationAttempted && azureStorage) {
+                try {
+                    await azureStorage.deleteBlob(uploadedBlobName);
+                } catch (cleanupError) {
+                    logger.warn(`[UPLOAD] Blob cleanup failed for upload ${uploadId}: ${cleanupError instanceof Error ? cleanupError.name : 'UnknownError'}`);
+                }
+            }
             res.status(500).json({
                 success: false,
-                message: error.message || 'Failed to upload file'
+                message: error instanceof Error ? error.message : 'Failed to upload file'
             });
         } finally {
-            // The validation worker uses its own persisted copy (TempLocalPath), so the multer file can go.
             if (req.file?.path) {
-                await fs.promises.rm(req.file.path, { force: true }).catch(() => undefined);
+                try {
+                    await fs.promises.rm(req.file.path, { force: true });
+                } catch (cleanupError) {
+                    logger.warn(`[UPLOAD] Multipart temporary file cleanup failed for upload ${uploadId || 'not-created'}: ${cleanupError instanceof Error ? cleanupError.name : 'UnknownError'}`);
+                }
             }
         }
     }
@@ -273,7 +270,6 @@ export class UploadController {
      * Start validation for an uploaded file
      */
     static async startVerification(req: Request, res: Response): Promise<void> {
-        logger.debug('Starting verification process...');
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
             const userId = (req as any).user?.userId;
@@ -296,7 +292,6 @@ export class UploadController {
                 });
                 return;
             }
-            logger.debug('We are validating, validation has started: ');
             // Check if upload is in valid state for verification
             if (upload.Status !== 'UPLOADED' && upload.Status !== 'VALIDATION_FAILED') {
                 res.status(400).json({
@@ -314,7 +309,7 @@ export class UploadController {
                 message: 'Validation started successfully'
             });
         } catch (error: any) {
-            logger.error('Error starting verification:', error);
+            logger.error(`[UPLOAD] Validation request failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to start verification'
@@ -367,7 +362,7 @@ export class UploadController {
                 message: 'Validation retry started successfully'
             });
         } catch (error: any) {
-            logger.error('Error retrying validation:', error);
+            logger.error(`[UPLOAD] Validation retry failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to retry validation'
@@ -379,8 +374,8 @@ export class UploadController {
      * Delete an upload
      */
     static async deleteUpload(req: Request, res: Response): Promise<void> {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         try {
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
             const userId = (req as any).user?.userId;
 
             // Check access
@@ -411,25 +406,12 @@ export class UploadController {
                 return;
             }
 
-            // The upload record is being removed, so its persisted validation copy is no longer needed.
-            try {
-                if (upload.TempLocalPath && fs.existsSync(upload.TempLocalPath)) {
-                    fs.unlinkSync(upload.TempLocalPath);
-                    logger.info(`[DELETE-TEMP] Deleted temp file for upload ${upload.Id}`);
+            if (azureStorage) {
+                await azureStorage.deleteBlob(upload.BlobName, upload.BlobContainer);
+                if (upload.ReportBlobName) {
+                    await azureStorage.deleteBlob(upload.ReportBlobName, appConfig.azure.storage.reportsContainerName);
                 }
-                
-                // Delete from storage if exists
-                if (upload.AzureBlobUrl || upload.CompressedBlobUrl) {
-                    const storageService = getStorageService();
-                    await (storageService as any).deleteBlob(upload.StoredFilename);
-                    if (upload.CompressedBlobUrl) {
-                        await (storageService as any).deleteBlob(upload.StoredFilename + '.gz');
-                    }
-                }
-            } catch (e) {
-                logger.warn('Failed to clean up files:', e);
             }
-
 
             // Delete from database (cascades to related records)
             await Upload.delete(id);
@@ -439,11 +421,54 @@ export class UploadController {
                 message: 'Upload deleted successfully'
             });
         } catch (error: any) {
-            logger.error('Error deleting upload:', error);
+            logger.error(`[UPLOAD] Delete failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to delete upload'
             });
+        }
+    }
+
+    static async downloadReport(req: Request, res: Response): Promise<void> {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const userId = (req as any).user?.userId;
+        try {
+            if (!await Upload.hasAccessToUpload(id, userId)) {
+                res.status(403).json({ success: false, message: 'Access denied' });
+                return;
+            }
+
+            const upload = await Upload.findById(id);
+            if (!upload) {
+                res.status(404).json({ success: false, message: 'Upload not found' });
+                return;
+            }
+            if (!upload.ReportBlobName) {
+                res.status(404).json({ success: false, message: 'Issues report is not available' });
+                return;
+            }
+            if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
+
+            const stream = await azureStorage.openBlobReadStream(
+                upload.ReportBlobName,
+                appConfig.azure.storage.reportsContainerName,
+            );
+            const filename = sanitizeFilename(path.basename(upload.ReportBlobName));
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Type', path.extname(filename).toLowerCase() === '.csv' ? 'text/csv' : 'application/octet-stream');
+            await pipeline(stream, res);
+        } catch (error) {
+            const statusCode = (error as { statusCode?: unknown })?.statusCode;
+            if (statusCode === 404) {
+                res.status(404).json({ success: false, message: 'Issues report is not available' });
+                return;
+            }
+            logger.error(`[UPLOAD-REPORT] Download failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+            if (res.headersSent) {
+                res.destroy();
+                return;
+            }
+            res.status(500).json({ success: false, message: 'Failed to download issues report' });
         }
     }
 
@@ -463,7 +488,7 @@ export class UploadController {
                 uploads
             });
         } catch (error: any) {
-            logger.error('Error fetching recent uploads:', error);
+            logger.error(`[UPLOAD] Recent uploads lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to fetch recent uploads'
@@ -471,90 +496,4 @@ export class UploadController {
         }
     }
 
-    /**
-     * Fail all stuck jobs that have been running longer than the timeout
-     */
-    static async failStuckJobs(req: Request, res: Response): Promise<void> {
-        try {
-            // Check if user is admin (only admins can trigger stuck job cleanup)
-            const userId = (req as any).user?.userId;
-            const userRole = (req as any).user?.role;
-            
-            if (userRole !== 'admin') {
-                res.status(403).json({
-                    success: false,
-                    message: 'Only administrators can trigger stuck job cleanup'
-                });
-                return;
-            }
-
-            // Get optional timeout override from request body
-            const timeoutMs = Array.isArray(req.body.timeoutMs) ? (req.body.timeoutMs[0] as string) : (req.body.timeoutMs as string);
-            const timeout = timeoutMs ? parseInt(timeoutMs) : undefined;
-
-            // Fail stuck jobs
-            const result = await failStuckJobs(timeout);
-
-            // Also update the upload statuses for the failed jobs
-            for (const detail of result.details) {
-                const jobType = detail.queueName === 'validation-queue' ? 'VALIDATION' : 'DELIVERY';
-                await UploadService.handleTimeoutFailure(detail.uploadId, jobType, detail.stuckDurationMs);
-            }
-
-            res.json({
-                success: true,
-                message: `Failed ${result.validationJobsFailed + result.deliveryJobsFailed} stuck jobs`,
-                validationJobsFailed: result.validationJobsFailed,
-                deliveryJobsFailed: result.deliveryJobsFailed,
-                details: result.details
-            });
-        } catch (error: any) {
-            logger.error('Error failing stuck jobs:', error);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to fail stuck jobs'
-            });
-        }
-    }
-
-    /**
-     * Get list of stuck jobs (jobs that have been running longer than timeout)
-     */
-    static async getStuckJobs(req: Request, res: Response): Promise<void> {
-        try {
-            // Check if user is admin
-            const userRole = (req as any).user?.role;
-            
-            if (userRole !== 'admin') {
-                res.status(403).json({
-                    success: false,
-                    message: 'Only administrators can view stuck jobs'
-                });
-                return;
-            }
-
-            // Get optional timeout override from query params
-            const timeoutMsStr = Array.isArray(req.query.timeoutMs) ? (req.query.timeoutMs[0] as string) : (req.query.timeoutMs as string);
-            const timeoutMs = timeoutMsStr ? timeoutMsStr : undefined;
-            const timeout = timeoutMs ? parseInt(timeoutMs) : undefined;
-
-            const stuckJobs = await getStuckJobs(timeout);
-            
-            const timeoutSetting = appConfig.workers.jobTimeout || 60000;
-
-            res.json({
-                success: true,
-                timeoutMs: timeoutSetting,
-                validationJobs: stuckJobs.validationJobs,
-                deliveryJobs: stuckJobs.deliveryJobs,
-                totalStuck: stuckJobs.validationJobs.length + stuckJobs.deliveryJobs.length
-            });
-        } catch (error: any) {
-            logger.error('Error getting stuck jobs:', error);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to get stuck jobs'
-            });
-        }
-    }
 }

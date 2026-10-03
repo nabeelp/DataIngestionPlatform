@@ -2,12 +2,15 @@
 // Azure Storage Service - Blob Storage Operations for File Management
 // =============================================================================
 
-import { BlobServiceClient, BlobSASPermissions, BlockBlobClient, ContainerClient, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { createHash } from 'crypto';
+import { BlobServiceClient, BlobSASPermissions, ContainerClient } from '@azure/storage-blob';
+import { DefaultAzureCredential } from '@azure/identity';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
 import { createGzip } from 'zlib';
 import { pipeline } from 'stream/promises';
 import { createReadStream, createWriteStream } from 'fs';
+import { Transform } from 'stream';
 import path from 'path';
 import os from 'os';
 
@@ -19,6 +22,7 @@ export interface UploadedFileInfo {
     compressed: boolean;
     compressedSize?: number;
     compressedBlobUrl?: string;
+    sha256?: string;
 }
 
 export interface StreamOptions {
@@ -36,15 +40,17 @@ export class AzureStorageService {
 
     constructor() {
         const connectionString = appConfig.azure.storage.connectionString;
-        if (!connectionString) {
-            logger.warn('Azure Storage connection string is not configured - AzureStorageService will not be functional');
-            this.blobServiceClient = null as any;
+        const accountUrl = appConfig.azure.storage.accountUrl;
+        if (connectionString) {
+            this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+        } else if (accountUrl) {
+            this.blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
+        } else {
             this.containerName = appConfig.azure.storage.containerName;
             this.compressedContainerName = appConfig.azure.storage.compressedContainerName;
-            return;
+            throw new Error('Configure AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_URL.');
         }
 
-        this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
         this.containerName = appConfig.azure.storage.containerName;
         this.compressedContainerName = appConfig.azure.storage.compressedContainerName;
     }
@@ -58,7 +64,7 @@ export class AzureStorageService {
         const exists = await containerClient.exists();
         if (!exists) {
             await containerClient.create();
-            logger.info(`Created container: ${containerName}`);
+            logger.info('Created Blob container.');
         }
         
         return containerClient;
@@ -75,12 +81,21 @@ export class AzureStorageService {
         const containerClient = await this.getOrCreateContainer(this.containerName);
         const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
-        // Upload the file
-        const uploadResult = await blockBlobClient.uploadFile(localFilePath, {
-            blobHTTPHeaders: {
-                blobContentType: this.getContentType(blobName)
+        const hash = createHash('sha256');
+        const hashingStream = new Transform({
+            transform(chunk: Buffer, _encoding, callback) {
+                hash.update(chunk);
+                callback(null, chunk);
             }
         });
+        await Promise.all([
+            pipeline(createReadStream(localFilePath), hashingStream),
+            blockBlobClient.uploadStream(hashingStream, 4 * 1024 * 1024, 5, {
+                blobHTTPHeaders: {
+                    blobContentType: this.getContentType(blobName)
+                }
+            }),
+        ]);
 
         const blobUrl = blockBlobClient.url;
         const properties = await blockBlobClient.getProperties();
@@ -91,7 +106,8 @@ export class AzureStorageService {
             containerName: this.containerName,
             blobName,
             size,
-            compressed: false
+            compressed: false,
+            sha256: hash.digest('hex')
         };
 
         // Optionally compress and upload
@@ -105,7 +121,7 @@ export class AzureStorageService {
             };
         }
 
-        logger.info(`File uploaded: ${blobName}, size: ${size} bytes`);
+        logger.info(`File uploaded; bytes=${size}`);
         return result;
     }
 
@@ -148,7 +164,7 @@ export class AzureStorageService {
             };
         }
 
-        logger.info(`Buffer uploaded: ${blobName}, size: ${buffer.length} bytes`);
+        logger.info(`Buffer uploaded; bytes=${buffer.length}`);
         return result;
     }
 
@@ -182,7 +198,7 @@ export class AzureStorageService {
             const properties = await blockBlobClient.getProperties();
             const size = properties.contentLength || 0;
 
-            logger.info(`Compressed file uploaded: ${compressedBlobName}, size: ${size} bytes`);
+            logger.info(`Compressed file uploaded; bytes=${size}`);
 
             return {
                 blobUrl,
@@ -221,7 +237,7 @@ export class AzureStorageService {
 
         const blobUrl = blockBlobClient.url;
         
-        logger.info(`Compressed buffer uploaded: ${compressedBlobName}, size: ${compressedBuffer.length} bytes`);
+        logger.info(`Compressed buffer uploaded; bytes=${compressedBuffer.length}`);
 
         return {
             blobUrl,
@@ -240,7 +256,7 @@ export class AzureStorageService {
         const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
         await blockBlobClient.downloadToFile(localFilePath);
-        logger.info(`File downloaded: ${blobName} -> ${localFilePath}`);
+        logger.info('File downloaded from Blob Storage.');
     }
 
     /**
@@ -262,9 +278,10 @@ export class AzureStorageService {
      */
     async streamBlob(
         blobName: string,
-        options: StreamOptions = {}
+        options: StreamOptions = {},
+        containerName = this.containerName,
     ): Promise<{ stream: NodeJS.ReadableStream; size: number }> {
-        const containerClient = await this.getOrCreateContainer(this.containerName);
+        const containerClient = this.blobServiceClient.getContainerClient(containerName);
         const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
         // Get blob properties to know the size
@@ -278,6 +295,15 @@ export class AzureStorageService {
         return { stream, size };
     }
 
+    async openBlobReadStream(blobName: string, containerName = this.containerName): Promise<NodeJS.ReadableStream> {
+        const blockBlobClient = this.blobServiceClient
+            .getContainerClient(containerName)
+            .getBlockBlobClient(blobName);
+        const response = await blockBlobClient.download(0);
+        if (!response.readableStreamBody) throw new Error('Blob download returned no stream.');
+        return response.readableStreamBody;
+    }
+
     /**
      * Delete a blob
      */
@@ -286,8 +312,8 @@ export class AzureStorageService {
         const containerClient = await this.getOrCreateContainer(container);
         const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
-        await blockBlobClient.delete();
-        logger.info(`Blob deleted: ${blobName}`);
+        await blockBlobClient.deleteIfExists();
+        logger.info('Blob deleted.');
     }
 
     /**
@@ -347,6 +373,8 @@ export class AzureStorageService {
             '.txt': 'text/plain',
             '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             '.xls': 'application/vnd.ms-excel',
+            '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
+            '.xlsb': 'application/vnd.ms-excel.sheet.binary.macroEnabled.12',
             '.json': 'application/json',
             '.xml': 'application/xml',
             '.zip': 'application/zip',
@@ -376,6 +404,6 @@ let azureStorage: AzureStorageService | null = null;
 try {
     azureStorage = new AzureStorageService();
 } catch (error) {
-    logger.warn('AzureStorageService initialization failed:', error);
+    logger.warn(`AzureStorageService initialization failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
 }
 export { azureStorage };

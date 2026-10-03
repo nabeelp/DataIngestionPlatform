@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Plus, Search, SlidersHorizontal, MoreVertical, Edit2, 
+  Plus, Search, MoreVertical, Edit2,
   Copy, Power, Shield, Database, LayoutGrid, AlertTriangle, 
-  RefreshCw, Info, ChevronRight, X, Trash2, Settings, Sparkles, Check,
+  RefreshCw, ChevronRight, X, Trash2, Settings, Sparkles, Check,
 } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { getFileDefinitionsAdmin } from '../services/adminApi';
 import { regenerateNaturalLanguageRule, reviewNaturalLanguageRule, type ReviewActivity } from '../services/ruleAuthoringApi';
-import GeneratedRuleDetails from './GeneratedRuleDetails';
+import type { RuleConfig } from '../contracts/rule-config';
+import {
+  ruleConfigColumns,
+  ruleConfigExpression,
+  ruleConfigFromForm,
+  ruleConfigTypeLabel,
+  updateRuleConfigFromForm,
+} from '../services/ruleConfig';
+import RuleConfigDetails from './RuleConfigDetails';
 import RuleReviewActivity from './RuleReviewActivity';
 
 //#region INTERFACES & TYPES
@@ -27,14 +35,13 @@ interface Rule {
   createdBy?: string | null;
   creatorName?: string;
   naturalLanguageText?: string | null;
-  pseudocode?: string | null;
-  generatedCode?: string | null;
+  explanation?: string | null;
+  config: RuleConfig;
 }
 
 type GenerationResult =
   | { outcome: 'rejected'; reason: string }
-  | { outcome: 'mapped'; reason: string; name: string; ruleType: string; expression: string; pseudocode: string }
-  | { outcome: 'natural_language'; reason: string; name: string; pseudocode: string; typescript: string; naturalLanguageText: string };
+  | { outcome: 'mapped' | 'natural_language'; reason: string; config: RuleConfig };
 
 interface Definition {
   id: string;
@@ -65,26 +72,9 @@ const RULE_TYPES = [
 const DEFAULT_RULE_TYPE = RULE_TYPES[0].value;
 // Also the stored rule type of rules generated from a request that no declarative type expresses without loss.
 const NATURAL_LANGUAGE_STRATEGY = 'Natural Language';
-const isGeneratedRule = (rule: Pick<Rule, 'ruleType'> | null | undefined) => rule?.ruleType === NATURAL_LANGUAGE_STRATEGY;
-const sheetColumnsManifest = (sqlQuery: string): { sheet: string; columns: string[] }[] | null => {
-  const prefix = '@sheet-columns:';
-  if (!sqlQuery.startsWith(prefix)) return null;
-  try {
-    const value: unknown = JSON.parse(sqlQuery.slice(prefix.length));
-    if (!value || typeof value !== 'object' || !('sheets' in value) || !Array.isArray(value.sheets)) return null;
-    return value.sheets.filter((entry): entry is { sheet: string; columns: string[] } =>
-      Boolean(entry) && typeof entry === 'object' && 'sheet' in entry && typeof entry.sheet === 'string'
-      && 'columns' in entry && Array.isArray(entry.columns) && entry.columns.every((column: unknown) => typeof column === 'string'));
-  } catch {
-    return null;
-  }
-};
-const displayedRuleColumns = (rule: Pick<Rule, 'sqlQuery'>): string => {
-  const manifest = sheetColumnsManifest(rule.sqlQuery);
-  return manifest
-    ? manifest.map(entry => `${entry.sheet}: ${entry.columns.join(', ')}`).join(' | ')
-    : rule.sqlQuery;
-};
+const isGeneratedRule = (rule: Pick<Rule, 'config'> | null | undefined) => rule?.config.type === 'naturalLanguage';
+const hasExpressionEditor = (rule: Rule | null | undefined) =>
+  !rule || ['columnsPresent', 'required', 'type', 'enum', 'range'].includes(rule.config.type);
 const getRuleTypeMeta = (type: string) =>
   RULE_TYPES.find(t => t.value === type) || { value: type, label: type, help: 'This rule type is no longer supported. Choose a supported type.', example: '' };
 
@@ -261,23 +251,26 @@ export default function ValidationRules() {
 
       const data = await response.json();
       if (data.success && data.rules) {
-        const mappedRules = data.rules.map((rule: any) => ({
-          id: rule.Id || rule.id,
-          fileDefinitionId: rule.FileDefinitionId || rule.fileDefinitionId,
-          name: rule.Name || rule.name,
-          description: rule.Description || rule.description,
-          executionOrder: rule.ExecutionOrder || rule.executionOrder,
-          ruleType: rule.RuleType || rule.ruleType,
-          severity: rule.Severity || rule.severity,
-          sqlQuery: rule.SqlQuery || rule.sqlQuery,
-          isEnabled: rule.IsEnabled !== undefined ? rule.IsEnabled : rule.isEnabled,
-          tableName: rule.TableName ?? rule.tableName ?? null,
-          createdBy: rule.CreatedBy || rule.createdBy,
-          creatorName: rule.CreatorName || rule.creatorName,
-          naturalLanguageText: rule.NaturalLanguageText ?? rule.naturalLanguageText ?? null,
-          pseudocode: rule.Pseudocode ?? rule.pseudocode ?? null,
-          generatedCode: rule.GeneratedCode ?? rule.generatedCode ?? null,
-        }));
+        const mappedRules = data.rules.map((config: RuleConfig) => {
+          const params = config.params as Record<string, unknown>;
+          const request = typeof params.request === 'string' ? params.request : null;
+          const explanation = typeof params.explanation === 'string' ? params.explanation : null;
+          return {
+            id: config.id,
+            fileDefinitionId,
+            name: config.name,
+            description: config.description,
+            executionOrder: config.executionOrder,
+            ruleType: ruleConfigTypeLabel(config),
+            severity: config.severity,
+            sqlQuery: ruleConfigExpression(config),
+            isEnabled: config.enabled,
+            tableName: config.table,
+            naturalLanguageText: request,
+            config,
+            explanation,
+          };
+        });
         setRules(mappedRules);
         setPublishedVersion(data.published ? data.versionNumber ?? null : null);
         setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
@@ -297,6 +290,20 @@ export default function ValidationRules() {
       const baseUrl = apiConfig.getBaseUrl();
       const method = editingRule ? 'PUT' : 'POST';
       const url = editingRule ? `${baseUrl}/rules/${editingRule.id}` : `${baseUrl}/rules`;
+      const form = {
+        id: editingRule?.config.id ?? crypto.randomUUID(),
+        name: formData.name,
+        description: formData.description,
+        executionOrder: parseInt(formData.executionOrder) || 1,
+        severity: formData.severity as 'Error' | 'Warning',
+        enabled: formData.isEnabled,
+        ruleType: formData.ruleType,
+        expression: formData.sqlQuery,
+        table: selectedSheets.length > 0 ? formData.tableName || null : null,
+      };
+      const config = editingRule
+        ? updateRuleConfigFromForm(editingRule.config, form)
+        : ruleConfigFromForm(form);
       
       const response = await fetch(url, {
         method,
@@ -304,25 +311,9 @@ export default function ValidationRules() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(isGeneratedRule(editingRule)
-          // The logic of a generated rule is fixed; only its presentation and ordering can change.
-          ? {
-            Name: formData.name,
-            Description: formData.description,
-            Severity: formData.severity,
-            ExecutionOrder: parseInt(formData.executionOrder) || 1,
-          }
-          : {
-            FileDefinitionId: selectedDefinitionId,
-            Name: formData.name,
-            Description: formData.description,
-            RuleType: formData.ruleType,
-            Severity: formData.severity,
-            ExecutionOrder: parseInt(formData.executionOrder) || 1,
-            SqlQuery: formData.sqlQuery,
-            IsEnabled: formData.isEnabled,
-            TableName: selectedSheets.length > 0 ? formData.tableName || null : null
-          })
+        body: JSON.stringify(editingRule
+          ? { Config: config }
+          : { FileDefinitionId: selectedDefinitionId, Config: config })
       });
 
       if (!response.ok) {
@@ -365,16 +356,10 @@ export default function ValidationRules() {
         onActivity: entry => setActivity(previous => [...previous, entry]),
       });
       if (data.outcome === 'mapped') {
-        setGenerationResult({
-          outcome: 'mapped', reason: data.reason, name: data.rule.Name, ruleType: data.rule.RuleType,
-          expression: data.rule.SqlQuery, pseudocode: data.pseudocode,
-        });
+        setGenerationResult({ outcome: 'mapped', reason: data.reason, config: data.config });
         await fetchRules(selectedDefinitionId);
       } else if (data.outcome === 'natural_language') {
-        setGenerationResult({
-          outcome: 'natural_language', reason: data.reason, name: data.rule.Name, pseudocode: data.pseudocode,
-          typescript: data.typescript, naturalLanguageText: data.rule.NaturalLanguageText ?? naturalLanguageRequest.trim(),
-        });
+        setGenerationResult({ outcome: 'natural_language', reason: data.reason, config: data.config });
         await fetchRules(selectedDefinitionId);
       } else {
         setGenerationResult({ outcome: 'rejected', reason: data.reason });
@@ -747,11 +732,11 @@ export default function ValidationRules() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-semibold text-slate-900">{rule.name}</h3>
-                            {(rule.tableName || sheetColumnsManifest(rule.sqlQuery)) && (
+                            {(rule.tableName || ruleConfigColumns(rule.config).includes(':')) && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200" title="Sheet table">
                                 {rule.tableName
                                   ? `Sheet: ${rule.tableName}`
-                                  : `Sheets: ${sheetColumnsManifest(rule.sqlQuery)?.map(entry => entry.sheet).join(', ')}`}
+                                  : `Tables: ${ruleConfigColumns(rule.config).split(' | ').map(entry => entry.split(':')[0]).join(', ')}`}
                               </span>
                             )}
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
@@ -787,7 +772,7 @@ export default function ValidationRules() {
                                   <button onClick={() => { setEditingRule(rule); setIsDrawerOpen(true); setActiveMenuId(null); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700">
                                     <Edit2 className="w-3.5 h-3.5 text-slate-400" /> Edit Configuration
                                   </button>
-                                  {!isGeneratedRule(rule) && (
+                                  {!isGeneratedRule(rule) && hasExpressionEditor(rule) && (
                                   <button onClick={() => handleClone(rule)} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700">
                                     <Copy className="w-3.5 h-3.5 text-slate-400" /> Clone Logic
                                   </button>
@@ -806,8 +791,12 @@ export default function ValidationRules() {
                         
                         {isGeneratedRule(rule) ? (
                           <>
-                            {rule.sqlQuery && <p className="text-xs text-slate-500">Columns read: <span className="font-mono">{displayedRuleColumns(rule)}</span></p>}
-                            <GeneratedRuleDetails naturalLanguageText={rule.naturalLanguageText} pseudocode={rule.pseudocode} generatedCode={rule.generatedCode} />
+                            {ruleConfigColumns(rule.config) && <p className="text-xs text-slate-500">Columns read: <span className="font-mono">{ruleConfigColumns(rule.config)}</span></p>}
+                            <RuleConfigDetails
+                              naturalLanguageText={rule.naturalLanguageText}
+                              explanation={rule.explanation}
+                              expression={rule.sqlQuery}
+                            />
                           </>
                         ) : rule.sqlQuery && (
                           <div className="bg-slate-900 border border-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 max-w-3xl overflow-x-auto shadow-inner">
@@ -896,9 +885,9 @@ export default function ValidationRules() {
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500">
                       Describe one check of the file's rows. When an existing rule type (required columns or values, data type,
-                      allowed values, numeric range) expresses it exactly, that type is used. Otherwise a Natural Language rule is
-                      created with generated pseudocode and TypeScript, verified against examples, and run in a sandbox during
-                      validation. Rules are saved to the draft; review them and publish the definition version before they apply to uploads.
+                      allowed values, numeric range) expresses it exactly, that RuleConfig type is used. Otherwise a Natural Language
+                      RuleConfig stores a restricted SQL expression, validated and tested by the Python rules service. Rules are saved
+                      to the draft; review them and publish the definition version before they apply to uploads.
                     </p>
                     <label htmlFor="naturalLanguageRule" className="block text-xs font-bold text-slate-600">Rule to enforce <span className="text-red-500">*</span></label>
                     <textarea
@@ -919,18 +908,21 @@ export default function ValidationRules() {
                     {generationResult?.outcome === 'mapped' && (
                       <div role="status" className="space-y-2">
                         <p className="text-sm text-emerald-700 font-medium">
-                          Created draft rule "{generationResult.name}" as {getRuleTypeMeta(generationResult.ruleType).label}: <code>{generationResult.expression}</code>
+                          Created draft rule "{generationResult.config.name}" as {ruleConfigTypeLabel(generationResult.config)}: <code>{ruleConfigExpression(generationResult.config)}</code>
                         </p>
                         <p className="text-xs text-slate-500">{generationResult.reason}</p>
-                        <p className="text-xs font-semibold text-slate-600">How this rule is evaluated (pseudocode)</p>
-                        <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg text-xs whitespace-pre-wrap overflow-x-auto">{generationResult.pseudocode}</pre>
                       </div>
                     )}
                     {generationResult?.outcome === 'natural_language' && (
                       <div role="status" className="space-y-2">
-                        <p className="text-sm text-emerald-700 font-medium">Created draft Natural Language rule "{generationResult.name}"</p>
-                        <p className="text-xs text-slate-500">{generationResult.reason} Review the generated code before publishing.</p>
-                        <GeneratedRuleDetails pseudocode={generationResult.pseudocode} generatedCode={generationResult.typescript} expanded />
+                        <p className="text-sm text-emerald-700 font-medium">Created draft Natural Language rule "{generationResult.config.name}"</p>
+                        <p className="text-xs text-slate-500">{generationResult.reason} Review the validated rule expression and examples before publishing.</p>
+                        <RuleConfigDetails
+                          naturalLanguageText={naturalLanguageRequest}
+                          explanation={typeof generationResult.config.params.explanation === 'string' ? generationResult.config.params.explanation : null}
+                          expression={ruleConfigExpression(generationResult.config)}
+                          expanded
+                        />
                       </div>
                     )}
                     {ruleCreated && (
@@ -1028,10 +1020,8 @@ export default function ValidationRules() {
                     <p className="text-[11px] text-slate-500">
                       {editingRule!.tableName
                         ? `Sheet ${editingRule!.tableName}. `
-                        : sheetColumnsManifest(editingRule!.sqlQuery)
-                          ? `Sheets ${sheetColumnsManifest(editingRule!.sqlQuery)?.map(entry => entry.sheet).join(', ')}. `
-                          : ''}
-                      Columns read: <span className="font-mono">{displayedRuleColumns(editingRule!)}</span>.
+                        : ''}
+                      Columns read: <span className="font-mono">{ruleConfigColumns(editingRule!.config)}</span>.
                       Edit the original request and regenerate to change what the rule checks. The current rule remains unchanged if regeneration fails or is stopped.
                     </p>
                     <label htmlFor="regenerateNaturalLanguageRule" className="block text-xs font-bold text-slate-600">Original request <span className="text-red-500">*</span></label>
@@ -1060,14 +1050,15 @@ export default function ValidationRules() {
                     {generationResult?.outcome === 'rejected' && (
                       <p role="status" className="text-sm text-amber-800 bg-amber-50 p-3 rounded-lg">Cannot regenerate rule: {generationResult.reason}</p>
                     )}
-                    <GeneratedRuleDetails
-                      pseudocode={editingRule!.pseudocode}
-                      generatedCode={editingRule!.generatedCode}
+                    <RuleConfigDetails
+                      naturalLanguageText={editingRule!.naturalLanguageText}
+                      explanation={editingRule!.explanation}
+                      expression={editingRule!.sqlQuery}
                     />
                   </div>
                 ) : (
                   <>
-                {editingRule && (
+                {editingRule && hasExpressionEditor(editingRule) && (
                   <div className="space-y-1.5">
                     <label htmlFor="editRuleStrategy" className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
                     <select
@@ -1085,6 +1076,7 @@ export default function ValidationRules() {
                 )}
 
                 {/* Field: Rule expression */}
+                {!editingRule || hasExpressionEditor(editingRule) ? (
                 <div className="space-y-1.5">
                   <label htmlFor="ruleExpression" className="text-xs font-bold text-slate-600">Rule Expression <span className="text-red-500">*</span></label>
                   <p className="text-[11px] text-slate-500">{getRuleTypeMeta(formData.ruleType).help}</p>
@@ -1099,6 +1091,14 @@ export default function ValidationRules() {
                     className="w-full border border-slate-200 rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-900 text-emerald-400 font-mono shadow-inner resize-y min-h-[100px]"
                   />
                 </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-bold text-slate-600">RuleConfig (read-only logic)</p>
+                    <pre className="max-h-52 overflow-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-700">
+                      {JSON.stringify(editingRule.config, null, 2)}
+                    </pre>
+                  </div>
+                )}
                   </>
                 )}
                   </>

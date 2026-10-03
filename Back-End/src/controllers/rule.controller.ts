@@ -10,11 +10,14 @@ import {
     RuleGenerationCancelledError,
     RuleGenerationError,
 } from '../services/NaturalLanguageRule.service';
-import { DefinitionVersionError } from '../services/DefinitionVersion.service';
+import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
+import { RulesService } from '../services/RulesService.service';
+import { Rule } from '../models/Rule.model';
 import type { 
     ICreateRuleDto, 
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
+import type { RuleConfig } from '../contracts/rule-config';
 import { IJwtPayload } from '../interfaces/user.interface';
 import { logger } from '../utils/logger';
 
@@ -22,10 +25,6 @@ import { logger } from '../utils/logger';
 export interface AuthRequest extends Request {
     user?: IJwtPayload;
 }
-
-// A blank table name means the rule applies to a single-table definition.
-const normalizeTableName = (value: unknown): string | null =>
-    typeof value === 'string' && value.trim() ? value.trim() : null;
 
 const NDJSON = 'application/x-ndjson';
 
@@ -48,7 +47,7 @@ export const createRuleFromDescription = async (req: AuthRequest, res: Response,
             const result = await createNaturalLanguageRule(req.body.FileDefinitionId, request, req.user!.userId);
             return res.status(result.outcome === 'rejected' ? 200 : 201).json({ success: true, ...result });
         } catch (error) {
-            logger.error('[RULE_CONTROLLER] Error creating rule from description:', error);
+            logger.error(`[RULE_CONTROLLER] Natural-language rule creation failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             if (error instanceof RuleGenerationError || error instanceof DefinitionVersionError) {
                 return res.status(error.statusCode).json({ success: false, message: error.message });
             }
@@ -81,7 +80,7 @@ export const createRuleFromDescription = async (req: AuthRequest, res: Response,
         if (error instanceof RuleGenerationCancelledError) {
             logger.info('[RULE_CONTROLLER] Natural-language rule review stopped by the client');
         } else {
-            logger.error('[RULE_CONTROLLER] Error creating rule from description:', error);
+            logger.error(`[RULE_CONTROLLER] Natural-language rule creation failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             send({ type: 'error', success: false, ...describeGenerationFailure(error) });
         }
     } finally {
@@ -97,7 +96,7 @@ export const regenerateRuleFromDescription = async (req: AuthRequest, res: Respo
             const result = await regenerateNaturalLanguageRule(ruleId, request, req.user!.userId);
             return res.status(200).json({ success: true, ...result });
         } catch (error) {
-            logger.error('[RULE_CONTROLLER] Error regenerating rule from description:', error);
+            logger.error(`[RULE_CONTROLLER] Natural-language rule regeneration failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             if (error instanceof RuleGenerationError || error instanceof DefinitionVersionError) {
                 return res.status(error.statusCode).json({ success: false, message: error.message });
             }
@@ -129,7 +128,7 @@ export const regenerateRuleFromDescription = async (req: AuthRequest, res: Respo
         if (error instanceof RuleGenerationCancelledError) {
             logger.info('[RULE_CONTROLLER] Natural-language rule regeneration stopped by the client');
         } else {
-            logger.error('[RULE_CONTROLLER] Error regenerating rule from description:', error);
+            logger.error(`[RULE_CONTROLLER] Natural-language rule regeneration failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
             send({ type: 'error', success: false, ...describeGenerationFailure(error) });
         }
     } finally {
@@ -167,13 +166,13 @@ export const getRules = async (req: AuthRequest, res: Response, next: NextFuncti
 
         res.json({
             success: true,
-            rules,
+            rules: rules.map(rule => rule.Config),
             total: rules.length,
             published,
             versionNumber
         });
     } catch (error) {
-        logger.error('[RULE_CONTROLLER] Error getting rules:', error);
+        logger.error(`[RULE_CONTROLLER] Rule listing failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         
         // Handle access denied error
         if (error instanceof Error && error.message === 'Access denied to this file definition') {
@@ -184,6 +183,45 @@ export const getRules = async (req: AuthRequest, res: Response, next: NextFuncti
         }
         
         next(error);
+    }
+};
+
+export const validateRuleConfiguration = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.userId;
+        const fileDefinitionId = String(req.body.FileDefinitionId || '');
+        const config = req.body.Config as RuleConfig | undefined;
+        if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!config) return res.status(400).json({ success: false, message: 'RuleConfig is required' });
+        if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
+            return res.status(403).json({ success: false, message: 'Access denied to this file definition' });
+        }
+        const contract = await DefinitionVersionService.getDraftContract(fileDefinitionId);
+        const result = await RulesService.validateRule(contract, config);
+        return res.json({ success: true, ...result });
+    } catch (error) {
+        logger.error(`[RULE_CONTROLLER] Rule configuration validation failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+        return next(error);
+    }
+};
+
+export const testRuleConfiguration = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.userId;
+        const fileDefinitionId = String(req.body.FileDefinitionId || '');
+        const config = req.body.Config as RuleConfig | undefined;
+        const examples = Array.isArray(req.body.examples) ? req.body.examples as unknown[] : undefined;
+        if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!config) return res.status(400).json({ success: false, message: 'RuleConfig is required' });
+        if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
+            return res.status(403).json({ success: false, message: 'Access denied to this file definition' });
+        }
+        const contract = await DefinitionVersionService.getDraftContract(fileDefinitionId);
+        const result = await RulesService.testRule(contract, config, examples);
+        return res.json({ success: true, ...result });
+    } catch (error) {
+        logger.error(`[RULE_CONTROLLER] Rule example test failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+        return next(error);
     }
 };
 
@@ -220,10 +258,10 @@ export const getRuleById = async (req: AuthRequest, res: Response, next: NextFun
 
         res.json({
             success: true,
-            rule
+            rule: rule.Config
         });
     } catch (error) {
-        logger.error('[RULE_CONTROLLER] Error getting rule:', error);
+        logger.error(`[RULE_CONTROLLER] Rule lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -250,47 +288,37 @@ export const createRule = async (req: AuthRequest, res: Response, next: NextFunc
             });
         }
 
-        const { 
-            FileDefinitionId, 
-            Name, 
-            Description, 
-            RuleType, 
-            Severity, 
-            ExecutionOrder, 
-            SqlQuery, 
-            IsEnabled,
-            TableName
-        } = req.body;
-
-        // Validate required fields
-        if (!FileDefinitionId || !Name || !SqlQuery) {
+        const fileDefinitionId = req.body.FileDefinitionId as string;
+        const config = req.body.Config as RuleConfig | undefined;
+        if (!fileDefinitionId || !config) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'FileDefinitionId, Name, and SqlQuery are required' 
+                message: 'FileDefinitionId and RuleConfig are required'
             });
         }
 
         const dto: ICreateRuleDto = {
-            FileDefinitionId,
-            Name,
-            Description,
-            RuleType,
-            Severity,
-            ExecutionOrder,
-            SqlQuery,
-            IsEnabled,
-            TableName: normalizeTableName(TableName)
+            FileDefinitionId: fileDefinitionId,
+            Config: config,
+            Name: config.name,
+            Description: config.description,
+            RuleType: config.type === 'naturalLanguage' ? 'Natural Language' : 'Required Values',
+            Severity: config.severity,
+            ExecutionOrder: config.executionOrder,
+            SqlQuery: '',
+            IsEnabled: config.enabled,
+            TableName: config.table,
         };
 
         const rule = await RuleService.createRule(dto, userId);
 
         res.status(201).json({
             success: true,
-            rule,
+            rule: rule.Config,
             message: 'Rule created successfully'
         });
     } catch (error) {
-        logger.error('[RULE_CONTROLLER] Error creating rule:', error);
+        logger.error(`[RULE_CONTROLLER] Rule creation failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         
         if (error instanceof Error && error.message === 'Access denied to this file definition') {
             return res.status(403).json({ 
@@ -329,27 +357,11 @@ export const updateRule = async (req: AuthRequest, res: Response, next: NextFunc
             });
         }
 
-        const { 
-            Name, 
-            Description, 
-            RuleType, 
-            Severity, 
-            ExecutionOrder, 
-            SqlQuery, 
-            IsEnabled,
-            TableName
-        } = req.body;
-
-        const updates: IUpdateRuleDto = {};
-        
-        if (Name !== undefined) updates.Name = Name;
-        if (Description !== undefined) updates.Description = Description;
-        if (RuleType !== undefined) updates.RuleType = RuleType;
-        if (Severity !== undefined) updates.Severity = Severity;
-        if (ExecutionOrder !== undefined) updates.ExecutionOrder = ExecutionOrder;
-        if (SqlQuery !== undefined) updates.SqlQuery = SqlQuery;
-        if (IsEnabled !== undefined) updates.IsEnabled = IsEnabled;
-        if (TableName !== undefined) updates.TableName = normalizeTableName(TableName);
+        const config = req.body.Config as RuleConfig | undefined;
+        if (!config) {
+            return res.status(400).json({ success: false, message: 'RuleConfig is required' });
+        }
+        const updates: IUpdateRuleDto = { Config: config };
 
         const rule = await RuleService.updateRule(ruleId, updates, userId);
 
@@ -362,11 +374,11 @@ export const updateRule = async (req: AuthRequest, res: Response, next: NextFunc
 
         res.json({
             success: true,
-            rule,
+            rule: rule.Config,
             message: 'Rule updated successfully'
         });
     } catch (error) {
-        logger.error('[RULE_CONTROLLER] Error updating rule:', error);
+        logger.error(`[RULE_CONTROLLER] Rule update failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -412,7 +424,7 @@ export const deleteRule = async (req: AuthRequest, res: Response, next: NextFunc
             message: 'Rule deleted successfully'
         });
     } catch (error) {
-        logger.error('[RULE_CONTROLLER] Error deleting rule:', error);
+        logger.error(`[RULE_CONTROLLER] Rule deletion failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
@@ -458,11 +470,11 @@ export const toggleRule = async (req: AuthRequest, res: Response, next: NextFunc
 
         res.json({
             success: true,
-            rule,
+            rule: rule.Config,
             message: `Rule ${rule.IsEnabled ? 'enabled' : 'disabled'} successfully`
         });
     } catch (error) {
-        logger.error('[RULE_CONTROLLER] Error toggling rule:', error);
+        logger.error(`[RULE_CONTROLLER] Rule toggle failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         
         if (error instanceof Error && error.message === 'Access denied to this rule') {
             return res.status(403).json({ 
