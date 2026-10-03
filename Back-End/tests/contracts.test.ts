@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import { RULE_CONFIG_TYPES } from '../src/contracts/rule-config-types';
 
 const contractsDirectory = path.resolve(process.cwd(), '..', 'contracts');
 const schemaFiles = [
@@ -17,6 +18,11 @@ addFormats(ajv);
 schemas.forEach(schema => ajv.addSchema(schema));
 
 describe('contract examples', () => {
+    it('keeps the backend RuleConfig type list aligned with the shared schema', () => {
+        const schema = schemas.find(item => item.$id.endsWith('rule-config.schema.json'))!;
+        expect(RULE_CONFIG_TYPES).toEqual(schema.properties.type.enum);
+    });
+
     const examples: [string, string][] = [
         ['definition-contract.schema.json', 'definition-contract.json'],
         ['messages/validation-request.schema.json', 'validation-request.json'],

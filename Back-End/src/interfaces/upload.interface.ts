@@ -57,15 +57,6 @@ export type DeliveryStatus =
     | 'FAILED';
 
 /**
- * Job status
- */
-export type JobStatus = 
-    | 'WAITING'
-    | 'RUNNING'
-    | 'COMPLETED'
-    | 'FAILED';
-
-/**
  * Sheet status
  */
 export type SheetStatus = 
@@ -100,7 +91,6 @@ export interface IUpload {
     FileType: string;
     CompressedFileSize: number | null;
     CompressedBlobUrl: string | null;
-    TempLocalPath: string | null | undefined;
     RetryCount: number;
     RowCountNo: number | null;
     SheetCount: number | null;
@@ -110,8 +100,6 @@ export interface IUpload {
     ValidationCompletedAt: Date | null;
     DeliveryStartedAt: Date | null;
     DeliveryCompletedAt: Date | null;
-    ValidationJobId: string | null;
-    DeliveryJobId: string | null;
     ProcessingNode: string | null;
     DeliveredTo: string | null;
     DeliveredAt: Date | null;
@@ -205,25 +193,6 @@ export interface IDeliveryRecord {
 }
 
 /**
- * Upload task interface
- */
-export interface IUploadTask {
-    Id: string;
-    UploadId: string;
-    TaskType: 'VALIDATION' | 'DELIVERY';
-    CurrentStage: string | null;
-    TotalStages: number | null;
-    ProgressPercent: number;
-    CompletedStages: number;
-    Status: JobStatus;
-    QueueName: string | null;
-    JobId: string | null;
-    StartedAt: Date | null;
-    CompletedAt: Date | null;
-    LastUpdatedAt: Date;
-}
-
-/**
  * Upload access interface
  */
 export interface IUploadAccess {
@@ -265,7 +234,6 @@ export interface ICreateUploadDto {
     EngineVersion?: string | null;
     ReportBlobName?: string | null;
     ParquetPrefix?: string | null;
-    TempLocalPath?: string;
     AzureBlobUrl?: string;
     FileSize: number;
     FileType: string;
@@ -291,14 +259,11 @@ export interface IUpdateUploadDto {
     EngineVersion?: string | null;
     ReportBlobName?: string | null;
     ParquetPrefix?: string | null;
-    TempLocalPath?: string | null;
     RetryCount?: number;
     RowCountNo?: number;
     SheetCount?: number;
     AzureBlobUrl?: string;
     CompressedBlobUrl?: string;
-    ValidationJobId?: string;
-    DeliveryJobId?: string;
     DeliveredTo?: string;
     DeliveredAt?: Date | null;
     ErrorMessage?: string | null;

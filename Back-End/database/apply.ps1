@@ -75,6 +75,16 @@ if ($Authentication -eq 'Local') {
                 '-C', '-b', '-d', $Database, '-i', "/var/opt/mssql/scripts/$scriptName"
             )
         }
+
+        $seedScript = 'seed_local_users.sql'
+        if (-not (Test-Path -LiteralPath (Join-Path $databaseDirectory $seedScript))) {
+            throw "Database script was not found: $seedScript."
+        }
+        Invoke-ExternalCommand -Executable 'docker' -Arguments @(
+            'exec', '-e', 'SQLCMDPASSWORD', '-i', $Container,
+            '/opt/mssql-tools18/bin/sqlcmd', '-S', 'localhost', '-U', $Username,
+            '-C', '-b', '-d', $Database, '-i', "/var/opt/mssql/scripts/$seedScript"
+        )
     }
     finally {
         [Environment]::SetEnvironmentVariable('SQLCMDPASSWORD', $previousSqlPassword, 'Process')

@@ -1,14 +1,10 @@
 // Functional tests for definitions with one table per workbook sheet, against a real SQL Server database.
 // Run with TEST_DB_CONNECTION_STRING (see DefinitionVersioning.integration.test.ts); skipped otherwise.
 
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import * as XLSX from 'xlsx';
 
 const TEST_DB = process.env.TEST_DB_CONNECTION_STRING;
 const describeDb = TEST_DB ? describe : describe.skip;
@@ -17,25 +13,13 @@ const JWT_SECRET = 'sheet-tables-test-secret';
 if (TEST_DB) {
     process.env.DB_CONNECTION_STRING = TEST_DB;
     process.env.JWT_SECRET = JWT_SECRET;
-    process.env.REDIS_ENABLED = 'false';
     process.env.LOG_LEVEL = 'error';
-    process.env.UPLOAD_TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dip-sheet-tables-'));
 }
 
 const load = () => ({
     db: require('../src/config/database') as typeof import('../src/config/database'),
     versions: require('../src/services/DefinitionVersion.service') as typeof import('../src/services/DefinitionVersion.service'),
-    uploads: require('../src/services/Upload.service') as typeof import('../src/services/Upload.service'),
-    uploadModel: require('../src/models/Upload.model') as typeof import('../src/models/Upload.model'),
-    queues: require('../src/services/Queue.service') as typeof import('../src/services/Queue.service'),
-    worker: require('../src/services/ValidationWorker.service') as typeof import('../src/services/ValidationWorker.service'),
 });
-
-const workbook = (sheets: Record<string, unknown[][]>): Buffer => {
-    const book = XLSX.utils.book_new();
-    for (const [name, rows] of Object.entries(sheets)) XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), name);
-    return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-};
 
 describeDb('sheet table definitions (SQL Server)', () => {
     jest.setTimeout(60_000);
@@ -69,22 +53,6 @@ describeDb('sheet table definitions (SQL Server)', () => {
     ];
     const statusRule = { name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', severity: 'Error', table: 'Orders' };
 
-    const validateFile = async (definitionId: string, content: Buffer | string, fileType: 'xlsx' | 'csv') => {
-        const tempPath = path.join(process.env.UPLOAD_TEMP_DIR!, `${Date.now()}-${Math.random()}.${fileType}`);
-        fs.writeFileSync(tempPath, content);
-        const upload = await m.uploads.UploadService.createUpload({
-            FileDefinitionId: definitionId,
-            OriginalFilename: `orders.${fileType}`,
-            StoredFilename: path.basename(tempPath),
-            TempLocalPath: tempPath,
-            FileSize: content.length,
-            FileType: fileType,
-        }, adminId);
-        await m.uploads.UploadService.startValidation(upload.Id);
-        await m.worker.processValidationJob({ data: { uploadId: upload.Id, fileDefinitionId: definitionId, fileUrl: '', userId: adminId } } as any);
-        return m.uploads.UploadService.getUploadDetails(upload.Id);
-    };
-
     beforeAll(async () => {
         m = load();
         const app = express();
@@ -99,13 +67,11 @@ describeDb('sheet table definitions (SQL Server)', () => {
         const admin = await pool.request().query(`SELECT TOP 1 Id FROM Users WHERE Role = 'admin' AND IsActive = 1`);
         adminId = admin.recordset[0]?.Id;
         if (!adminId) throw new Error('The test database needs an admin user (run seed_local_users.sql)');
-        await m.queues.initializeQueues();
     });
 
     afterAll(async () => {
         if (server) await new Promise<void>(resolve => server.close(() => resolve()));
         if (!m) return;
-        await m.queues.closeAllQueues();
         const pool = await m.db.getConnection();
         for (const id of createdDefinitions) {
             await pool.request().input('Id', id).query(`
@@ -150,45 +116,9 @@ describeDb('sheet table definitions (SQL Server)', () => {
         expect(res.body.message).toContain(message);
     });
 
-    it('validates each sheet against its own table, ignoring other sheets', async () => {
-        const created = await createDefinition({ columns: [], tables: ordersTables, rules: [statusRule] });
-        const id = created.body.definition.id;
-
-        const good = await validateFile(id, workbook({
-            orders: [['OrderId', 'Status'], [1, 'Open'], [2, 'Closed']],
-            REFUNDS: [['OrderId', 'Reason'], [2, 'Damaged']],
-            ReadMe: [['Anything'], ['is ignored']],
-        }), 'xlsx');
-        expect(good.upload.Status).toBe('VALIDATED');
-        expect(good.ruleDetails.map(r => [r.RuleName, r.Status, r.Sheet])).toEqual([
-            ['Sheet "Orders" columns', 'PASSED', 'Orders'],
-            ['Sheet "Refunds" columns', 'PASSED', 'Refunds'],
-            ['Status allowed values (Orders)', 'PASSED', 'Orders'],
-        ]);
-
-        const bad = await validateFile(id, workbook({
-            Orders: [['OrderId', 'Status'], [1, 'Pending']],
-            Other: [['Status'], ['Anything']],
-        }), 'xlsx');
-        expect(bad.upload.Status).toBe('VALIDATION_FAILED');
-        expect(bad.ruleDetails.map(r => [r.RuleName, r.Status])).toEqual([
-            ['Sheet "Orders" columns', 'PASSED'],
-            ['Sheet "Refunds" columns', 'FAILED'],
-            ['Status allowed values (Orders)', 'FAILED'],
-        ]);
-        const errorsOf = (name: string) => JSON.parse(String(bad.ruleDetails.find(r => r.RuleName === name)!.FailedRows));
-        expect(errorsOf('Sheet "Refunds" columns')).toEqual([{ sheet: 'Refunds', error: 'Required sheet "Refunds" not found' }]);
-        // The rule only saw the Orders sheet, so only its one row failed.
-        expect(bad.ruleDetails.find(r => r.RuleName === 'Status allowed values (Orders)')!.ErrorCount).toBe(1);
-    });
-
-    it('fails a CSV file validated against sheet tables, and rejects CSV uploads up front', async () => {
+    it('rejects CSV uploads for definitions that require sheet tables', async () => {
         const created = await createDefinition({ columns: [], tables: ordersTables });
         const id = created.body.definition.id;
-
-        const result = await validateFile(id, 'OrderId,Status\n1,Open\n', 'csv');
-        expect(result.upload.Status).toBe('VALIDATION_FAILED');
-        expect(JSON.stringify(result.ruleDetails)).toContain('CSV files have no sheets');
 
         const form = new FormData();
         form.append('definitionId', id);
@@ -196,13 +126,6 @@ describeDb('sheet table definitions (SQL Server)', () => {
         const res = await fetch(`${baseUrl}/uploads`, { method: 'POST', headers: { Authorization: 'Bearer ' + token() }, body: form });
         expect(res.status).toBe(400);
         expect((await res.json() as any).message).toBe('This definition expects an Excel workbook (.xlsx or .xls) with the sheets "Orders", "Refunds"');
-    });
-
-    it('keeps single-table definitions applying to every sheet', async () => {
-        const created = await createDefinition({ columns: [{ name: 'Code', type: 'string', required: true }] });
-        const result = await validateFile(created.body.definition.id, workbook({ A: [['Code'], ['x']], B: [['Code'], ['y']] }), 'xlsx');
-        expect(result.upload.Status).toBe('VALIDATED');
-        expect(result.ruleDetails.map(r => [r.RuleName, r.Sheet])).toEqual([['File definition columns', null]]);
     });
 
     it('requires rules added later to name an existing sheet table before publishing', async () => {

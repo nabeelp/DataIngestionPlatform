@@ -10,7 +10,6 @@ import * as XLSX from 'xlsx';
 const JWT_SECRET = 'example-analysis-test-secret';
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'example-route-test-'));
 process.env.JWT_SECRET = JWT_SECRET;
-process.env.REDIS_ENABLED = 'false';
 process.env.LOG_LEVEL = 'error';
 process.env.UPLOAD_TEMP_DIR = tempDir;
 

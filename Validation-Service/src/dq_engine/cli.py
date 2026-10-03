@@ -4,6 +4,7 @@ import argparse
 import ctypes
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -15,6 +16,7 @@ from typing import Any
 from dq_engine.benchmark import (
     benchmark_contract,
     generate,
+    generate_xlsx,
     natural_language_benchmark_contract,
 )
 from dq_engine.config import get_settings
@@ -29,6 +31,8 @@ from dq_engine.io.models import UnrecoverableFileError
 from dq_engine.io.readers import read_file
 
 CSV_ENGINE_BUDGET_SECONDS = 1.5
+XLSX_ENGINE_BUDGET_SECONDS = 3.0
+XLSX_ROW_COUNT = 300_000
 RSS_BUDGET_BYTES = 1_500 * 1024 * 1024
 
 
@@ -99,59 +103,135 @@ def _validate_command(arguments: argparse.Namespace) -> int:
 
 
 def _bench_command(arguments: argparse.Namespace) -> int:
-    with tempfile.TemporaryDirectory(prefix="dq-engine-bench-") as directory:
-        path = Path(directory) / "benchmark.csv"
-        generate(path, arguments.rows)
-        contract = benchmark_contract()
-        started = time.perf_counter()
-        outcome = validate_file(path, contract, date(2025, 1, 15))
-        elapsed_seconds = time.perf_counter() - started
-        parsed = read_file(path, contract)
-        natural_language_contract = natural_language_benchmark_contract(contract)
-        validation_date = date(2025, 1, 15)
-        validate_parsed(parsed, contract, validation_date)
-        validate_parsed(parsed, natural_language_contract, validation_date)
-        baseline_times: list[float] = []
-        natural_language_times: list[float] = []
-        for _ in range(3):
-            started = time.perf_counter()
-            validate_parsed(parsed, contract, validation_date)
-            baseline_times.append(time.perf_counter() - started)
-            started = time.perf_counter()
-            validate_parsed(parsed, natural_language_contract, validation_date)
-            natural_language_times.append(time.perf_counter() - started)
-        baseline_median = median(baseline_times)
-        natural_language_median = median(natural_language_times)
-        natural_language_extra_ms = (natural_language_median - baseline_median) * 1000
-        peak_rss = _peak_rss_bytes()
-        csv_budget_passed = (
-            arguments.rows != 1_000_000
-            or (elapsed_seconds <= CSV_ENGINE_BUDGET_SECONDS and peak_rss <= RSS_BUDGET_BYTES)
-        )
-        natural_language_budget_passed = (
-            arguments.rows != 1_000_000 or natural_language_extra_ms <= 100
-        )
-        report = {
-            "workload": "csv",
-            "rows": arguments.rows,
-            "fileBytes": path.stat().st_size,
-            "rules": len(contract.rules),
-            "engineSeconds": round(elapsed_seconds, 4),
-            "peakRssBytes": peak_rss,
-            "engineBudgetSeconds": CSV_ENGINE_BUDGET_SECONDS,
+    reports: list[dict[str, Any]] = []
+    if arguments.workload == "all":
+        for workload in ("csv", "xlsx"):
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "dq_engine.cli",
+                    "bench",
+                    "--workload",
+                    workload,
+                    "--rows",
+                    str(arguments.rows),
+                    "--xlsx-rows",
+                    str(arguments.xlsx_rows),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            if completed.returncode not in (0, 1):
+                print(completed.stderr, file=sys.stderr)
+                return completed.returncode
+            child_report = json.loads(completed.stdout)
+            reports.extend(child_report["workloads"])
+        summary = {
+            "workloads": reports,
+            "peakRssBytes": max(int(report["peakRssBytes"]) for report in reports),
             "rssBudgetBytes": RSS_BUDGET_BYTES,
-            "naturalLanguageRowRuleBaselineMedianMs": round(baseline_median * 1000, 4),
-            "naturalLanguageRowRuleMedianMs": round(natural_language_median * 1000, 4),
-            "naturalLanguageRowRuleExtraMs": round(natural_language_extra_ms, 4),
-            "naturalLanguageRowRuleBudgetMs": 100,
-            "passedCsvBudgets": csv_budget_passed,
-            "passedNaturalLanguageBudget": natural_language_budget_passed,
-            "passedBudgets": csv_budget_passed and natural_language_budget_passed,
-            "status": outcome.status,
-            "issueCount": sum(check.issue_count for check in outcome.checks),
+            "passedBudgets": all(bool(report["passedBudgets"]) for report in reports),
         }
-    print(json.dumps(report, indent=2))
-    return 0 if report["passedBudgets"] else 1
+        print(json.dumps(summary, indent=2))
+        return 0 if summary["passedBudgets"] else 1
+
+    with tempfile.TemporaryDirectory(prefix="dq-engine-bench-") as directory:
+        contract = benchmark_contract()
+        validation_date = date(2025, 1, 15)
+        if arguments.workload in ("all", "csv"):
+            path = Path(directory) / "benchmark.csv"
+            generate(path, arguments.rows)
+            engine_times: list[float] = []
+            for _ in range(3):
+                started = time.perf_counter()
+                outcome = validate_file(path, contract, validation_date)
+                engine_times.append(time.perf_counter() - started)
+            elapsed_seconds = median(engine_times)
+            parsed = read_file(path, contract)
+            natural_language_contract = natural_language_benchmark_contract(contract)
+            validate_parsed(parsed, contract, validation_date)
+            validate_parsed(parsed, natural_language_contract, validation_date)
+            baseline_times: list[float] = []
+            natural_language_times: list[float] = []
+            for _ in range(3):
+                started = time.perf_counter()
+                validate_parsed(parsed, contract, validation_date)
+                baseline_times.append(time.perf_counter() - started)
+                started = time.perf_counter()
+                validate_parsed(parsed, natural_language_contract, validation_date)
+                natural_language_times.append(time.perf_counter() - started)
+            baseline_median = median(baseline_times)
+            natural_language_median = median(natural_language_times)
+            natural_language_extra_ms = (natural_language_median - baseline_median) * 1000
+            csv_budget_passed = (
+                arguments.rows != 1_000_000
+                or elapsed_seconds <= CSV_ENGINE_BUDGET_SECONDS
+            )
+            natural_language_budget_passed = (
+                arguments.rows != 1_000_000 or natural_language_extra_ms <= 100
+            )
+            reports.append({
+                "workload": "csv",
+                "rows": arguments.rows,
+                "fileBytes": path.stat().st_size,
+                "rules": len(contract.rules),
+                "engineSeconds": round(elapsed_seconds, 4),
+                "engineRunSeconds": [round(value, 4) for value in engine_times],
+                "engineBudgetSeconds": CSV_ENGINE_BUDGET_SECONDS,
+                "naturalLanguageRowRuleBaselineMedianMs": round(baseline_median * 1000, 4),
+                "naturalLanguageRowRuleMedianMs": round(natural_language_median * 1000, 4),
+                "naturalLanguageRowRuleExtraMs": round(natural_language_extra_ms, 4),
+                "naturalLanguageRowRuleBudgetMs": 100,
+                "passedCsvBudgets": csv_budget_passed,
+                "passedNaturalLanguageBudget": natural_language_budget_passed,
+                "passedBudgets": csv_budget_passed and natural_language_budget_passed,
+                "status": outcome.status,
+                "issueCount": sum(check.issue_count for check in outcome.checks),
+            })
+        if arguments.workload in ("all", "xlsx"):
+            path = Path(directory) / "benchmark.xlsx"
+            generate_xlsx(path, arguments.xlsx_rows)
+            engine_times = []
+            for _ in range(3):
+                started = time.perf_counter()
+                outcome = validate_file(path, contract, validation_date)
+                engine_times.append(time.perf_counter() - started)
+            elapsed_seconds = median(engine_times)
+            reports.append({
+                "workload": "xlsx",
+                "rows": arguments.xlsx_rows,
+                "fileBytes": path.stat().st_size,
+                "rules": len(contract.rules),
+                "engineSeconds": round(elapsed_seconds, 4),
+                "engineRunSeconds": [round(value, 4) for value in engine_times],
+                "engineBudgetSeconds": XLSX_ENGINE_BUDGET_SECONDS,
+                "passedEngineBudget": (
+                    arguments.xlsx_rows != XLSX_ROW_COUNT
+                    or elapsed_seconds <= XLSX_ENGINE_BUDGET_SECONDS
+                ),
+                "status": outcome.status,
+                "issueCount": sum(check.issue_count for check in outcome.checks),
+            })
+
+        peak_rss = _peak_rss_bytes()
+        for report in reports:
+            report["peakRssBytes"] = peak_rss
+            report["rssBudgetBytes"] = RSS_BUDGET_BYTES
+            report["passedRssBudget"] = peak_rss <= RSS_BUDGET_BYTES
+            report["passedBudgets"] = (
+                bool(report["passedBudgets"]) if "passedBudgets" in report
+                else bool(report["passedEngineBudget"])
+            ) and peak_rss <= RSS_BUDGET_BYTES
+    summary = {
+        "workloads": reports,
+        "peakRssBytes": peak_rss,
+        "rssBudgetBytes": RSS_BUDGET_BYTES,
+        "passedBudgets": all(bool(report["passedBudgets"]) for report in reports),
+    }
+    print(json.dumps(summary, indent=2))
+    return 0 if summary["passedBudgets"] else 1
 
 
 def _api_command(arguments: argparse.Namespace) -> None:
@@ -186,8 +266,10 @@ def main() -> None:
     validate.add_argument("--output-dir", type=Path)
     validate.add_argument("--json", action="store_true")
     validate.set_defaults(handler=_validate_command)
-    bench = commands.add_parser("bench", help="Run the 18-rule CSV performance workload.")
+    bench = commands.add_parser("bench", help="Run the §9 CSV, XLSX and Natural Language workloads.")
     bench.add_argument("--rows", type=int, default=1_000_000)
+    bench.add_argument("--xlsx-rows", type=int, default=XLSX_ROW_COUNT)
+    bench.add_argument("--workload", choices=("all", "csv", "xlsx"), default="all")
     bench.set_defaults(handler=_bench_command)
     api = commands.add_parser("api", help="Run the internal rules API.")
     api.add_argument("--host")
@@ -199,6 +281,8 @@ def main() -> None:
     arguments = parser.parse_args()
     if arguments.command == "bench" and arguments.rows < 1:
         parser.error("--rows must be positive")
+    if arguments.command == "bench" and arguments.xlsx_rows < 1:
+        parser.error("--xlsx-rows must be positive")
     if arguments.command == "worker" and arguments.max_messages is not None and arguments.max_messages < 1:
         parser.error("--max-messages must be positive")
     raise SystemExit(arguments.handler(arguments))

@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { expect, test, type Page } from '@playwright/test';
@@ -160,6 +161,14 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     await uploadStatus(page, uploads[1]).toBe('VALIDATION_FAILED');
     await page.goto(`/admin/history/${uploads[1]}`);
     await expect(page.getByText('Sheet "Refunds" columns')).toBeVisible();
+    const [reportDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: 'Download full issues report' }).click(),
+    ]);
+    const reportPath = await reportDownload.path();
+    expect(reportPath).toBeTruthy();
+    if (!reportPath) throw new Error('The issues report download did not produce a local file.');
+    expect((await stat(reportPath)).size).toBeGreaterThan(0);
 
     // CSV files have no sheets, so they are rejected before upload.
     const csv = await uploadFile(page, name, { name: 'orders.csv', mimeType: 'text/csv', buffer: Buffer.from('OrderId\n1\n') });
@@ -244,6 +253,6 @@ test('unsupported example files are rejected without changing the form', async (
     buffer: Buffer.from('Id\n1\n'),
   });
 
-  await expect(assistant.getByRole('alert')).toHaveText('The example file is not a valid XLSX workbook');
+  await expect(assistant.getByRole('alert')).toHaveText('The example file could not be analyzed.');
   await expect(form.getByPlaceholder('Column name')).toHaveValue('Column1');
 });

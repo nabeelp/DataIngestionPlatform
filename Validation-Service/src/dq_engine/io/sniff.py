@@ -26,13 +26,23 @@ def _detect_encoding(sample: bytes, configured: str) -> tuple[str, int]:
         return "utf-16", len(codecs.BOM_UTF16_LE)
     if sample.startswith(codecs.BOM_UTF16_BE):
         return "utf-16", len(codecs.BOM_UTF16_BE)
+    if b"\x00" in sample:
+        even = sample[0::2]
+        odd = sample[1::2]
+        even_null_ratio = even.count(0) / max(1, len(even))
+        odd_null_ratio = odd.count(0) / max(1, len(odd))
+        if odd_null_ratio >= 0.2 and even_null_ratio < 0.05:
+            return "utf-16-le", 0
+        if even_null_ratio >= 0.2 and odd_null_ratio < 0.05:
+            return "utf-16-be", 0
     try:
         sample.decode("utf-8")
         return "utf-8", 0
     except UnicodeDecodeError:
         try:
-            codecs.lookup(configured)
-            return configured, 0
+            encoding = "windows-1252" if configured == "auto" else configured
+            codecs.lookup(encoding)
+            return encoding, 0
         except LookupError as error:
             raise UnrecoverableFileError(f"Unsupported configured encoding: {configured}.") from error
 
@@ -80,18 +90,19 @@ def sniff_file(path: Path, contract: DefinitionContract) -> FileMetadata:
             signature = source.read(_SNIFF_BYTES)
     except OSError as error:
         raise UnrecoverableFileError("The uploaded file could not be read.") from error
-    if not signature:
-        if extension not in _TEXT_EXTENSIONS:
-            raise UnrecoverableFileError("The file is empty or has an unsupported content signature.")
-    elif extension in {".xlsx", ".xlsm"} and not zipfile.is_zipfile(path):
+    if signature and extension in {".xlsx", ".xlsm"} and not zipfile.is_zipfile(path):
         raise UnrecoverableFileError(f"The content signature does not match {extension}.")
-    elif extension == ".xls" and not signature.startswith(_OLE_SIGNATURE):
+    elif signature and extension == ".xls" and not signature.startswith(_OLE_SIGNATURE):
         raise UnrecoverableFileError("The content signature does not match .xls.")
-    elif extension == ".xlsb" and not zipfile.is_zipfile(path):
+    elif signature and extension == ".xlsb" and not zipfile.is_zipfile(path):
         raise UnrecoverableFileError("The content signature does not match .xlsb.")
     if extension in _TEXT_EXTENSIONS:
         encoding, _ = _detect_encoding(signature, contract.encoding)
-        if b"\x00" in signature and not signature.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        if (
+            b"\x00" in signature
+            and encoding not in {"utf-16-le", "utf-16-be"}
+            and not signature.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+        ):
             raise UnrecoverableFileError(f"The content signature does not match {extension}.")
         delimiter = _detect_delimiter(signature, encoding, extension)
     else:

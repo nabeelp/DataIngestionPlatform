@@ -68,6 +68,31 @@ over the same parsed 1,000,000-row frame as the 18-rule baseline. On the local W
 The CSV and Natural Language row-rule budgets passed. As with the WP3 figures, these measurements are from the
 development host, not the prescribed 4-vCPU/8-GiB performance-gate host.
 
+## WP8 Golden equivalence and §9 performance benchmarks
+
+The Python engine was compared with the WP0 Node baselines for all 109 upload fixtures. The golden suite
+passed **110 tests** (109 upload fixtures plus sample-definition translation coverage), with no unexplained
+differences; reviewed deviations are listed in `tests/golden/INTENTIONAL_DIFFERENCES.md`.
+
+Decimal `precision` follows standard DECIMAL semantics (total digits); `scale` limits fractional digits.
+
+`uv run dq-engine bench` now measures the CSV, XLSX, and Natural Language workloads. It generates inputs
+outside the timed interval, runs each file workload three times in its own process, and reports median
+engine time and peak working set. The Natural Language overhead compares three rule-evaluation runs over
+the already-parsed 1,000,000-row CSV.
+
+| Workload | Rows | File bytes | Median engine time (runs) | Peak working set | §9 result |
+|---|---:|---:|---:|---:|---|
+| CSV, 18 rules | 1,000,000 | 110,576,998 | 1.2061 s (1.2061, 1.2000, 1.2273 s) | 1,140,047,872 bytes | Pass: ≤1.5 s and ≤1.5 GiB |
+| XLSX, 18 rules | 300,000 | 42,462,151 | 2.5242 s (2.8148, 2.5242, 2.4702 s) | 652,070,912 bytes | Pass: ≤3.0 s and ≤1.5 GiB |
+| Natural Language row rule | 1,000,000 | — | 17.1197 ms extra (427.6734 ms baseline; 444.7931 ms with the rule) | Included in CSV process | Pass: ≤100 ms |
+
+These figures were measured on the local Windows development host, **not** the prescribed 4-vCPU/8-GiB
+performance-gate host. The generated XLSX contains 300,000 rows and is 42.5 MB, about 18% below the plan's
+approximate 52 MB file size; deterministic high-entropy customer identifiers are used to calibrate the
+workbook size without adding columns or changing the 18-rule contract. Re-measure on the specified host
+before treating these local results as the final deployment performance gate.
+
 Use `uv run dq-engine validate <file> --contract <contract.json> --json` for local validation. Add
 `--output-dir <directory>` to write a Zstandard Parquet file per table and a streamed issues CSV.
 
@@ -87,8 +112,9 @@ key in source control.
 | `POST /v1/dry-run` | Preview checks for an upload or blob; uses matching stored Parquet tables for upload IDs when available, otherwise reads the source blob; limited to 60 seconds |
 | `POST /v1/examples/analyze` | Propose tables, columns, and candidate Enum/Range rules from an example blob |
 
-The local Azurite image is pinned to Blob API `2025-07-05` through `AZURE_STORAGE_API_VERSION`. Leave this
-setting unset in Azure to use the SDK's current service API version.
+The local Azurite service uses `--skipApiVersionCheck` so its pinned emulator can accept the API version
+sent by the installed Azure Storage SDK. This flag applies only to local Docker; Azure requests use the
+SDK's configured service API version.
 
 The local Service Bus emulator is pinned to `1.1.2`: the current `latest` (2.0.0) image has a known
 `BufferQueue-1` initialization failure that prevents queue sends. The configured duplicate-detection

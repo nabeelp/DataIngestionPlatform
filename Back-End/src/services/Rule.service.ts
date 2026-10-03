@@ -72,10 +72,6 @@ export async function getPublishedRules(
             NaturalLanguageText: config.type === 'naturalLanguage' && typeof config.params.request === 'string'
                 ? config.params.request
                 : null,
-            Pseudocode: config.type === 'naturalLanguage' && typeof config.params.explanation === 'string'
-                ? config.params.explanation
-                : null,
-            GeneratedCode: null,
             IsEnabled: config.enabled,
             CreatedBy: activeVersion.CreatedBy,
             CreatorName: activeVersion.CreatedByName,

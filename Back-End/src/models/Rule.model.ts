@@ -123,7 +123,6 @@ function parseStoredRule(row: any): IRule {
         IsEnabled: Boolean(row.IsEnabled),
         TableName: config.table,
         NaturalLanguageText: config.type === 'naturalLanguage' && typeof params.request === 'string' ? params.request : null,
-        Pseudocode: config.type === 'naturalLanguage' && typeof params.explanation === 'string' ? params.explanation : null,
         CreatedBy: row.CreatedBy ?? null,
         CreatedAt: row.CreatedAt,
         UpdatedAt: row.UpdatedAt,

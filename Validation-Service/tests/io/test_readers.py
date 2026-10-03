@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from dq_engine.contracts.models import DefinitionContract
-from dq_engine.io.models import UnrecoverableFileError
+from dq_engine.io import excel_reader
+from dq_engine.io.models import FileMetadata, UnrecoverableFileError
 from dq_engine.io.readers import read_file
 from dq_engine.io.sniff import sniff_file
 
@@ -105,7 +107,41 @@ def test_A1_empty_csv_has_no_detected_headers(tmp_path: Path) -> None:
 
     assert parsed.tables[""].source_columns == []
     assert parsed.tables[""].frame.height == 0
-    assert parsed.tables[""].frame.columns == ["RequiredId"]
+    assert parsed.tables[""].frame.columns == []
+
+
+def test_single_layout_reuses_loaded_visible_sheet(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class Sheet:
+        visible = "visible"
+
+        @staticmethod
+        def to_polars() -> pl.DataFrame:
+            return pl.DataFrame({"Id": ["Id", "1"]})
+
+    class Reader:
+        sheet_names = ["Orders"]
+
+        def __init__(self) -> None:
+            self.load_count = 0
+
+        def load_sheet_by_idx(
+            self,
+            index: int,
+            *,
+            header_row: None,
+            dtype_coercion: str,
+        ) -> Sheet:
+            self.load_count += 1
+            return Sheet()
+
+    reader = Reader()
+    monkeypatch.setattr(excel_reader.fastexcel, "read_excel", lambda _: reader)
+    metadata = FileMetadata(tmp_path / "workbook.xlsx", "xlsx", "binary", None)
+
+    parsed = excel_reader.read_excel(metadata, contract())
+
+    assert reader.load_count == 1
+    assert parsed.tables["Orders"].frame.height == 1
 
 
 def test_excel_reader_honours_header_row_and_hidden_table_sheet() -> None:

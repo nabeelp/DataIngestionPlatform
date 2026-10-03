@@ -38,7 +38,7 @@ def _make_table(
         return ParsedTable(
             name=name,
             definition=definition,
-            frame=pl.DataFrame(schema={column.name: pl.String for column in definition.columns}),
+            frame=pl.DataFrame(),
             row_numbers=[],
             source_columns=[],
         )
@@ -69,21 +69,42 @@ def _make_table(
         for position, header in enumerate(headers, start=1)
     ]
     used_target_names: set[str] = set()
-    for index, name in enumerate(target_names):
-        candidate = name
+    for index, target_name in enumerate(target_names):
+        candidate = target_name
         suffix = 1
         while candidate.casefold() in used_target_names:
             suffix += 1
-            candidate = f"{name}_{suffix}"
+            candidate = f"{target_name}_{suffix}"
         target_names[index] = candidate
         used_target_names.add(candidate.casefold())
     data = data.rename(dict(zip(data.columns, target_names, strict=True)))
     data = data.select(pl.all().cast(pl.String, strict=False))
+    original_start = header_index + 2
+    nonblank_mask: pl.Series | None = None
+    all_rows_nonblank = False
+    for column in data.columns:
+        column_mask = data.get_column(column).str.strip_chars().fill_null("") != ""
+        nonblank_mask = column_mask if nonblank_mask is None else nonblank_mask | column_mask
+        if nonblank_mask.all():
+            all_rows_nonblank = True
+            break
+    if all_rows_nonblank:
+        row_numbers = list(range(original_start, original_start + data.height))
+    else:
+        if nonblank_mask is None:
+            raise UnrecoverableFileError("The worksheet has no columns.")
+        nonblank_rows = nonblank_mask.to_list()
+        row_numbers = [
+            original_start + index
+            for index, nonblank in enumerate(nonblank_rows)
+            if nonblank
+        ]
+        data = data.filter(nonblank_mask)
     return ParsedTable(
         name=name,
         definition=definition,
         frame=data,
-        row_numbers=list(range(header_index + 2, header_index + 2 + data.height)),
+        row_numbers=row_numbers,
         source_columns=headers,
         structural_issues=header_issues,
     )
@@ -99,14 +120,16 @@ def read_excel(metadata: FileMetadata, contract: DefinitionContract) -> ParsedFi
     by_normalized_name = {_normalize_sheet(name): index for index, name in enumerate(sheet_names)}
     tables: dict[str, ParsedTable] = {}
     file_issues: list[StructuralIssue] = []
+    preloaded_sheets: dict[str, fastexcel.ExcelSheet] = {}
 
     if contract.layout == "single":
         ignored = {_normalize_sheet(name) for name in contract.ignoredSheets}
         configured_sheet = contract.tables[0].sheet
         if configured_sheet is not None:
             selected_name = configured_sheet
+            selected_definitions = [(contract.tables[0], selected_name)]
         else:
-            selected_name = ""
+            selected_definitions = []
             for name in sheet_names:
                 if _normalize_sheet(name) in ignored:
                     continue
@@ -116,9 +139,8 @@ def read_excel(metadata: FileMetadata, contract: DefinitionContract) -> ParsedFi
                     dtype_coercion="coerce",
                 )
                 if str(candidate.visible).casefold() == "visible":
-                    selected_name = name
-                    break
-        selected_definitions = [(contract.tables[0], selected_name)] if selected_name else []
+                    selected_definitions.append((contract.tables[0], name))
+                    preloaded_sheets[_normalize_sheet(name)] = candidate
     else:
         selected_definitions = []
         for table in contract.tables:
@@ -136,19 +158,45 @@ def read_excel(metadata: FileMetadata, contract: DefinitionContract) -> ParsedFi
                 code="missing_sheet",
                 message=f'Required sheet "{selected_name}" not found.',
             ))
+            if contract.layout == "sheets":
+                tables[selected_name] = ParsedTable(
+                    name=selected_name,
+                    definition=table_definition,
+                    frame=pl.DataFrame({
+                        column.name: pl.Series([], dtype=pl.String)
+                        for column in table_definition.columns
+                    }),
+                    row_numbers=[],
+                    source_columns=[],
+                )
             continue
         try:
-            sheet = reader.load_sheet_by_idx(index, header_row=None, dtype_coercion="coerce")
+            normalized_name = _normalize_sheet(selected_name)
+            sheet = preloaded_sheets.get(normalized_name)
+            if sheet is None:
+                sheet = reader.load_sheet_by_idx(index, header_row=None, dtype_coercion="coerce")
             visible = str(sheet.visible).casefold() == "visible"
             explicitly_configured = table_definition.sheet is not None
             ignored = {_normalize_sheet(name) for name in contract.ignoredSheets}
             if (not visible and not explicitly_configured) or _normalize_sheet(selected_name) in ignored:
                 continue
             parsed_table = _make_table(selected_name, table_definition, sheet)
+            if contract.layout == "single" and not parsed_table.source_columns:
+                continue
             tables[selected_name] = parsed_table
             file_issues.extend(parsed_table.structural_issues)
         except (OSError, fastexcel.FastExcelError, pl.exceptions.PolarsError) as error:
             raise UnrecoverableFileError("An Excel worksheet could not be read.") from error
+
+    if contract.layout == "single" and not tables:
+        definition = contract.tables[0]
+        tables[""] = ParsedTable(
+            name="",
+            definition=definition,
+            frame=pl.DataFrame(),
+            row_numbers=[],
+            source_columns=[],
+        )
 
     return ParsedFile(
         metadata=metadata,

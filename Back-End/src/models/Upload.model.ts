@@ -273,10 +273,6 @@ export class Upload {
             setClauses.push('CompressedBlobUrl = @CompressedBlobUrl');
             request.input('CompressedBlobUrl', updates.CompressedBlobUrl);
         }
-        if (updates.DeliveryJobId !== undefined) {
-            setClauses.push('DeliveryJobId = @DeliveryJobId');
-            request.input('DeliveryJobId', updates.DeliveryJobId);
-        }
         if (updates.DeliveredTo !== undefined) {
             setClauses.push('DeliveredTo = @DeliveredTo');
             request.input('DeliveredTo', updates.DeliveredTo);

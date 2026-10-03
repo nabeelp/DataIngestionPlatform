@@ -13,7 +13,6 @@ const JWT_SECRET = 'versioning-routes-test-secret';
 if (TEST_DB) {
     process.env.DB_CONNECTION_STRING = TEST_DB;
     process.env.JWT_SECRET = JWT_SECRET;
-    process.env.REDIS_ENABLED = 'false';
     process.env.LOG_LEVEL = 'error';
 }
 

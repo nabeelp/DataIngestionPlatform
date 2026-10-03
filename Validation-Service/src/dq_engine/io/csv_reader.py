@@ -94,7 +94,7 @@ def _scan_ragged_rows(
             for row in reader:
                 start_line = previous_line + 1
                 previous_line = reader.line_num
-                if not row:
+                if not row or not any(field.strip() for field in row):
                     continue
                 if len(row) != expected_fields:
                     issues.append(StructuralIssue(
@@ -189,7 +189,7 @@ def read_csv_table(
         return ParsedTable(
             name=table.sheet or "",
             definition=table,
-            frame=pl.DataFrame(schema={column.name: pl.String for column in table.columns}),
+            frame=pl.DataFrame(),
             row_numbers=[],
             source_columns=[],
             structural_issues=issues,
@@ -232,7 +232,7 @@ def read_csv_table(
         raise UnrecoverableFileError("The CSV reader did not produce a table.")
     data = converted.select(unique_names).cast({name: pl.String for name in unique_names})
     if _needs_physical_line_map(path, header_line, data.height):
-        _, row_numbers, line_map_issues = _scan_ragged_rows(
+        rows, row_numbers, line_map_issues = _scan_ragged_rows(
             path,
             encoding,
             delimiter,
@@ -241,8 +241,24 @@ def read_csv_table(
         )
         if line_map_issues:
             raise UnrecoverableFileError("The CSV reader accepted malformed records unexpectedly.")
+        data = pl.DataFrame(
+            rows,
+            schema=list(zip(unique_names, [pl.String] * len(unique_names), strict=True)),
+            orient="row",
+        )
     else:
         row_numbers = list(range(header_line + 1, header_line + 1 + data.height))
+    nonblank = data.select(
+        pl.any_horizontal([
+            pl.col(name).str.strip_chars().fill_null("") != ""
+            for name in data.columns
+        ])
+    ).to_series().to_list()
+    data = data.filter(pl.any_horizontal([
+        pl.col(name).str.strip_chars().fill_null("") != ""
+        for name in data.columns
+    ]))
+    row_numbers = [number for number, keep in zip(row_numbers, nonblank, strict=True) if keep]
     return ParsedTable(
         name=table.sheet or "",
         definition=table,

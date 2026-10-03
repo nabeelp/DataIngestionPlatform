@@ -278,7 +278,9 @@ def _rule_table(rule_data: dict[str, Any], contract: DefinitionContract) -> str 
 def _matches_table(rule: RuleConfig, contract: DefinitionContract, table: ParsedTable) -> bool:
     target = _rule_table(_rule_data(rule), contract)
     if contract.layout == "single":
-        return target in (None, "", table.name)
+        return rule.table is None or (
+            isinstance(target, str) and table.name.strip().casefold() == target.strip().casefold()
+        )
     return isinstance(target, str) and table.name.strip().casefold() == target.strip().casefold()
 
 
@@ -292,8 +294,15 @@ def _issue_from_row(
     value: str | None = None
     if column and column in frame.columns:
         raw_value = frame.item(row_index, column)
-        value = None if raw_value is None else str(raw_value)
+        value = _display_value(raw_value)
     return RuleIssue(row=row_number, column=column, value=value, message=message)
+
+
+def _display_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return f"{text[:200]}..." if len(text) > 200 else text
 
 
 def _columns_for(rule_data: dict[str, Any]) -> set[str]:
@@ -319,37 +328,80 @@ def _columns_for(rule_data: dict[str, Any]) -> set[str]:
     return set()
 
 
-def _row_message(rule_data: dict[str, Any], column: str | None) -> str:
-    if rule_data["type"] == "naturalLanguage":
-        return str(rule_data["params"]["message"])
+def _row_message(rule_data: dict[str, Any], column: str | None, value: object = None) -> str:
+    params = rule_data["params"]
+    rule_type = rule_data["type"]
+    if rule_type == "naturalLanguage":
+        return str(params["message"])
+    if rule_type == "required":
+        return f'Required value missing for "{column}"'
+    if rule_type == "type":
+        return f'Value is not a valid {params["dataType"]}'
+    if rule_type == "enum":
+        return f'Value not in allowed values: {", ".join(map(str, params["values"]))}'
+    if rule_type == "range":
+        try:
+            number = float(str(value).strip())
+        except (TypeError, ValueError):
+            number = math.nan
+        if not math.isfinite(number):
+            return "Value is not a number"
+        def format_bound(bound: object) -> str:
+            if isinstance(bound, float) and bound.is_integer():
+                return str(int(bound))
+            return str(bound)
+
+        lower = format_bound(params["min"]) if "min" in params else ""
+        upper = format_bound(params["max"]) if "max" in params else ""
+        return f"Value outside allowed range {lower}..{upper}"
     name = rule_data["name"]
     return f"{name} failed" + (f' for column "{column}".' if column else ".")
 
 
-def _column_failure_expr(context: RuleContext, definition: TableDefinition) -> tuple[pl.Expr, str]:
-    failures: list[pl.Expr] = []
-    messages: list[str] = []
+def _column_failure_expressions(
+    context: RuleContext,
+    definition: TableDefinition,
+) -> tuple[list[tuple[str, pl.Expr, str]], list[tuple[str, str]]]:
+    failures: list[tuple[str, pl.Expr, str]] = []
+    messages: list[tuple[str, str]] = []
     source_names = context.table.source_columns
     for column in definition.columns:
-        matches = [name for name in source_names if name.strip().casefold() == column.name.strip().casefold()]
+        matches = [name for name in source_names if name.strip() == column.name.strip()]
         if not matches:
             if column.mustExist:
-                messages.append(f'Required column "{column.name}" not found.')
+                messages.append((column.name, f'Required column "{column.name}" not found'))
             continue
+        actual_name = context.actual_column(column.name)
         if not column.nullable:
-            failures.append(context.empty(column.name))
+            failures.append((
+                actual_name,
+                context.empty(column.name),
+                f'Required value missing for "{column.name}"',
+            ))
         if column.type != "string":
-            failures.append(type_check.row_failure_expr(context, {
-                "column": column.name,
-                "dataType": column.type,
-                "format": column.format,
-                "decimalSeparator": column.decimalSeparator,
-                "thousandsSeparator": column.thousandsSeparator,
-            }))
+            failures.append((
+                actual_name,
+                type_check.row_failure_expr(context, {
+                    "column": column.name,
+                    "dataType": column.type,
+                    "format": column.format,
+                    "decimalSeparator": column.decimalSeparator,
+                    "thousandsSeparator": column.thousandsSeparator,
+                }),
+                f"Value is not a valid {column.type}",
+            ))
         if column.maxLength is not None:
-            failures.append(context.text(column.name).str.len_chars() > column.maxLength)
+            failures.append((
+                actual_name,
+                context.text(column.name).str.len_chars() > column.maxLength,
+                f"Value exceeds maximum length {column.maxLength}",
+            ))
         if column.unique:
-            failures.append(unique.row_failure_expr(context, {"columns": [column.name]}))
+            failures.append((
+                actual_name,
+                unique.row_failure_expr(context, {"columns": [column.name]}),
+                "Value is not unique",
+            ))
         if column.type == "decimal" and (column.precision is not None or column.scale is not None):
             decimal = context.text(column.name).str.strip_chars()
             if column.thousandsSeparator:
@@ -361,17 +413,23 @@ def _column_failure_expr(context: RuleContext, definition: TableDefinition) -> t
             fractional = parts.list.get(1, null_on_oob=True).fill_null("")
             digit_count = integer_digits.str.len_chars() + fractional.str.len_chars()
             if column.precision is not None:
-                failures.append((~context.empty(column.name)) & (digit_count > column.precision))
+                failures.append((
+                    actual_name,
+                    (~context.empty(column.name)) & (digit_count > column.precision),
+                    f"Value exceeds decimal precision {column.precision}",
+                ))
             if column.scale is not None:
-                failures.append((~context.empty(column.name)) & (fractional.str.len_chars() > column.scale))
+                failures.append((
+                    actual_name,
+                    (~context.empty(column.name)) & (fractional.str.len_chars() > column.scale),
+                    f"Value exceeds decimal scale {column.scale}",
+                ))
     if not definition.allowExtraColumns:
         declared = {item.name.strip().casefold() for item in definition.columns}
         for source_column in source_names:
             if source_column.strip().casefold() not in declared:
-                messages.append(f'Unexpected column "{source_column}" found.')
-    if not failures:
-        return pl.lit(False), "; ".join(messages)
-    return pl.any_horizontal(failures), "; ".join(messages)
+                messages.append((source_column, f'Unexpected column "{source_column}" found'))
+    return failures, messages
 
 
 def _make_context(parsed: ParsedTable, contract: DefinitionContract, validation_date: date) -> RuleContext:
@@ -483,10 +541,21 @@ def validate_parsed(
     for table_name, table in parsed.tables.items():
         context = _make_context(table, contract, effective_date)
         column_started = time.perf_counter()
-        column_expression, column_message = _column_failure_expr(context, table.definition)
-        annotated = table.frame.lazy().with_row_index("__row").with_columns(
-            column_expression.fill_null(False).alias("__dq_column_failure")
-        )
+        column_failures, column_messages = _column_failure_expressions(context, table.definition)
+        column_failure_names = [
+            f"__dq_column_{index}"
+            for index in range(len(column_failures))
+        ]
+        annotated = table.frame.lazy().with_row_index("__row")
+        if column_failures:
+            annotated = annotated.with_columns([
+                expression.fill_null(False).alias(name)
+                for (_, expression, _), name in zip(
+                    column_failures,
+                    column_failure_names,
+                    strict=True,
+                )
+            ])
         rules_for_table = [
             rule for rule in contract.rules
             if rule.enabled and _matches_table(rule, contract, table)
@@ -522,7 +591,7 @@ def validate_parsed(
             runtime_message = "Rule failed during execution."
             checks.append(CheckResult(
                 id=f"columns:{table_name}",
-                name=f'Table "{table_name}" columns',
+                name=f'Sheet "{table_name}" columns',
                 type="columns",
                 severity="Error",
                 status="ERROR",
@@ -534,7 +603,7 @@ def validate_parsed(
             if len(report_issues) < MAX_REPORT_ISSUES:
                 report_issues.append(ReportIssue(
                     f"columns:{table_name}",
-                    f'Table "{table_name}" columns',
+                    f'Sheet "{table_name}" columns',
                     table_name or None,
                     RuleIssue(None, None, None, "Column checks failed during execution."),
                 ))
@@ -579,54 +648,62 @@ def validate_parsed(
                     table_name or None,
                     issue,
                 ))
-        missing_messages = [part for part in column_message.split("; ") if part]
-        column_issues = [
-            RuleIssue(None, None, None, message)
-            for message in missing_messages
-        ]
-        column_name = next(
-            (column.name for column in table.definition.columns
-             if any(source.strip().casefold() == column.name.strip().casefold()
-                    for source in table.source_columns)),
-            None,
-        )
-        for issue in column_issues:
-            if len(report_issues) < MAX_REPORT_ISSUES:
-                report_issues.append(ReportIssue(
-                    f"columns:{table_name}",
-                    f'Table "{table_name}" columns',
-                    table_name or None,
-                    issue,
-                ))
-        column_issue_count = len(column_issues)
-        column_indices = evaluated.get_column("__dq_column_failure").arg_true().to_list()
-        column_values = (
-            table.frame.get_column(column_name).gather(column_indices).to_list()
-            if column_name and column_indices
-            else []
-        )
-        column_issue_count += len(column_indices)
-        for value_index, index in enumerate(column_indices):
-            row_number = table.row_numbers[index] if index < len(table.row_numbers) else index + 1
-            issue = RuleIssue(
-                row_number,
-                column_name,
-                None if not column_values or column_values[value_index] is None
-                else str(column_values[value_index]),
-                "One or more column constraints failed.",
-            )
+        column_issues: list[RuleIssue] = []
+        column_issue_count = 0
+        for column_name, message in column_messages:
+            issue = RuleIssue(None, column_name, None, message)
+            column_issue_count += 1
             if len(column_issues) < MAX_ISSUES_PER_CHECK:
                 column_issues.append(issue)
             if len(report_issues) < MAX_REPORT_ISSUES:
                 report_issues.append(ReportIssue(
                     f"columns:{table_name}",
-                    f'Table "{table_name}" columns',
+                    f'Sheet "{table_name}" columns',
+                    table_name or None,
+                    issue,
+                ))
+        row_issues: list[tuple[int, int, int, RuleIssue]] = []
+        column_orders = {
+            column.name.strip(): index
+            for index, column in enumerate(table.definition.columns)
+        }
+        for failure_index, ((column_name, _, message), result_name) in enumerate(zip(
+            column_failures,
+            column_failure_names,
+            strict=True,
+        )):
+            column_indices = evaluated.get_column(result_name).arg_true().to_list()
+            column_values = table.frame.get_column(column_name).gather(column_indices).to_list()
+            column_issue_count += len(column_indices)
+            for value_index, index in enumerate(column_indices):
+                row_number = table.row_numbers[index] if index < len(table.row_numbers) else index + 1
+                raw_value = column_values[value_index]
+                issue = RuleIssue(
+                    row_number,
+                    column_name,
+                    None if raw_value is None or not str(raw_value).strip() else _display_value(raw_value),
+                    message,
+                )
+                row_issues.append((
+                    row_number,
+                    column_orders.get(column_name.strip(), failure_index),
+                    failure_index,
+                    issue,
+                ))
+        row_issues.sort(key=lambda item: (item[0], item[1], item[2]))
+        for _, _, _, issue in row_issues:
+            if len(column_issues) < MAX_ISSUES_PER_CHECK:
+                column_issues.append(issue)
+            if len(report_issues) < MAX_REPORT_ISSUES:
+                report_issues.append(ReportIssue(
+                    f"columns:{table_name}",
+                    f'Sheet "{table_name}" columns',
                     table_name or None,
                     issue,
                 ))
         checks.append(CheckResult(
             id=f"columns:{table_name}",
-            name=f'Table "{table_name}" columns' if table_name else "File definition columns",
+            name=f'Sheet "{table_name}" columns' if table_name else "File definition columns",
             type="columns",
             severity="Error",
             status=_check_status(column_issue_count, "Error"),
@@ -653,13 +730,13 @@ def validate_parsed(
                 if len(report_issues) < MAX_REPORT_ISSUES:
                     report_issues.append(ReportIssue(
                         f"tableRows:{table_name}",
-                        f'Table "{table_name}" row count',
+                        f'Sheet "{table_name}" row count',
                         table_name or None,
                         issue,
                     ))
             checks.append(CheckResult(
                 id=f"tableRows:{table_name}",
-                name=f'Table "{table_name}" row count',
+                name=f'Sheet "{table_name}" row count',
                 type="rowCount",
                 severity="Error",
                 status=_check_status(len(row_count_issues), "Error"),
@@ -671,7 +748,7 @@ def validate_parsed(
 
         for compiled_rule in compiled:
             rule_data = compiled_rule.config
-            rule_columns = sorted(_columns_for(rule_data))
+            rule_columns = sorted(context.actual_column(column) for column in _columns_for(rule_data))
             issue_column = rule_columns[0] if len(rule_columns) == 1 else None
             failed_indices = evaluated.get_column(compiled_rule.failure_column).arg_true().to_list()
             failed_values = (
@@ -679,17 +756,22 @@ def validate_parsed(
                 if issue_column and failed_indices
                 else []
             )
-            issue_message = _row_message(rule_data, issue_column)
             issues: list[RuleIssue] = []
             issue_count = len(failed_indices)
             for value_index, index in enumerate(failed_indices):
                 row_number = table.row_numbers[index] if index < len(table.row_numbers) else index + 1
+                raw_value = failed_values[value_index] if failed_values else None
+                issue_value = (
+                    None
+                    if raw_value is None
+                    or (rule_data["type"] == "required" and not str(raw_value).strip())
+                    else _display_value(raw_value)
+                )
                 issue = RuleIssue(
                     row_number,
                     issue_column,
-                    None if not failed_values or failed_values[value_index] is None
-                    else str(failed_values[value_index]),
-                    issue_message,
+                    issue_value,
+                    _row_message(rule_data, issue_column, raw_value),
                 )
                 if len(issues) < MAX_ISSUES_PER_CHECK:
                     issues.append(issue)

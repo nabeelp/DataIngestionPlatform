@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import io
 from pathlib import Path
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from dq_engine.contracts.models import DefinitionContract, NaturalLanguageRule
 
@@ -9,6 +13,7 @@ HEADERS = (
     "Id", "CustomerId", "OrderDate", "ShipDate", "Amount", "Discount",
     "Currency", "Status", "Country", "Email", "Quantity", "Reference",
 )
+XLSX_HEADERS = HEADERS
 
 
 def row_for(index: int) -> tuple[str, ...]:
@@ -35,6 +40,90 @@ def generate(path: Path, row_count: int) -> None:
         writer = csv.writer(output, lineterminator="\n")
         writer.writerow(HEADERS)
         writer.writerows(row_for(index) for index in range(row_count))
+
+
+def generate_xlsx(path: Path, row_count: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    column_names = (
+        "A", "B", "C", "D", "E", "F",
+        "G", "H", "I", "J", "K", "L",
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '</Types>'
+    )
+    package_relationships = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        '</Relationships>'
+    )
+    workbook = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Orders" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    )
+    workbook_relationships = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        '</Relationships>'
+    )
+
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", package_relationships)
+        archive.writestr("xl/workbook.xml", workbook)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_relationships)
+        with archive.open("xl/worksheets/sheet1.xml", "w") as worksheet:
+            with io.TextIOWrapper(worksheet, encoding="utf-8", newline="", write_through=True) as output:
+                output.write(
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                    f'<dimension ref="A1:L{row_count + 1}"/><sheetData>'
+                )
+
+                def write_row(
+                    row_number: int,
+                    values: tuple[str, ...],
+                    numeric_columns: frozenset[int] = frozenset(),
+                ) -> None:
+                    output.write(f'<row r="{row_number}">')
+                    for index, (column, value) in enumerate(zip(column_names, values, strict=True)):
+                        if index in numeric_columns:
+                            output.write(f'<c r="{column}{row_number}"><v>{escape(value)}</v></c>')
+                        else:
+                            output.write(
+                                f'<c r="{column}{row_number}" t="inlineStr"><is><t>'
+                                f'{escape(value)}</t></is></c>'
+                            )
+                    output.write("</row>")
+
+                write_row(1, XLSX_HEADERS)
+                for index in range(row_count):
+                    values = list(row_for(index))
+                    values[1] = (
+                        f"CUST-{index % 100_000:06d}-"
+                        f"{hashlib.sha512(f'dq-benchmark:{index}'.encode()).hexdigest()[:124]}"
+                    )
+                    write_row(
+                        index + 2,
+                        tuple(values),
+                        frozenset({4, 5, 10}),
+                    )
+                output.write("</sheetData></worksheet>")
 
 
 def benchmark_contract() -> DefinitionContract:

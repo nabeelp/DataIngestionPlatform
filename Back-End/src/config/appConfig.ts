@@ -19,15 +19,6 @@ const ensureTempDirectory = (): string => {
 // Initialize temp directory immediately
 const TEMP_DIR = ensureTempDirectory();
 
-const isRedisEnabled = (): boolean => {
-    const value = process.env.REDIS_ENABLED;
-    if (value === undefined) return (process.env.NODE_ENV || 'development') !== 'development';
-    if (value !== 'true' && value !== 'false') {
-        throw new Error('REDIS_ENABLED must be true or false');
-    }
-    return value === 'true';
-};
-
 export const appConfig = {
     // Server
     port: process.env.PORT || 3000,
@@ -81,31 +72,13 @@ export const appConfig = {
         loginMaxAttempts: 5, // limit login attempts
     },
 
-    // Redis Configuration
-    redis: {
-        enabled: isRedisEnabled(),
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
-    },
-
     // Worker Configuration
     workers: {
         validation: {
             concurrency: parseInt(process.env.VALIDATION_WORKER_CONCURRENCY || '5'),
-            maxJobsPerSecond: parseInt(process.env.VALIDATION_WORKER_MAX_JOBS || '10'),
         },
         delivery: {
             concurrency: parseInt(process.env.DELIVERY_WORKER_CONCURRENCY || '5'),
-            maxJobsPerSecond: parseInt(process.env.DELIVERY_WORKER_MAX_JOBS || '10'),
-        },
-        // Job timeout configuration (in milliseconds)
-        // Jobs running longer than this will be failed
-        jobTimeout: parseInt(process.env.JOB_TIMEOUT_MS || '60000'), // default 1 minute
-        // Sandbox limits for the generated code of each Natural Language rule, per upload.
-        ruleSandbox: {
-            timeLimitMs: parseInt(process.env.RULE_SANDBOX_TIME_LIMIT_MS || '20000'),
-            memoryLimitBytes: parseInt(process.env.RULE_SANDBOX_MEMORY_LIMIT_MB || '64') * 1024 * 1024,
         },
     },
 

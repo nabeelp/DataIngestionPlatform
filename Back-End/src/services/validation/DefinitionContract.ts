@@ -6,25 +6,19 @@
 // Layouts:
 // - Single table: `columns` apply to a CSV file and to every sheet of a workbook; `tables` is empty.
 // - Sheet tables: each entry of `tables` applies to the workbook sheet with that name (case-insensitive);
-//   `columns` is empty; ordinary rules name one table, while cross-sheet Natural Language rules name their
-//   sheet-specific columns in a manifest stored in SqlQuery.
+//   `columns` is empty and each rule names the table it applies to.
 // =============================================================================
-
-import {
-    NATURAL_LANGUAGE_RULE_TYPE,
-    SUPPORTED_RULE_TYPES,
-    parseRuleExpression,
-    sameSheet,
-    splitList,
-    type DefinitionColumn,
-    type ParsedRule,
-} from './ValidationEngine';
-
-export { sameSheet };
 
 /** Excel's limit on worksheet name length. */
 export const MAX_SHEET_NAME_LENGTH = 31;
-const SHEET_COLUMNS_PREFIX = '@sheet-columns:';
+export const COLUMN_TYPES = ['string', 'integer', 'decimal', 'date', 'datetime', 'boolean'] as const;
+export const DEFINITION_SCHEMA_RULE_TYPE = 'Definition Schema';
+
+export interface DefinitionColumn {
+    name: string;
+    type: string;
+    required: boolean;
+}
 
 export interface ContractTable {
     sheet: string;
@@ -43,10 +37,6 @@ export interface ContractRule {
     Table: string | null;
     /** Natural-language rules only: the request the rule was created from. */
     NaturalLanguageText?: string;
-    /** Natural-language rules only: model-generated pseudocode describing the code. */
-    Pseudocode?: string;
-    /** Natural-language rules only: the TypeScript the validation engine runs. */
-    GeneratedCode?: string;
 }
 
 export interface ContractSnapshot {
@@ -87,11 +77,7 @@ interface SourceRule {
     /** Snapshot property (published versions). */
     Table?: string | null;
     NaturalLanguageText?: string | null;
-    Pseudocode?: string | null;
-    GeneratedCode?: string | null;
 }
-
-export class ContractValidationError extends Error {}
 
 const ruleKey = (rule: Pick<ContractRule, 'Id'>): string => String(rule.Id).toLowerCase();
 
@@ -114,10 +100,9 @@ const tableOf = (rule: SourceRule): string | null => {
     return typeof table === 'string' && table.trim() ? table.trim() : null;
 };
 
-// Only natural-language rules carry generated content, so snapshots of declarative rules keep their shape.
-const generatedContent = (rule: SourceRule): Pick<ContractRule, 'NaturalLanguageText' | 'Pseudocode' | 'GeneratedCode'> =>
-    rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE
-        ? { NaturalLanguageText: rule.NaturalLanguageText || '', Pseudocode: rule.Pseudocode || '', GeneratedCode: rule.GeneratedCode || '' }
+const naturalLanguageContent = (rule: SourceRule): Pick<ContractRule, 'NaturalLanguageText'> =>
+    rule.RuleType === 'Natural Language'
+        ? { NaturalLanguageText: rule.NaturalLanguageText || '' }
         : {};
 
 /**
@@ -139,7 +124,7 @@ export function buildContractSnapshot(columns: unknown, rules: SourceRule[], tab
             ExecutionOrder: Number(rule.ExecutionOrder ?? 0),
             SqlQuery: rule.SqlQuery,
             Table: tableOf(rule),
-            ...generatedContent(rule),
+            ...naturalLanguageContent(rule),
         }))
         .sort((a, b) => a.ExecutionOrder - b.ExecutionOrder || a.Id.localeCompare(b.Id));
 
@@ -157,67 +142,6 @@ export const hasSheetTables = (contract: Pick<ContractSnapshot, 'tables'>): bool
 /** Name of the validation check that enforces a table's columns (stable, so a check can be matched to its table). */
 export const schemaCheckName = (sheet: string | null): string =>
     sheet === null ? 'File definition columns' : `Sheet "${sheet}" columns`;
-
-/** Columns a parsed rule refers to. */
-export const ruleColumns = (parsed: ParsedRule): string[] => ('columns' in parsed ? parsed.columns : [parsed.column]);
-
-/**
- * Columns any contract rule refers to; throws for an invalid rule. A natural-language rule's expression lists the
- * columns it reads (sheet-qualified for cross-sheet rules), and the rule needs generated code.
- */
-export function contractRuleColumns(rule: Pick<ContractRule, 'RuleType' | 'SqlQuery' | 'GeneratedCode'>): string[] {
-    if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
-        const sheetColumns = naturalLanguageColumnsBySheet(rule.SqlQuery || '');
-        const columns = sheetColumns
-            ? [...new Set(Object.values(sheetColumns).flat())]
-            : splitList(rule.SqlQuery || '');
-        if (columns.length === 0) throw new Error('A natural-language rule must list the columns it reads');
-        if (!rule.GeneratedCode?.trim()) throw new Error('A natural-language rule needs generated code');
-        return columns;
-    }
-    if (!(SUPPORTED_RULE_TYPES as readonly string[]).includes(rule.RuleType)) {
-        throw new Error(`Unsupported rule type: ${rule.RuleType}`);
-    }
-    return ruleColumns(parseRuleExpression(rule.RuleType, rule.SqlQuery));
-}
-
-/** Parse the sheet-qualified column manifest stored in SqlQuery for cross-sheet natural-language rules. */
-export function naturalLanguageColumnsBySheet(sqlQuery: string): Record<string, string[]> | null {
-    if (!sqlQuery.startsWith(SHEET_COLUMNS_PREFIX)) return null;
-    let value: unknown;
-    try {
-        value = JSON.parse(sqlQuery.slice(SHEET_COLUMNS_PREFIX.length));
-    } catch {
-        throw new Error('The cross-sheet column manifest is invalid JSON');
-    }
-    if (!value || typeof value !== 'object' || !('sheets' in value) || !Array.isArray(value.sheets)) {
-        throw new Error('The cross-sheet column manifest is invalid');
-    }
-    const columnsBySheet = Object.create(null) as Record<string, string[]>;
-    for (const entry of (value as { sheets: unknown[] }).sheets) {
-        if (!entry || typeof entry !== 'object' || !('sheet' in entry) || !('columns' in entry)) {
-            throw new Error('The cross-sheet column manifest is invalid');
-        }
-        const { sheet, columns } = entry as { sheet: unknown; columns: unknown };
-        if (typeof sheet !== 'string' || !sheet.trim() || !Array.isArray(columns) ||
-            columns.length === 0 || columns.some(column => typeof column !== 'string' || !column.trim())) {
-            throw new Error('The cross-sheet column manifest is invalid');
-        }
-        if (Object.keys(columnsBySheet).some(name => sameSheet(name, sheet))) {
-            throw new Error(`The cross-sheet column manifest names sheet "${sheet}" more than once`);
-        }
-        columnsBySheet[sheet.trim()] = [...new Set(columns as string[])];
-    }
-    if (Object.keys(columnsBySheet).length < 2) {
-        throw new Error('A cross-sheet natural-language rule must name at least two sheets');
-    }
-    return columnsBySheet;
-}
-
-export const serializeNaturalLanguageColumnsBySheet = (columnsBySheet: Record<string, string[]>): string =>
-    `${SHEET_COLUMNS_PREFIX}${JSON.stringify({
-        sheets: Object.entries(columnsBySheet).map(([sheet, columns]) => ({ sheet, columns })),
-    })}`;
 
 function diffBy<T>(previous: T[], next: T[], key: (item: T) => string, label: (item: T) => string, behaviour: (item: T) => string): ContractChanges {
     const previousByKey = new Map(previous.map(item => [key(item), item]));
@@ -268,7 +192,6 @@ function columnEntries(contract: ContractSnapshot): ColumnEntry[] {
 const ruleBehaviour = (rule: ContractRule): string =>
     JSON.stringify([
         rule.Name, rule.RuleType, rule.Severity, rule.ExecutionOrder, rule.SqlQuery, rule.Table ? sheetKey(rule.Table) : null,
-        ...(rule.GeneratedCode === undefined ? [] : [rule.GeneratedCode]),
     ]);
 
 /**
@@ -279,80 +202,4 @@ export function diffContracts(active: ContractSnapshot | null, draft: ContractSn
     const columns = diffBy(columnEntries(previous), columnEntries(draft), entry => entry.key, entry => entry.label, entry => entry.behaviour);
     const rules = diffBy(previous.rules, draft.rules, ruleKey, rule => rule.Name, ruleBehaviour);
     return { hasChanges: active === null || hasAny(columns) || hasAny(rules), columns, rules };
-}
-
-/**
- * Throw a ContractValidationError when a contract cannot be used to validate uploads.
- */
-export function assertPublishable(contract: ContractSnapshot): void {
-    const sheetTables = hasSheetTables(contract);
-    if (!sheetTables && contract.columns.length === 0) {
-        throw new ContractValidationError('A version needs at least one column');
-    }
-
-    const seenSheets = new Set<string>();
-    for (const table of contract.tables) {
-        if (table.sheet.length > MAX_SHEET_NAME_LENGTH) {
-            throw new ContractValidationError(`Sheet name "${table.sheet}" is longer than ${MAX_SHEET_NAME_LENGTH} characters`);
-        }
-        if (seenSheets.has(sheetKey(table.sheet))) {
-            throw new ContractValidationError(`Sheet "${table.sheet}" is defined more than once`);
-        }
-        seenSheets.add(sheetKey(table.sheet));
-        if (table.columns.length === 0) {
-            throw new ContractValidationError(`Sheet "${table.sheet}" needs at least one column`);
-        }
-    }
-
-    for (const rule of contract.rules) {
-        let columns: string[];
-        try {
-            columns = contractRuleColumns(rule);
-        } catch (error) {
-            throw new ContractValidationError(`Rule "${rule.Name}" is invalid: ${(error as Error).message}`);
-        }
-
-        if (rule.RuleType === NATURAL_LANGUAGE_RULE_TYPE) {
-            const columnsBySheet = naturalLanguageColumnsBySheet(rule.SqlQuery);
-            if (columnsBySheet) {
-                if (!sheetTables) {
-                    throw new ContractValidationError(`Rule "${rule.Name}" names sheet tables, but this definition has a single table`);
-                }
-                if (rule.Table) {
-                    throw new ContractValidationError(`Cross-sheet rule "${rule.Name}" cannot be assigned to only sheet "${rule.Table}"`);
-                }
-                for (const [sheet, sheetColumns] of Object.entries(columnsBySheet)) {
-                    const table = contract.tables.find(candidate => sameSheet(candidate.sheet, sheet));
-                    if (!table) {
-                        throw new ContractValidationError(`Rule "${rule.Name}" refers to sheet "${sheet}", which is not defined`);
-                    }
-                    const names = new Set(table.columns.map(column => column.name));
-                    const missing = sheetColumns.find(column => !names.has(column));
-                    if (missing) {
-                        throw new ContractValidationError(`Rule "${rule.Name}" refers to column "${missing}", which is not in sheet "${table.sheet}"`);
-                    }
-                }
-                continue;
-            }
-        }
-
-        if (!sheetTables) {
-            if (rule.Table) {
-                throw new ContractValidationError(`Rule "${rule.Name}" is for sheet "${rule.Table}", but this definition has a single table`);
-            }
-            continue;
-        }
-        if (!rule.Table) {
-            throw new ContractValidationError(`Rule "${rule.Name}" must name the sheet table it applies to`);
-        }
-        const table = contract.tables.find(t => sameSheet(t.sheet, rule.Table!));
-        if (!table) {
-            throw new ContractValidationError(`Rule "${rule.Name}" is for sheet "${rule.Table}", which is not defined`);
-        }
-        const names = new Set(table.columns.map(column => column.name));
-        const missing = columns.find(column => !names.has(column));
-        if (missing) {
-            throw new ContractValidationError(`Rule "${rule.Name}" refers to column "${missing}", which is not in sheet "${table.sheet}"`);
-        }
-    }
 }

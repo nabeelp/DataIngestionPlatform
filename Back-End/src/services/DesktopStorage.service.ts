@@ -3,7 +3,6 @@
 // Uses a configurable local destination by date.
 // =============================================================================
 
-import fs from 'fs';
 import path from 'path';
 import { mkdirSync, copyFileSync, existsSync, unlinkSync, statSync, readdirSync } from 'fs';
 import { appConfig } from '../config/appConfig';
@@ -104,38 +103,6 @@ export class DesktopStorageService {
     }
 
     /**
-     * Check if file exists
-     */
-    fileExists(filename: string, year?: string, month?: string, day?: string): boolean {
-        const datePath = year && month && day 
-            ? path.join(this.basePath, year, month, day)
-            : this.getDatePath();
-        const fullPath = path.join(datePath, filename);
-        return existsSync(fullPath);
-    }
-
-    /**
-     * Download/copy file to local path
-     */
-    /**
-     * Download/copy file to local path (original)
-     */
-    async downloadFileOriginal(filename: string, localPath: string, year?: string, month?: string, day?: string): Promise<void> {
-        const datePath = year && month && day 
-            ? path.join(this.basePath, year, month, day)
-            : this.getDatePath();
-        const sourcePath = path.join(datePath, filename);
-        
-        if (!existsSync(sourcePath)) {
-            throw new Error(`File not found: ${sourcePath}`);
-        }
-        
-        copyFileSync(sourcePath, localPath);
-        logger.info(`[DesktopStorage] Downloaded: ${filename} → ${localPath}`);
-    }
-
-
-    /**
      * Delete file
      */
     async deleteFile(filename: string, year?: string, month?: string, day?: string): Promise<void> {
@@ -161,47 +128,6 @@ export class DesktopStorageService {
         if (!existsSync(datePath)) return [];
         
         return readdirSync(datePath);
-    }
-
-    /**
-     * Get file info
-     */
-    /**
-     * Get file info (original)
-     */
-    getFileInfoOriginal(filename: string, year?: string, month?: string, day?: string): { size: number; mtime: Date } | null {
-        const datePath = year && month && day 
-            ? path.join(this.basePath, year, month, day)
-            : this.getDatePath();
-        const fullPath = path.join(datePath, filename);
-        
-        if (!existsSync(fullPath)) return null;
-        
-        const stats = statSync(fullPath);
-        return { size: stats.size, mtime: stats.mtime };
-    }
-
-
-    /**
-     * Interface compatibility for ValidationWorker - alias to fileExists
-     */
-    async blobExists(blobName: string, containerName?: string): Promise<boolean> {
-        return this.fileExists(blobName);
-    }
-
-    /**
-     * Interface compatibility - alias to downloadFileOriginal (ValidationWorker)
-     */
-    async downloadFile(blobName: string, localFilePath: string, containerName?: string): Promise<void> {
-        await this.downloadFileOriginal(blobName, localFilePath);
-    }
-
-
-    /**
-     * Interface compatibility - alias to getFileInfoOriginal
-     */
-    getFileInfo(blobName: string, containerName?: string): { size: number; mtime: Date } | null {
-        return this.getFileInfoOriginal(blobName);
     }
 
 }

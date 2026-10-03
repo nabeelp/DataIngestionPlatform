@@ -13,8 +13,7 @@ import { serviceBusService } from './ServiceBus.service';
 import { cacheService } from './MemoryCache.service';
 import { logger } from '../utils/logger';
 import { emitUploadEvent } from '../websocket/socketServer';
-import { DEFINITION_SCHEMA_RULE_TYPE } from './validation/ValidationEngine';
-import { schemaCheckName, validationTables } from './validation/DefinitionContract';
+import { DEFINITION_SCHEMA_RULE_TYPE, schemaCheckName, validationTables } from './validation/DefinitionContract';
 import { getDeliveryTargets, resolveDeliveryDestination } from './DeliveryTargets.service';
 import { DefinitionVersionService, toVersionSummary } from './DefinitionVersion.service';
 import type { 
@@ -215,8 +214,12 @@ export class UploadService {
         if (!upload) throw new Error(`Upload not found for validation event ${event.uploadId}.`);
 
         if (event.type === 'progress') {
-            if (!['VALIDATION_QUEUED', 'VALIDATION_IN_PROGRESS'].includes(upload.Status)) return;
-            await Upload.update(event.uploadId, { Status: 'VALIDATION_IN_PROGRESS' });
+            if (upload.Status === 'VALIDATION_QUEUED') {
+                if (!await Upload.transitionStatus(event.uploadId, 'VALIDATION_QUEUED', 'VALIDATION_IN_PROGRESS')) return;
+            } else if (upload.Status !== 'VALIDATION_IN_PROGRESS') {
+                return;
+            }
+
             await cacheService.cacheUploadProgress(event.uploadId, {
                 uploadId: event.uploadId,
                 status: 'VALIDATION_IN_PROGRESS',
@@ -228,6 +231,12 @@ export class UploadService {
                 },
                 delivery: null,
             });
+            const latestUpload = await Upload.findById(event.uploadId);
+            if (!latestUpload || latestUpload.Status !== 'VALIDATION_IN_PROGRESS') {
+                await cacheService.invalidateUploadProgress(event.uploadId);
+                return;
+            }
+
             void emitUploadEvent(event.uploadId, {
                 uploadId: event.uploadId,
                 type: 'VALIDATION_UPDATE',

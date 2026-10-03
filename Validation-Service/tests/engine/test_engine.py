@@ -8,7 +8,11 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from dq_engine.benchmark import benchmark_contract, natural_language_benchmark_contract
+from dq_engine.benchmark import (
+    benchmark_contract,
+    generate_xlsx,
+    natural_language_benchmark_contract,
+)
 from dq_engine.cli import main as cli_main
 from dq_engine.contracts.models import DefinitionContract
 from dq_engine.engine import validate_file, validate_parsed, write_outputs
@@ -76,7 +80,24 @@ def test_A1_empty_file_reports_required_column(tmp_path: Path) -> None:
     result = _validate(path, contract)
 
     assert result.status == "FAILED"
-    assert any('Required column "RequiredId" not found.' in issue.message
+    assert any('Required column "RequiredId" not found' in issue.message
+               for check in result.checks for issue in check.issues)
+
+
+def test_A1_zero_byte_workbook_reports_required_column(tmp_path: Path) -> None:
+    path = tmp_path / "empty.xlsx"
+    path.write_bytes(b"")
+    contract = _contract(columns=[{
+        "name": "RequiredId",
+        "type": "string",
+        "mustExist": True,
+        "nullable": False,
+    }])
+
+    result = _validate(path, contract)
+
+    assert result.status == "FAILED"
+    assert any('Required column "RequiredId" not found' in issue.message
                for check in result.checks for issue in check.issues)
 
 
@@ -142,6 +163,24 @@ def test_A5_invalid_calendar_date_fails_strict_date_column(tmp_path: Path) -> No
     assert check.issues[0].row == 2
 
 
+def test_A5_datetime_formats_with_and_without_timezone_are_combined(tmp_path: Path) -> None:
+    path = tmp_path / "timestamps.csv"
+    path.write_text(
+        "CreatedAt\n2026-04-01T12:30:00.000Z\n2026-04-02 14:30:00\n2026-04-03\n",
+        encoding="utf-8",
+    )
+    contract = _contract(columns=[{
+        "name": "CreatedAt",
+        "type": "datetime",
+        "mustExist": True,
+        "nullable": False,
+    }])
+
+    result = _validate(path, contract)
+
+    assert result.status == "PASSED"
+
+
 def test_A6_decimal_rejects_nonfinite_and_precision_overflow(tmp_path: Path) -> None:
     path = tmp_path / "amounts.csv"
     path.write_text('Amount\nInfinity\nNaN\n999999.00\n"1,234.50"\n', encoding="utf-8")
@@ -158,7 +197,11 @@ def test_A6_decimal_rejects_nonfinite_and_precision_overflow(tmp_path: Path) -> 
     result = _validate(path, contract)
 
     check = next(check for check in result.checks if check.id == "columns:")
-    assert check.issue_count == 3
+    assert check.issue_count == 4
+    assert any(
+        issue.value == "999999.00" and issue.message == "Value exceeds decimal precision 6"
+        for issue in check.issues
+    )
 
 
 def test_A7_missing_rule_column_is_error_not_skipped(tmp_path: Path) -> None:
@@ -300,7 +343,10 @@ def test_A9_cross_table_reconciliation_has_no_row_number(tmp_path: Path) -> None
 
 def test_A10_stores_first_100_issues_and_exports_all(tmp_path: Path) -> None:
     path = tmp_path / "missing.csv"
-    path.write_text('Id\n' + "\n".join('""' for _ in range(120)) + "\n", encoding="utf-8")
+    path.write_text(
+        "Id,Description\n" + "\n".join(",present" for _ in range(120)) + "\n",
+        encoding="utf-8",
+    )
     contract = _contract(rules=[_rule("required", {"columns": ["Id"]})])
 
     result = _validate(path, contract)
@@ -328,6 +374,16 @@ def test_natural_language_benchmark_contract_adds_one_guarded_row_rule() -> None
     rule = contract.rules[-1]
     assert rule.type == "naturalLanguage"
     assert rule.params.mode == "row"
+
+
+def test_xlsx_benchmark_generator_writes_the_requested_rows(tmp_path: Path) -> None:
+    path = tmp_path / "benchmark.xlsx"
+    generate_xlsx(path, 5)
+
+    parsed = read_file(path, benchmark_contract())
+
+    assert list(parsed.tables) == ["Orders"]
+    assert parsed.tables["Orders"].frame.height == 5
 
 
 def test_cli_validate_emits_json_for_a_valid_file(tmp_path: Path, monkeypatch, capsys) -> None:

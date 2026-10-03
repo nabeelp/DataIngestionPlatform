@@ -1,6 +1,6 @@
 # Sample files
 
-Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, one-table and one-table-per-sheet definitions, every rule type and severity, example-file proposals, rejected and corrupt files, and very large files. Each file has an expected outcome in [manifest.json](manifest.json), which the verification script checks against the real validation engine.
+Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, one-table and one-table-per-sheet definitions, every rule type and severity, example-file proposals, rejected and corrupt files, and very large files. The manifest records the expected sample outcomes. The Python golden suite compares upload fixtures against the captured WP0 Node baselines.
 
 > **Generated content.** This README, the sample files, `manifest.json`, `.gitignore` and `definitions/` are produced by [tools/generate_samples.py](tools/generate_samples.py). Change the generator, not the output. All data is synthetic (fixed random seed); e-mail addresses use `example.com`/`.example` domains.
 
@@ -20,7 +20,7 @@ The files are validated against five sample definitions. The one-table ones reus
 2. Publish each draft definition in the application to create its version snapshot.
 3. The script gives the seeded test user access. Alternatively, create the definitions in the UI from [definitions/sample_definitions.json](definitions/sample_definitions.json).
 
-Then upload a file on the **Upload** page against the definition in the catalog below and compare the result.
+The dedicated Playwright corpus run publishes these drafts, uploads every upload fixture through the **Upload** page, and sends every example fixture through the analysis API. It checks final status, counts, issue reports and delivery.
 
 ## Verify and regenerate
 
@@ -28,13 +28,16 @@ Then upload a file on the **Upload** page against the definition in the catalog 
 # Regenerate (pip install xlsxwriter xlwt). --skip-large skips 05-large/, --skip-max-rows skips the 1M-row workbook.
 python samples\tools\generate_samples.py
 
-# Check every expected outcome with the backend's reader, validation engine and example analyzer (no database needed).
-cd Back-End
-node --max-old-space-size=8192 -r ts-node/register/transpile-only ..\samples\tools\verify_samples.ts
-# Options: --skip-large, --only <text>
+# Compare every upload sample with its captured WP0 Node baseline.
+cd Validation-Service
+uv run pytest tests/golden/test_node_baseline.py -q
+
+# With .\start.ps1 running and the sample definitions seeded, exercise every fixture through the local stack.
+cd ..\Front-End
+npm run test:e2e:samples
 ```
 
-Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity checks failed; the file is accepted and delivered), **Failed** (an Error-severity check failed), **Failed (read error)** (the file could not be parsed), and **Rejected at upload** (refused before validation: extension, size or CSV for a sheet-table definition).
+Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity checks failed; the upload is accepted and delivered when a target is configured), **Failed** (an Error-severity check failed), **Failed (read error)** (the file could not be parsed), and **Rejected at upload** (refused before validation: extension, size or CSV for a sheet-table definition).
 
 ## Behaviors these samples surface
 
@@ -44,14 +47,14 @@ Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity c
 - **Duplicate headers: the last one wins.** A second, empty `Email` column makes every Email look blank.
 - **Title rows break the header.** The first non-empty row is the header; blank rows above it are fine.
 - **An empty table sheet counts as missing.** A `Payments` sheet with no cells is reported as "Required sheet not found".
-- **Impossible dates are accepted.** `2026-02-30` and `31/02/2026` pass as datetimes: ISO dates roll over (JavaScript date parsing) and local formats only check day ≤ 31 and month ≤ 12.
+- **Date parsing is strict.** ISO dates are validated as real calendar dates; non-ISO strings need an explicit format. This intentionally differs from the WP0 Node baseline; see the recorded golden differences.
 - **Excel date serials are not dates.** A date cell without a date format is read as a number and fails a datetime column.
 - **1/0 columns are proposed as integer, not boolean,** by the example analyzer; change the type before saving if needed.
-- **Uploads do not check the ZIP signature.** CSV text renamed to `.xlsx` is read as a workbook and passes; example files are rejected.
+- **Workbook signatures are checked.** CSV text renamed to `.xlsx` is rejected as a malformed workbook.
 - **A zero-byte `.xlsx` passes a one-table definition** (it is read as one empty sheet with nothing to check), whereas a zero-byte CSV fails. Sheet-table definitions fail it because the sheets are missing.
-- **Encodings:** UTF-8 (with or without BOM) and UTF-16LE *with* a BOM are decoded. UTF-16 without a BOM fails (headers unreadable); Windows-1252 accents become replacement characters but still validate as text.
-- **Random binary content is read as garbage text** and fails the column checks rather than crashing the worker.
-- **Excel's row limit is out of reach for the in-memory Excel reader.** A 1,048,575-row sheet (~650 MB of sheet XML) exceeds the JavaScript string limit and fails with a read error; 500,000 rows (~310 MB) still validate.
+- **Encodings:** UTF-8 (with or without BOM), UTF-16LE with or without a BOM, and Windows-1252 are detected.
+- **Random binary content is rejected** as an unrecoverable file-format error.
+- **Excel's maximum worksheet row count is supported.** The 1,048,575-row sample is parsed by the Python reader; large workbooks still have substantial memory and processing costs.
 
 ## One-table definitions
 

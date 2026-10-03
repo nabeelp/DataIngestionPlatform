@@ -50,8 +50,6 @@ const existingRule: IRule = {
     IsEnabled: false,
     TableName: null,
     NaturalLanguageText: null,
-    Pseudocode: null,
-    GeneratedCode: null,
     CreatedBy: 'user-1',
     CreatedAt: new Date(0),
     UpdatedAt: new Date(0),

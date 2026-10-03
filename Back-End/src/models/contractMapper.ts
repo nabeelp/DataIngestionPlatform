@@ -1,4 +1,5 @@
 import type { DefinitionContract, RuleConfig } from '../contracts/definition-contract';
+import { RULE_CONFIG_TYPES } from '../contracts/rule-config-types';
 import type { IColumn, ITable } from '../interfaces/fileDefinition.interface';
 import type { ContractRule, ContractSnapshot } from '../services/validation/DefinitionContract';
 
@@ -21,11 +22,7 @@ export const emptyDefinitionContract = (): DefinitionContract => ({
     lookups: {},
 });
 
-const ruleTypes = new Set<RuleConfig['type']>([
-    'columnsPresent', 'required', 'type', 'enum', 'range', 'pattern', 'length', 'unique',
-    'lookup', 'dateRange', 'conditionalRequired', 'compare', 'rowCount', 'aggregate',
-    'reconcile', 'naturalLanguage',
-]);
+const ruleTypes = new Set<string>(RULE_CONFIG_TYPES);
 
 export function parseRuleConfig(value: unknown): RuleConfig {
     let parsed = value;
@@ -47,7 +44,7 @@ export function parseRuleConfig(value: unknown): RuleConfig {
         !('enabled' in parsed) || typeof parsed.enabled !== 'boolean' ||
         !('table' in parsed) || !(typeof parsed.table === 'string' || parsed.table === null) ||
         !('type' in parsed) || typeof parsed.type !== 'string' ||
-        !ruleTypes.has(parsed.type as RuleConfig['type']) ||
+        !ruleTypes.has(parsed.type) ||
         !('params' in parsed) || !parsed.params || typeof parsed.params !== 'object' || Array.isArray(parsed.params)
     ) {
         throw new Error('Stored rule configuration does not match the RuleConfig contract.');

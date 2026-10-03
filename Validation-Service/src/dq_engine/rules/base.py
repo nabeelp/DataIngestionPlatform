@@ -42,8 +42,8 @@ class RuleContext:
         return self.table.frame
 
     def actual_column(self, name: str) -> str:
-        normalized = name.strip().casefold()
-        matches = [column for column in self.frame.columns if column.strip().casefold() == normalized]
+        normalized = name.strip()
+        matches = [column for column in self.frame.columns if column.strip() == normalized]
         if len(matches) != 1:
             raise RuleConfigurationError(f'Column "{name}" is missing or ambiguous.')
         return matches[0]
@@ -92,6 +92,7 @@ class RuleContext:
                     "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
                     "yyyy-MM-dd'T'HH:mm:ssXXX",
                     "yyyy-MM-dd HH:mm:ss",
+                    "yyyy-MM-dd",
                 ]
                 if datetime
                 else ["yyyy-MM-dd"]
@@ -103,12 +104,20 @@ class RuleContext:
             parsed: pl.Expr | None = None
             for format_string in normalized_formats:
                 format_spec = _chrono_format(format_string)
-                current = value.str.strptime(
+                current_value = (
+                    value.str.replace_all(r"Z$", "+00:00")
+                    if datetime and "XXX" in format_string
+                    else value
+                )
+                current = current_value.str.strptime(
                     pl.Datetime if datetime else pl.Date,
                     format=format_spec,
                     strict=False,
                     exact=True,
                 )
+                current = pl.when(value.str.contains(_chrono_regex(format_string))).then(current)
+                if datetime and "XXX" in format_string:
+                    current = current.dt.convert_time_zone("UTC").dt.replace_time_zone(None)
                 parsed = current if parsed is None else pl.coalesce(parsed, current)
             return parsed if parsed is not None else pl.lit(None, dtype=pl.Date)
 
@@ -136,14 +145,49 @@ def _chrono_format(value: str) -> str:
         ("HH", "%H"),
         ("mm", "%M"),
         ("ss", "%S"),
-        ("SSS", "%.3f"),
         ("XXX", "%:z"),
         ("X", "%#z"),
     )
-    result = value
+    result = value.replace("'", "").replace(".SSS", "%.3f").replace("SSS", "%.3f")
     for source, target in translations:
         result = result.replace(source, target)
     return result
+
+
+def _chrono_regex(value: str) -> str:
+    tokens = (
+        ("yyyy", r"\d{4}"),
+        ("yy", r"\d{2}"),
+        ("SSS", r"\d{3}"),
+        ("XXX", r"(?:Z|[+-]\d{2}:\d{2})"),
+        ("XX", r"(?:Z|[+-]\d{4})"),
+        ("MM", r"\d{2}"),
+        ("dd", r"\d{2}"),
+        ("HH", r"\d{2}"),
+        ("mm", r"\d{2}"),
+        ("ss", r"\d{2}"),
+        ("X", r"(?:Z|[+-]\d{2}(?::?\d{2})?)"),
+    )
+    parts: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == "'":
+            end = value.find("'", index + 1)
+            if end < 0:
+                parts.append("'")
+                index += 1
+            else:
+                parts.append(value[index + 1:end])
+                index = end + 1
+            continue
+        token = next((item for item in tokens if value.startswith(item[0], index)), None)
+        if token is None:
+            parts.append(value[index])
+            index += 1
+        else:
+            parts.append(token[1])
+            index += len(token[0])
+    return "^" + "".join(parts) + "$"
 
 
 def _decimal_bound(value: Any) -> Decimal:

@@ -3,13 +3,12 @@
 // =============================================================================
 
 /**
- * Rule type options. Expressions are stored in the SqlQuery column for backward compatibility:
+ * Rule type options. SqlQuery is retained for backward-compatible API responses:
  * - Schema Validation / Required Values: "ColumnA, ColumnB"
  * - Type Check: "Column: integer|decimal|datetime|boolean|string"
  * - Enum Check: "Column: ValueA, ValueB"
  * - Range Check: "Column: min..max" (either bound may be omitted)
- * - Natural Language: "ColumnA, ColumnB" (the columns its generated code reads), or a sheet-qualified
- *   manifest for cross-sheet rules
+ * - Natural Language: the request text, also available as NaturalLanguageText
  */
 export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check' | 'Natural Language';
 
@@ -35,14 +34,10 @@ export interface IRule {
     ExecutionOrder: number;
     SqlQuery: string;
     IsEnabled: boolean;
-    /** One target sheet, or null for a single-table definition or a cross-sheet Natural Language rule. */
+    /** One target sheet, or null when the rule is not scoped to a sheet. */
     TableName?: string | null;
     /** Natural Language rules only: the request the rule was created from. */
     NaturalLanguageText?: string | null;
-    /** Natural Language rules only: model-generated pseudocode of the implementation. */
-    Pseudocode?: string | null;
-    /** Natural Language rules only: model-generated TypeScript run by the validation engine. */
-    GeneratedCode?: string | null;
     CreatedBy: string | null;
     CreatedAt: Date;
     UpdatedAt: Date;
@@ -63,8 +58,6 @@ export interface ICreateRuleDto {
     IsEnabled?: boolean;
     TableName?: string | null;
     NaturalLanguageText?: string | null;
-    Pseudocode?: string | null;
-    GeneratedCode?: string | null;
 }
 
 /**
@@ -81,8 +74,6 @@ export interface IUpdateRuleDto {
     IsEnabled?: boolean;
     TableName?: string | null;
     NaturalLanguageText?: string | null;
-    Pseudocode?: string | null;
-    GeneratedCode?: string | null;
 }
 
 /**

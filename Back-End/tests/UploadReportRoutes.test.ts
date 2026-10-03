@@ -6,7 +6,6 @@ import jwt from 'jsonwebtoken';
 
 const jwtSecret = 'upload-report-route-test';
 process.env.JWT_SECRET = jwtSecret;
-process.env.REDIS_ENABLED = 'false';
 
 const mockHasAccessToUpload = jest.fn();
 const mockFindById = jest.fn();
