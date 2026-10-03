@@ -17,6 +17,7 @@ from dq_engine.benchmark import (
     generate,
     natural_language_benchmark_contract,
 )
+from dq_engine.config import get_settings
 from dq_engine.engine import (
     ValidationOutcome,
     load_contract,
@@ -153,6 +154,28 @@ def _bench_command(arguments: argparse.Namespace) -> int:
     return 0 if report["passedBudgets"] else 1
 
 
+def _api_command(arguments: argparse.Namespace) -> None:
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(
+        "dq_engine.api.app:app",
+        host=arguments.host or settings.api_host,
+        port=arguments.port or settings.api_port,
+        log_level=os.getenv("LOG_LEVEL", "info").casefold(),
+    )
+
+
+def _worker_command(arguments: argparse.Namespace) -> None:
+    from dq_engine.messaging.servicebus import run_worker
+
+    settings = get_settings()
+    max_messages = arguments.max_messages
+    if max_messages is None and settings.worker_mode.casefold() == "job":
+        max_messages = settings.worker_max_messages
+    run_worker(max_messages=max_messages, settings=settings)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="dq-engine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -166,9 +189,18 @@ def main() -> None:
     bench = commands.add_parser("bench", help="Run the 18-rule CSV performance workload.")
     bench.add_argument("--rows", type=int, default=1_000_000)
     bench.set_defaults(handler=_bench_command)
+    api = commands.add_parser("api", help="Run the internal rules API.")
+    api.add_argument("--host")
+    api.add_argument("--port", type=int)
+    api.set_defaults(handler=_api_command)
+    worker = commands.add_parser("worker", help="Run the Azure Service Bus validation worker.")
+    worker.add_argument("--max-messages", type=int)
+    worker.set_defaults(handler=_worker_command)
     arguments = parser.parse_args()
     if arguments.command == "bench" and arguments.rows < 1:
         parser.error("--rows must be positive")
+    if arguments.command == "worker" and arguments.max_messages is not None and arguments.max_messages < 1:
+        parser.error("--max-messages must be positive")
     raise SystemExit(arguments.handler(arguments))
 
 

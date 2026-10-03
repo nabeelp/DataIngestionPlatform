@@ -1,7 +1,7 @@
 # Validation Service
 
-The Python validation service is being implemented in work packages. Its shared contract types are in
-`src/dq_engine/contracts/`; WP3 adds the readers and rule engine, and WP5 adds the API and worker.
+The Python validation service provides the shared contracts in `src/dq_engine/contracts/`, the Polars
+validation engine, an internal FastAPI authoring service, and the Azure Service Bus validation worker.
 
 ## CSV structural-check spike (WP3)
 
@@ -70,6 +70,40 @@ development host, not the prescribed 4-vCPU/8-GiB performance-gate host.
 
 Use `uv run dq-engine validate <file> --contract <contract.json> --json` for local validation. Add
 `--output-dir <directory>` to write a Zstandard Parquet file per table and a streamed issues CSV.
+
+## Python API and worker (WP5)
+
+Run `uv run dq-engine api` from this directory to start the internal API on `RULES_SERVICE_HOST` and
+`RULES_SERVICE_PORT` (defaults: `0.0.0.0:8000`). `/healthz` is public; all `/v1` routes require the
+`X-Rules-Service-Key` header matching `RULES_SERVICE_DEV_KEY`. Configure these local-only settings in
+`Back-End/.env`; the root `start.ps1` loads that file for both Python processes. Never put the development
+key in source control.
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/schemas/{name}` | Return a shared contract schema |
+| `POST /v1/rules/validate` and `/v1/rules/test` | Compile a rule and run its examples |
+| `POST /v1/contracts/validate` | Validate a publishable definition contract |
+| `POST /v1/dry-run` | Preview checks for an upload or blob; uses matching stored Parquet tables for upload IDs when available, otherwise reads the source blob; limited to 60 seconds |
+| `POST /v1/examples/analyze` | Propose tables, columns, and candidate Enum/Range rules from an example blob |
+
+The local Azurite image is pinned to Blob API `2025-07-05` through `AZURE_STORAGE_API_VERSION`. Leave this
+setting unset in Azure to use the SDK's current service API version.
+
+The local Service Bus emulator is pinned to `1.1.2`: the current `latest` (2.0.0) image has a known
+`BufferQueue-1` initialization failure that prevents queue sends. The configured duplicate-detection
+window is capped at the emulator's five-minute limit.
+
+The worker uses `SERVICEBUS_CONNECTION_STRING` with the local emulator, or `SERVICEBUS_NAMESPACE` and
+managed identity in Azure. `WORKER_MODE=local` receives continuously. `WORKER_MODE=job` processes up to
+`WORKER_MAX_MESSAGES` (default 1) and exits if the queue is empty. Successful SQL writes replace any prior
+result rows for the same upload in the same transaction, so a redelivered request is idempotent.
+
+Run unit tests with `uv run pytest`. The worker integration test targets the local SQL Server, Azurite, and
+Service Bus emulator and creates/deletes uniquely identified test rows and blobs; enable it explicitly with
+`$env:RUN_DQ_INTEGRATION_TESTS = '1'` after the local services and database schema are ready, then run
+`uv run pytest tests/integration -q`. It publishes to the isolated
+`validation-events-wp5-test/worker-tests` entity and drains only that test subscription.
 
 Reproduce the comparison from `Validation-Service/` with:
 

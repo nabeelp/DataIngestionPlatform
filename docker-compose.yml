@@ -73,7 +73,7 @@ services:
     restart: unless-stopped
 
   servicebus-emulator:
-    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:1.1.2
     container_name: servicebus-emulator
     depends_on:
       servicebus-sql:
