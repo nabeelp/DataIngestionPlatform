@@ -89,7 +89,13 @@ def _mssql_python_connection_string(value: str) -> tuple[str, int]:
 
 
 def _connection() -> Connection:
-    connection_string = get_settings().database_connection_string
+    settings = get_settings()
+    connection_string = settings.database_connection_string
+    if not connection_string and settings.database_server and settings.database_name:
+        connection_string = (
+            f"Server={settings.database_server};Database={settings.database_name};"
+            "Authentication=ActiveDirectoryDefault;Encrypt=yes;TrustServerCertificate=no"
+        )
     if not connection_string:
         raise RuntimeError("Database connection settings are not configured.")
     normalized, timeout = _mssql_python_connection_string(connection_string)

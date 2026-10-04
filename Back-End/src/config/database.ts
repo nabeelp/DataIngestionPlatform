@@ -18,12 +18,12 @@ export async function getConnection(): Promise<mssql.ConnectionPool> {
         return pool;
     }
 
-    if (!appConfig.database.connectionString) {
-        throw new Error('DB_CONNECTION_STRING is required to use the database');
+    const { connectionString, server, database } = appConfig.database;
+    if (!connectionString && (!server || !database)) {
+        throw new Error('Configure DB_CONNECTION_STRING or both DB_SERVER and DB_DATABASE.');
     }
 
     try {
-        const connectionString = appConfig.database.connectionString;
         const localDb = /^Server=((?:\(localdb\))\\[^;]+);Database=([^;]+);Integrated Security=true;?$/i.exec(connectionString);
         if (connectionString.toLowerCase().includes('(localdb)') && !localDb) {
             throw new Error('LocalDB requires Server=(localdb)\\MSSQLLocalDB;Database=<database>;Integrated Security=true');
@@ -37,8 +37,18 @@ export async function getConnection(): Promise<mssql.ConnectionPool> {
                 driver: 'ODBC Driver 17 for SQL Server',
                 options: { trustedConnection: true },
             });
-        } else {
+        } else if (connectionString) {
             pool = await mssql.connect(connectionString);
+        } else {
+            pool = await mssql.connect({
+                server,
+                database,
+                authentication: {
+                    type: 'azure-active-directory-default',
+                    options: {},
+                },
+                options: { encrypt: true, trustServerCertificate: false },
+            });
         }
 
         logger.debug('Database connected successfully');

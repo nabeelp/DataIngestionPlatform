@@ -14,6 +14,9 @@ coverage/
 !.env.example
 !.env.*.example
 .vscode/
+.azure/*
+!.azure/insights.json
+!.azure/infrastructure-plan.json
 
 # Runtime logs and uploaded files
 logs/

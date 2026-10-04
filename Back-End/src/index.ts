@@ -95,7 +95,9 @@ let shuttingDown = false;
 const startServer = async () => {
     const missingConfig = [
         !appConfig.jwt.secret.trim() && 'JWT_SECRET',
-        !appConfig.database.connectionString.trim() && 'DB_CONNECTION_STRING',
+        !appConfig.database.connectionString.trim() &&
+            (!appConfig.database.server.trim() || !appConfig.database.database.trim()) &&
+            'DB_CONNECTION_STRING or DB_SERVER and DB_DATABASE',
     ].filter(Boolean);
     if (missingConfig.length) {
         throw new Error(`Missing required configuration: ${missingConfig.join(', ')}`);

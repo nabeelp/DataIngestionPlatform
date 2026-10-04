@@ -27,6 +27,8 @@ export const appConfig = {
     // Database
     database: {
         connectionString: process.env.DB_CONNECTION_STRING || '',
+        server: process.env.DB_SERVER || '',
+        database: process.env.DB_DATABASE || '',
     },
 
     // JWT Configuration
@@ -102,6 +104,7 @@ export const appConfig = {
     rulesService: {
         url: process.env.RULES_SERVICE_URL || 'http://localhost:8000',
         internalKey: process.env.RULES_SERVICE_DEV_KEY || '',
+        aadScope: process.env.RULES_SERVICE_AAD_SCOPE || '',
         timeoutMs: parseInt(process.env.RULES_SERVICE_TIMEOUT_MS || '30000', 10),
     },
 

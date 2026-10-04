@@ -1,5 +1,6 @@
 import { appConfig } from '../src/config/appConfig';
 import { RulesService } from '../src/services/RulesService.service';
+import { DefaultAzureCredential } from '@azure/identity';
 import type { DefinitionContract } from '../src/contracts/definition-contract';
 import type { RuleConfig } from '../src/contracts/rule-config';
 
@@ -18,6 +19,7 @@ const rule: RuleConfig = {
 
 describe('RulesService HTTP client', () => {
     const originalKey = appConfig.rulesService.internalKey;
+    const originalAadScope = appConfig.rulesService.aadScope;
     const originalUrl = appConfig.rulesService.url;
     const originalTimeout = appConfig.rulesService.timeoutMs;
     const originalFetch = global.fetch;
@@ -25,6 +27,7 @@ describe('RulesService HTTP client', () => {
 
     beforeEach(() => {
         appConfig.rulesService.internalKey = 'unit-test-key';
+        appConfig.rulesService.aadScope = '';
         appConfig.rulesService.url = 'http://127.0.0.1:8000';
         appConfig.rulesService.timeoutMs = 1000;
         fetchMock.mockReset();
@@ -33,6 +36,7 @@ describe('RulesService HTTP client', () => {
 
     afterAll(() => {
         appConfig.rulesService.internalKey = originalKey;
+        appConfig.rulesService.aadScope = originalAadScope;
         appConfig.rulesService.url = originalUrl;
         appConfig.rulesService.timeoutMs = originalTimeout;
         global.fetch = originalFetch;
@@ -55,6 +59,26 @@ describe('RulesService HTTP client', () => {
             'x-rules-service-key': 'unit-test-key',
         });
         expect(JSON.parse(String(init?.body))).toEqual({ contract, rule });
+    });
+
+    it('sends a managed-identity bearer token when an Entra audience is configured', async () => {
+        appConfig.rulesService.aadScope = 'api://rules-service/.default';
+        const getToken = jest.spyOn(DefaultAzureCredential.prototype, 'getToken')
+            .mockResolvedValue({ token: 'unit-test-token', expiresOnTimestamp: Date.now() + 60_000 });
+        fetchMock.mockResolvedValue({
+            ok: true,
+            json: async () => ({ ok: true, errors: [], normalizedRule: rule, explanation: null }),
+        } as Response);
+
+        await RulesService.validateRule(contract, rule);
+
+        expect(getToken).toHaveBeenCalledWith('api://rules-service/.default');
+        expect(fetchMock.mock.calls[0][1]?.headers).toEqual({
+            'content-type': 'application/json',
+            authorization: 'Bearer unit-test-token',
+            'x-rules-service-key': 'unit-test-key',
+        });
+        getToken.mockRestore();
     });
 
     it('maps validation HTTP errors to client validation responses', async () => {

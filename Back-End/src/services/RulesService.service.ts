@@ -1,5 +1,6 @@
 import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
+import { DefaultAzureCredential } from '@azure/identity';
 import { appConfig } from '../config/appConfig';
 
 export interface RulesServiceErrorItem {
@@ -44,8 +45,10 @@ export class RulesServiceError extends Error {
     }
 }
 
+let credential: DefaultAzureCredential | null = null;
+
 async function post<T>(path: string, body: unknown): Promise<T> {
-    if (!appConfig.rulesService.internalKey) {
+    if (!appConfig.rulesService.internalKey && !appConfig.rulesService.aadScope) {
         throw new RulesServiceError('The rules service credential is not configured.', 503);
     }
 
@@ -54,12 +57,26 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     timeout.unref();
 
     try {
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (appConfig.rulesService.aadScope) {
+            credential ??= new DefaultAzureCredential();
+            let accessToken;
+            try {
+                accessToken = await credential.getToken(appConfig.rulesService.aadScope);
+            } catch {
+                throw new RulesServiceError('The rules service Entra token could not be acquired.', 503);
+            }
+            if (!accessToken) {
+                throw new RulesServiceError('The rules service Entra token could not be acquired.', 503);
+            }
+            headers.authorization = `Bearer ${accessToken.token}`;
+        }
+        if (appConfig.rulesService.internalKey) {
+            headers['x-rules-service-key'] = appConfig.rulesService.internalKey;
+        }
         const response = await fetch(new URL(path, appConfig.rulesService.url), {
             method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'x-rules-service-key': appConfig.rulesService.internalKey,
-            },
+            headers,
             body: JSON.stringify(body),
             signal: controller.signal,
         });
