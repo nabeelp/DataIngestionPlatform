@@ -16,6 +16,8 @@ The ordered schema scripts are in `Back-End/database/`. `start.ps1` applies them
 
 The current schema is a clean-slate contract. `apply.ps1` fails fast on incompatible legacy `FileDefinitions`, `Rules`, or `FileDefinitionVersions` tables instead of silently discarding their data. Back up and migrate any non-disposable database before applying it.
 
+Local runs keep using the `.env`-based emulator settings and shared development key; they do not require Azure identity, Entra app registrations, or provisioned cloud resources. Azure managed-identity and Entra rules-service settings are injected by the Container Apps deployment.
+
 ## Validation
 
 Every upload is streamed from Blob Storage to the Python service, parsed (including all Excel sheets), and checked in one pass:
@@ -115,6 +117,10 @@ Uploads and issues reports are stored in Azure Blob Storage; locally, Azurite pr
 - **Database functional tests** (`Back-End/tests/*.integration.test.ts`) run against a disposable SQL Server database. They are skipped unless `TEST_DB_CONNECTION_STRING` is set. Create the database (for example `FileValidationPlatform_Test`), apply every script in `Back-End/database` including `seed_local_users.sql`, and run, for example: `$env:TEST_DB_CONNECTION_STRING='Server=(localdb)\MSSQLLocalDB;Database=FileValidationPlatform_Test;Integrated Security=true'; npm test`. Never point this at a database containing real data; the tests create and delete records.
 - **UI tests** (Playwright, `Front-End/e2e`) drive the running app. Start it with `.\start.ps1` using the seeded mock-login demo (both bypass flags enabled), then run `npm run test:e2e` in `Front-End`. They use the installed Microsoft Edge by default; set `E2E_BROWSER_CHANNEL=chromium` after `npx playwright install chromium` to use Playwright's browser. They create and then delete their own definition and uploads.
 - **Sample files** ([samples/](samples/README.md)) cover every upload and definition scenario: delimiters, encodings, one-table and per-sheet definitions (with used and ignored sheets), every rule type and severity, example-file proposals, rejected and corrupt files, and very large files. `samples/definitions/sample_definitions.sql` creates the matching definitions. The Python golden suite compares upload fixtures with captured WP0 Node baselines; run it with `uv run pytest tests/golden/test_node_baseline.py -q` in `Validation-Service`. With the local stack running, `npm run test:e2e:samples` in `Front-End` sends every sample through the UI/API and checks outcomes, counts, reports, and delivery. Files over 10 MB are git-ignored; regenerate them with `python samples\tools\generate_samples.py`.
+
+## Azure deployment
+
+The Bicep and `azd` deployment runbook, Entra prerequisites, cost drivers, validation checklist, and teardown cautions are in [docs/deployment.md](docs/deployment.md). Infrastructure has been validated with Bicep compilation and `azd provision --preview`; no Azure resources are created until an owner explicitly approves provisioning.
 
 ## Production notes
 

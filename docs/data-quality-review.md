@@ -2,6 +2,17 @@
 
 _Review date: 2026-10-02 (commit `fca4fd1`)._
 
+## Status
+
+The Python + Polars migration and Node-engine cutover are complete through WP8.
+The implementation plan records the acceptance tests and intentional
+differences. Azure infrastructure and deployment documentation are now
+available; cloud provisioning and the Azure end-to-end smoke test remain gated
+on explicit owner approval. See the [implementation plan](./implementation-plan-python-engine.md)
+and [deployment runbook](./deployment.md). The findings and implementation
+description below are the original review snapshot, not a description of the
+current engine.
+
 ## Recommendation
 
 Keep the current design. Each upload is pinned to a published version of its rules, the file is read once by evaluators that stream through it, and AI-generated code runs in a sandbox. That is a sound base. Change it in three steps:
