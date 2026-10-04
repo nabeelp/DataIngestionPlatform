@@ -66,6 +66,10 @@ def _parse_single(sql: str) -> exp.Expr:
 
 def _validate_nodes(expression: exp.Expr, query_mode: bool = False) -> None:
     for node in expression.walk():
+        if isinstance(node, (exp.And, exp.Or, exp.Case)) or (
+            isinstance(node, exp.If) and isinstance(node.parent, exp.Case)
+        ):
+            continue
         if isinstance(node, exp.Func):
             name = node.sql_name().casefold()
             if name == "anonymous":

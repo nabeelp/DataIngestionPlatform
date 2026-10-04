@@ -7,6 +7,7 @@ import type { RuleConfig } from '../contracts/rule-config';
 import { appConfig } from '../config/appConfig';
 import { Rule } from '../models/Rule.model';
 import type { IRule, RuleSeverity, RuleType } from '../interfaces/rule.interface';
+import { logger } from '../utils/logger';
 import { DefinitionVersionService } from './DefinitionVersion.service';
 import { RulesService } from './RulesService.service';
 
@@ -92,30 +93,169 @@ columnsPresent, required, type, enum, range, pattern, length, unique, lookup, da
 conditionalRequired, compare, rowCount, aggregate, reconcile. For a deterministic row or query rule that none of
 those types can express exactly, use naturalLanguage and SQL. Reject ambiguous requests, requests needing external
 data, and rules not expressible by these mechanisms.
+Use decision "mapped" only with a built-in type. If and only if type is "naturalLanguage", use decision
+"natural_language". For a single-table definition (sheet is null), set the proposal table to null and example table
+to ""; for a sheet-layout definition, use the exact declared sheet name. Never use sqlTable aliases for proposal or
+example table names; aliases are only for SQL FROM/JOIN clauses.
 
 For naturalLanguage row mode, params.failWhen is a SQL boolean expression that is TRUE only for invalid rows.
 For query mode, params.query is one SELECT query that returns at most one row with a column named message when the
-file fails the rule. Use params.columns to declare the exact columns read for each table; row mode must declare its
+file fails the rule. Use params.tableColumns to declare the exact columns read for each table; row mode must declare its
 target table. Query mode must declare the referenced columns for each table. FROM/JOIN table names must use the
 provided internal sqlTable aliases (t_0, t_1, ...), in schema order; never use a sheet name as an SQL table name.
 Do not reference internal __row, use SELECT *, use unregistered tables, qualified external tables, or undeclared
-columns. In a single-table definition, use "" as the params.columns key and "" as each example table name.
+columns. In a single-table definition, use "" as the tableColumns table and "" as each example table name.
 SQL must use only these functions: ABS, CEIL, COALESCE, COUNT, DATE_PART, ENDS_WITH, FLOOR, LAG, LEAD, LENGTH,
 LOWER, NULLIF, REGEXP_LIKE, ROUND, STARTS_WITH, STRPTIME, SUBSTR, SUM, MIN, MAX, ROW_NUMBER, TRIM, UPPER,
 CAST, TRY_CAST. The only operators/expressions allowed are +, -, *, /, %, =, !=, <, <=, >, >=, BETWEEN, AND, OR,
 NOT, IN, IS [NOT] NULL, LIKE, CASE, parentheses, literals, and casts to BIGINT, BOOLEAN, DATE, DECIMAL, DOUBLE,
 FLOAT, INT, INTEGER, REAL, SMALLINT, STRING, TEXT, TIMESTAMP, or VARCHAR. Do not use any other function or
 operator. SQL is checked by the Python rules service; never try to bypass its restrictions.
+The validation engine represents input column values as strings, including columns declared as numeric types.
+Before numeric comparisons or arithmetic, cast numeric columns with TRY_CAST(column AS DOUBLE) (or another allowed
+numeric type); never compare a text column directly with a numeric literal or another numeric column.
 
 For naturalLanguage include 2 to 20 examples. Include at least one passing and one failing example. Each example
 contains only declared columns and exact table names; values are strings or null. params.message is a concise user
 facing failure message; params.explanation explains the rule. Use an empty examples array for built-in and rejected
-decisions. Return valid JSON with every field in the schema. paramsJson is a JSON-encoded object with the selected
-RuleConfig params (excluding generated id, name, description, severity, executionOrder, enabled, and table).
-For Natural Language params include mode, failWhen or query, columns, message, and explanation. Return SQL, not
-TypeScript, pseudocode, scripts, or prose in the params object.
+decisions. Return valid JSON with every field in the schema. params is an object containing the selected RuleConfig
+parameters directly (excluding generated id, name, description, severity, executionOrder, enabled, and table). For
+Natural Language params, put declared columns in tableColumns as an array of {table, columns} objects, using an empty
+table string for single-table definitions. Include mode, failWhen or query, message, and explanation. Return SQL, not
+TypeScript, pseudocode, scripts, prose, or encoded JSON in the params object. Use null for unused nullable parameters.
 
 If correctionFeedback is present, fix the prior proposal using the feedback. Do not repeat an invalid proposal.`;
+
+type JsonSchema = Record<string, unknown>;
+
+const stringSchema: JsonSchema = { type: 'string' };
+const stringArraySchema: JsonSchema = { type: 'array', items: stringSchema };
+const nullable = (schema: JsonSchema): JsonSchema => ({ anyOf: [schema, { type: 'null' }] });
+const closedObject = (properties: Record<string, JsonSchema>): JsonSchema => ({
+    type: 'object',
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+});
+const dateBoundSchema: JsonSchema = {
+    anyOf: [
+        stringSchema,
+        closedObject({ relative: stringSchema }),
+        { type: 'null' },
+    ],
+};
+const aggregateReferenceSchema = closedObject({
+    table: stringSchema,
+    column: stringSchema,
+    fn: { type: 'string', enum: ['sum', 'min', 'max', 'avg', 'count', 'countDistinct'] },
+});
+const whenSchema: JsonSchema = {
+    anyOf: [
+        closedObject({
+            column: stringSchema,
+            op: { type: 'string', enum: ['eq', 'ne'] },
+            value: nullable(stringSchema),
+            values: { type: 'null' },
+        }),
+        closedObject({
+            column: stringSchema,
+            op: { type: 'string', enum: ['in'] },
+            value: { type: 'null' },
+            values: nullable(stringArraySchema),
+        }),
+        closedObject({
+            column: stringSchema,
+            op: { type: 'string', enum: ['empty', 'notEmpty'] },
+            value: { type: 'null' },
+            values: { type: 'null' },
+        }),
+    ],
+};
+const tableColumnsSchema: JsonSchema = {
+    type: 'array',
+    items: closedObject({
+        table: stringSchema,
+        columns: stringArraySchema,
+    }),
+};
+const paramsSchema: JsonSchema = {
+    anyOf: [
+        closedObject({ columns: stringArraySchema }),
+        closedObject({
+            column: stringSchema,
+            dataType: { type: 'string', enum: ['string', 'integer', 'decimal', 'date', 'datetime', 'boolean'] },
+            format: nullable({ anyOf: [stringSchema, stringArraySchema] }),
+            decimalSeparator: nullable(stringSchema),
+            thousandsSeparator: nullable(stringSchema),
+        }),
+        closedObject({
+            column: stringSchema,
+            values: stringArraySchema,
+            caseSensitive: { type: 'boolean' },
+            trim: { type: 'boolean' },
+        }),
+        closedObject({
+            column: stringSchema,
+            min: nullable({ type: 'number' }),
+            max: nullable({ type: 'number' }),
+            minInclusive: { type: 'boolean' },
+            maxInclusive: { type: 'boolean' },
+        }),
+        closedObject({
+            column: stringSchema,
+            pattern: stringSchema,
+            caseSensitive: { type: 'boolean' },
+        }),
+        closedObject({
+            column: stringSchema,
+            min: nullable({ type: 'integer' }),
+            max: nullable({ type: 'integer' }),
+        }),
+        closedObject({
+            column: stringSchema,
+            lookupId: stringSchema,
+            caseSensitive: { type: 'boolean' },
+        }),
+        closedObject({
+            column: stringSchema,
+            min: dateBoundSchema,
+            max: dateBoundSchema,
+        }),
+        closedObject({
+            columns: stringArraySchema,
+            when: whenSchema,
+        }),
+        closedObject({
+            left: stringSchema,
+            op: { type: 'string', enum: ['lt', 'le', 'eq', 'ne', 'ge', 'gt'] },
+            right: stringSchema,
+            as: { type: 'string', enum: ['number', 'date', 'string'] },
+        }),
+        closedObject({
+            min: nullable({ type: 'integer' }),
+            max: nullable({ type: 'integer' }),
+        }),
+        closedObject({
+            column: stringSchema,
+            fn: { type: 'string', enum: ['sum', 'min', 'max', 'avg', 'count', 'countDistinct'] },
+            min: nullable({ type: 'number' }),
+            max: nullable({ type: 'number' }),
+        }),
+        closedObject({
+            left: aggregateReferenceSchema,
+            right: aggregateReferenceSchema,
+            tolerance: nullable({ type: 'number' }),
+        }),
+        closedObject({
+            mode: { type: 'string', enum: ['row', 'query'] },
+            failWhen: nullable(stringSchema),
+            query: nullable(stringSchema),
+            message: stringSchema,
+            explanation: stringSchema,
+            tableColumns: tableColumnsSchema,
+        }),
+    ],
+};
 
 const proposalSchema = {
     type: 'object',
@@ -133,7 +273,7 @@ const proposalSchema = {
                 'reconcile', 'naturalLanguage',
             ],
         },
-        paramsJson: { type: 'string' },
+        params: paramsSchema,
         examples: {
             type: 'array',
             items: {
@@ -146,7 +286,7 @@ const proposalSchema = {
                             type: 'object',
                             properties: {
                                 column: { type: 'string' },
-                                value: { type: ['string', 'null'] },
+                                value: nullable(stringSchema),
                             },
                             required: ['column', 'value'],
                             additionalProperties: false,
@@ -159,12 +299,37 @@ const proposalSchema = {
             },
         },
     },
-    required: ['decision', 'reason', 'name', 'severity', 'table', 'type', 'paramsJson', 'examples'],
+    required: ['decision', 'reason', 'name', 'severity', 'table', 'type', 'params', 'examples'],
     additionalProperties: false,
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function normalizeProposalParams(type: RuleConfig['type'], value: Record<string, unknown>): Record<string, unknown> {
+    const params = Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null));
+    if (type === 'naturalLanguage') {
+        if (!Array.isArray(value.tableColumns)) {
+            throw new ModelCallError('The model returned malformed table-column declarations', true);
+        }
+        const columns: Record<string, string[]> = {};
+        for (const entry of value.tableColumns) {
+            if (!isObject(entry) || typeof entry.table !== 'string' || !Array.isArray(entry.columns)
+                || entry.columns.some(column => typeof column !== 'string')
+                || Object.prototype.hasOwnProperty.call(columns, entry.table)) {
+                throw new ModelCallError('The model returned malformed table-column declarations', true);
+            }
+            columns[entry.table] = entry.columns as string[];
+        }
+        delete params.tableColumns;
+        params.columns = columns;
+        params.failWhen = value.failWhen;
+        params.query = value.query;
+    } else if (type === 'conditionalRequired' && isObject(value.when)) {
+        params.when = Object.fromEntries(Object.entries(value.when).filter(([, item]) => item !== null));
+    }
+    return params;
+}
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
 
@@ -216,18 +381,12 @@ function readProposal(text: string): Proposal {
         || typeof value.reason !== 'string' || typeof value.name !== 'string'
         || !['Error', 'Warning'].includes(String(value.severity))
         || (value.table !== null && typeof value.table !== 'string')
-        || typeof value.type !== 'string' || typeof value.paramsJson !== 'string'
+        || typeof value.type !== 'string' || !isObject(value.params)
         || !Array.isArray(value.examples)) {
         throw new ModelCallError('The model returned a proposal with missing or invalid fields', true);
     }
 
-    let params: unknown;
-    try {
-        params = JSON.parse(value.paramsJson);
-    } catch {
-        throw new ModelCallError('The model returned invalid RuleConfig params JSON', true);
-    }
-    if (!isObject(params)) throw new ModelCallError('RuleConfig params must be a JSON object', true);
+    const params = normalizeProposalParams(value.type as RuleConfig['type'], value.params);
 
     const examples: ProposalExample[] = [];
     for (const example of value.examples) {
@@ -249,7 +408,9 @@ function readProposal(text: string): Proposal {
     }
 
     return {
-        decision: value.decision as Decision,
+        decision: value.decision === 'mapped' && value.type === 'naturalLanguage'
+            ? 'natural_language'
+            : value.decision as Decision,
         reason: value.reason,
         name: value.name,
         severity: value.severity as RuleSeverity,
@@ -398,9 +559,19 @@ async function requestProposal(
 
     if (runaway) throw new ModelCallError('The model got stuck writing whitespace instead of finishing its proposal', true);
     const responseId = finalResponse?.id;
+    const output = finalResponse ? responseText(finalResponse) : { text: '', refusal: null };
+    if (finalResponse && process.env.NATURAL_LANGUAGE_RULE_DEBUG === 'true') {
+        logger.info(`[NATURAL_LANGUAGE_RULE_DEBUG] ${JSON.stringify({
+            responseId,
+            status: finalResponse.status,
+            usage: finalResponse.usage,
+            refusal: output.refusal,
+            output: output.text,
+        })}`);
+    }
     if (streamError || !finalResponse || finalResponse.status !== 'completed') {
         const status = finalResponse?.status ?? 'connection closed';
-        if (finalResponse && responseText(finalResponse).refusal) {
+        if (finalResponse && output.refusal) {
             throw new ModelCallError('The model declined to review the rule', false, 400);
         }
         const retryable = !finalResponse || finalResponse.status !== 'failed'
@@ -411,10 +582,10 @@ async function requestProposal(
         throw new ModelCallError(`${message}${responseId ? ` [response ${responseId}]` : ''}`, retryable);
     }
     if (!responseId) throw new ModelCallError('The model response did not include a response ID', true);
-    if (responseText(finalResponse).refusal) {
+    if (output.refusal) {
         throw new ModelCallError('The model declined to review the rule', false, 400);
     }
-    const text = responseText(finalResponse).text;
+    const text = output.text;
     if (!text.trim()) throw new ModelCallError('The model finished without returning a proposal', true);
     const usage = finalResponse.usage;
     report('info', `The model finished in ${seconds(Date.now() - started)}${usage ? ` (${usage.output_tokens} output tokens)` : ''}`);
@@ -425,6 +596,15 @@ function tableFor(contract: DefinitionContract, name: string | null): ContractTa
     const tables = declaredTables(contract);
     if (contract.layout === 'single') return name === null || name === '' ? tables[0] : undefined;
     return tables.find(table => table.name === name);
+}
+
+function canonicalProposalTable(contract: DefinitionContract, name: string | null): string | null {
+    if (contract.layout === 'single' && (name === null || name === '' || name === 't_0')) return null;
+    const declared = contract.tables.find(table => table.sheet === name);
+    if (declared) return declared.sheet;
+    const alias = name?.match(/^t_(\d+)$/);
+    if (alias) return contract.tables[Number(alias[1])]?.sheet ?? name;
+    return name;
 }
 
 function configFor(
@@ -439,6 +619,18 @@ function configFor(
     }
 
     const params: Record<string, unknown> = { ...proposal.params };
+    const table = canonicalProposalTable(contract, proposal.table);
+    if (proposal.type === 'naturalLanguage' && isObject(params.columns)) {
+        const canonicalColumns: Record<string, unknown> = {};
+        for (const [name, columns] of Object.entries(params.columns)) {
+            const canonicalName = canonicalProposalTable(contract, name) ?? '';
+            if (Object.prototype.hasOwnProperty.call(canonicalColumns, canonicalName)) {
+                return { problem: 'Natural Language params declare the same table more than once.' };
+            }
+            canonicalColumns[canonicalName] = columns;
+        }
+        params.columns = canonicalColumns;
+    }
     const config = {
         id: identity.id,
         name: proposal.name.trim(),
@@ -446,7 +638,7 @@ function configFor(
         severity: proposal.severity,
         executionOrder: identity.executionOrder,
         enabled: identity.enabled,
-        table: proposal.table,
+        table,
         type: proposal.type,
         params,
     } as unknown as RuleConfig;
@@ -468,7 +660,7 @@ function configFor(
 
     const mode = params.mode;
     if (mode !== 'row' && mode !== 'query') return { problem: 'Natural Language params must specify row or query mode.' };
-    const target = tableFor(contract, proposal.table);
+    const target = tableFor(contract, table);
     if (mode === 'row' && !target) return { problem: 'The row rule must target a declared table.' };
     if (mode === 'query' && proposal.table !== null) return { problem: 'A query rule must have a null table target.' };
 
@@ -498,7 +690,7 @@ function configFor(
 
     const examples: Array<Record<string, unknown>> = [];
     for (const example of proposal.examples) {
-        const exampleTable = tableFor(contract, example.table || null);
+        const exampleTable = tableFor(contract, canonicalProposalTable(contract, example.table || null));
         if (!exampleTable) return { problem: 'An example names a table that is not declared in the schema.' };
         if (mode === 'row' && target?.name !== exampleTable.name) {
             return { problem: 'A row-rule example must use the rule target table.' };
@@ -698,12 +890,17 @@ async function reviewAndSaveNaturalLanguageRule(
             throw error;
         }
         if ('problem' in checked) {
+            const validationPath = checked.problem.match(/^(\$[^:]+):/)?.[1];
             if (previousAttempt || attempt >= MAX_ATTEMPTS) {
-                report('error', 'The RuleConfig failed Python validation after correction');
+                report('error', validationPath
+                    ? `The RuleConfig failed Python validation at ${validationPath} after correction`
+                    : 'The proposal failed rule validation after correction');
                 return rejected('The proposed rule was not saved because Python validation rejected it. Rephrase the request and try again.');
             }
             previousAttempt = { problem: checked.problem };
-            report('warning', 'Python validation rejected the proposal; asking the model for one correction');
+            report('warning', validationPath
+                ? `Python validation rejected the proposal at ${validationPath}; asking the model for one correction`
+                : 'The proposal failed rule validation; asking the model for one correction');
             continue;
         }
 

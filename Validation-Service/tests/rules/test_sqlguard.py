@@ -45,6 +45,38 @@ def test_row_guard_accepts_declared_boolean_expression() -> None:
     assert validate_row_expression(sql, ["Discount", "Amount"]) == sql
 
 
+def test_row_guard_accepts_boolean_conjunctions_and_disjunctions() -> None:
+    sql = (
+        "(PaymentStatus = 'Refunded' AND TotalAmount != DiscountAmount) "
+        "OR (PaymentStatus != 'Refunded' AND DiscountAmount != 0)"
+    )
+
+    assert validate_row_expression(sql, ["PaymentStatus", "TotalAmount", "DiscountAmount"]) == sql
+
+
+def test_row_guard_executes_casted_numeric_conditions_over_string_columns() -> None:
+    sql = (
+        "(PaymentStatus = 'Refunded' AND TRY_CAST(TotalAmount AS DOUBLE) != TRY_CAST(DiscountAmount AS DOUBLE)) "
+        "OR (PaymentStatus != 'Refunded' AND TRY_CAST(DiscountAmount AS DOUBLE) != 0)"
+    )
+    frame = pl.DataFrame({
+        "PaymentStatus": ["Refunded", "Refunded", "Paid", "Paid"],
+        "TotalAmount": ["25.00", "25.00", "25.00", "25.00"],
+        "DiscountAmount": ["25.00", "5.00", "0", "1.00"],
+    })
+
+    assert validate_row_expression(sql, ["PaymentStatus", "TotalAmount", "DiscountAmount"]) == sql
+    assert frame.select(pl.sql_expr(sql).alias("fails"))["fails"].to_list() == [False, True, False, True]
+
+
+def test_row_guard_accepts_case_expressions_without_allowing_if_functions() -> None:
+    sql = "CASE WHEN PaymentStatus = 'Refunded' THEN TotalAmount != DiscountAmount ELSE DiscountAmount != 0 END"
+
+    assert validate_row_expression(sql, ["PaymentStatus", "TotalAmount", "DiscountAmount"]) == sql
+    with pytest.raises(RuleConfigurationError, match="Function `if` is not allowed"):
+        validate_row_expression("IF(Amount > 0, TRUE, FALSE)", ["Amount"])
+
+
 @pytest.mark.parametrize(
     "sql",
     [

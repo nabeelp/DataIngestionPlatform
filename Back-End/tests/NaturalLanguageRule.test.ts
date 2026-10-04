@@ -9,6 +9,7 @@ import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { Rule } from '../src/models/Rule.model';
 import { DefinitionVersionService } from '../src/services/DefinitionVersion.service';
 import { RulesService } from '../src/services/RulesService.service';
+import { logger } from '../src/utils/logger';
 
 const createResponse = jest.fn();
 jest.mock('@azure/ai-projects', () => ({
@@ -79,7 +80,7 @@ const mappedProposal = {
     severity: 'Error',
     table: 'Orders',
     type: 'range',
-    paramsJson: JSON.stringify({ column: 'Amount', min: 0, max: 100 }),
+    params: { column: 'Amount', min: 0, max: 100, minInclusive: true, maxInclusive: true },
     examples: [],
 };
 
@@ -90,14 +91,14 @@ const naturalProposal = {
     severity: 'Error',
     table: 'Orders',
     type: 'naturalLanguage',
-    paramsJson: JSON.stringify({
+    params: {
         mode: 'row',
         failWhen: "NOT ENDS_WITH(Email, '@contoso.example')",
         query: null,
-        columns: { Orders: ['Email'] },
+        tableColumns: [{ table: 'Orders', columns: ['Email'] }],
         explanation: 'Non-empty email addresses must end with the declared domain.',
         message: 'Email must end with @contoso.example',
-    }),
+    },
     examples: [
         { table: 'Orders', values: [{ column: 'Email', value: 'a@contoso.example' }], expectedValid: true },
         { table: 'Orders', values: [{ column: 'Email', value: 'b@example.org' }], expectedValid: false },
@@ -107,14 +108,14 @@ const naturalProposal = {
 const queryProposal = {
     ...naturalProposal,
     table: null,
-    paramsJson: JSON.stringify({
+    params: {
         mode: 'query',
         failWhen: null,
         query: "SELECT 'Invalid email suffix' AS message FROM t_0 WHERE NOT ENDS_WITH(Email, '@contoso.example') LIMIT 1",
-        columns: { Orders: ['Email'] },
+        tableColumns: [{ table: 'Orders', columns: ['Email'] }],
         explanation: 'The file contains an email without the declared domain.',
         message: 'An email address has the wrong domain.',
-    }),
+    },
 };
 
 const request = 'Email must end with @contoso.example';
@@ -183,7 +184,7 @@ describe('RuleConfig natural-language authoring', () => {
         expect(RulesService.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
             type: 'range',
             table: 'Orders',
-            params: { column: 'Amount', min: 0, max: 100 },
+            params: { column: 'Amount', min: 0, max: 100, minInclusive: true, maxInclusive: true },
         }));
         expect(RulesService.testRule).not.toHaveBeenCalled();
         expect(Rule.create).toHaveBeenCalledWith({
@@ -193,6 +194,42 @@ describe('RuleConfig natural-language authoring', () => {
             RuleType: 'Range Check',
             SqlQuery: '',
         }, 'admin');
+    });
+
+    it('accepts built-in params as structured JSON instead of an encoded JSON string', async () => {
+        createResponse.mockResolvedValue(response(mappedProposal));
+
+        await expect(createNaturalLanguageRule(definitionId, 'Amount must be between 0 and 100', 'admin'))
+            .resolves.toMatchObject({
+                outcome: 'mapped',
+                config: { type: 'range', params: { column: 'Amount', min: 0, max: 100 } },
+            });
+        expect(createResponse.mock.calls[0][0].text.format.schema.properties).toHaveProperty('params');
+    });
+
+    it('logs the model response only when natural-language debug is enabled', async () => {
+        const previousDebug = process.env.NATURAL_LANGUAGE_RULE_DEBUG;
+        const logInfo = jest.spyOn(logger, 'info').mockImplementation(() => logger);
+        try {
+            delete process.env.NATURAL_LANGUAGE_RULE_DEBUG;
+            await createNaturalLanguageRule(definitionId, 'Amount must be between 0 and 100', 'admin');
+            expect(logInfo).not.toHaveBeenCalledWith(expect.stringContaining('[NATURAL_LANGUAGE_RULE_DEBUG]'));
+
+            process.env.NATURAL_LANGUAGE_RULE_DEBUG = 'true';
+            await createNaturalLanguageRule(definitionId, 'Amount must be between 0 and 100', 'admin');
+            const prefix = '[NATURAL_LANGUAGE_RULE_DEBUG] ';
+            const debugMessage = logInfo.mock.calls
+                .map(([message]) => String(message))
+                .find(message => message.startsWith(prefix));
+            expect(debugMessage).toBeDefined();
+            const loggedResponse = JSON.parse(debugMessage!.slice(prefix.length)) as { output: string; responseId: string };
+            expect(loggedResponse.output).toBe(JSON.stringify(mappedProposal));
+            expect(loggedResponse.responseId).toBe('resp_1');
+        } finally {
+            if (previousDebug === undefined) delete process.env.NATURAL_LANGUAGE_RULE_DEBUG;
+            else process.env.NATURAL_LANGUAGE_RULE_DEBUG = previousDebug;
+            logInfo.mockRestore();
+        }
     });
 
     it('validates SQL and tests every example before saving with provenance', async () => {
@@ -232,9 +269,14 @@ describe('RuleConfig natural-language authoring', () => {
         expect(call.instructions).toContain('untrusted DATA');
         expect(call.instructions).toContain('declared schema');
         expect(call.instructions).toContain('ENDS_WITH');
+        expect(call.instructions).toContain('represents input column values as strings');
+        expect(call.instructions).toContain('TRY_CAST(column AS DOUBLE)');
         expect(call.instructions).toContain('Do not use any other function or');
         expect(call.instructions).toContain('never try to bypass');
+        expect(call.instructions).toContain('Never use sqlTable aliases for proposal or');
         expect(input.untrustedData.tables).toEqual([expect.objectContaining({ sqlTable: 't_0', sheet: 'Orders' })]);
+        expect(call.text.format.schema.required).toContain('params');
+        expect(call.text.format.schema.required).not.toContain('paramsJson');
     });
 
     it('supports Python-validated query-mode SQL using only service-provided table aliases', async () => {
@@ -243,9 +285,43 @@ describe('RuleConfig natural-language authoring', () => {
 
         expect(result).toMatchObject({ outcome: 'natural_language', config: { table: null, params: { mode: 'query' } } });
         expect(RulesService.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
-            params: expect.objectContaining({ query: queryProposal.paramsJson && JSON.parse(queryProposal.paramsJson).query }),
+            params: expect.objectContaining({ query: queryProposal.params.query, columns: { Orders: ['Email'] } }),
         }));
         expect(RulesService.testRule).toHaveBeenCalledTimes(1);
+    });
+
+    it('normalizes model table aliases and mapped Natural Language decisions for a single-table rule', async () => {
+        const singleContract = {
+            ...contract,
+            layout: 'single',
+            tables: contract.tables.map(table => ({ ...table, sheet: null })),
+        } as DefinitionContract;
+        jest.mocked(DefinitionVersionService.getDraftContract).mockResolvedValue(singleContract);
+        createResponse.mockResolvedValue(response({
+            ...naturalProposal,
+            decision: 'mapped',
+            table: 't_0',
+            params: {
+                ...naturalProposal.params,
+                tableColumns: [{ table: 't_0', columns: ['Email'] }],
+            },
+            examples: naturalProposal.examples.map(example => ({ ...example, table: 't_0' })),
+        }));
+
+        const result = await createNaturalLanguageRule(definitionId, request, 'admin');
+
+        expect(result).toMatchObject({
+            outcome: 'natural_language',
+            config: {
+                table: null,
+                params: {
+                    columns: { '': ['Email'] },
+                    examples: expect.arrayContaining([expect.objectContaining({ table: '' })]),
+                },
+            },
+        });
+        expect(RulesService.validateRule).toHaveBeenCalledWith(singleContract, expect.objectContaining({ table: null }));
+        expect(Rule.create).toHaveBeenCalledTimes(1);
     });
 
     it('asks the model for one correction when Python rejects its first SQL proposal', async () => {
@@ -258,11 +334,18 @@ describe('RuleConfig natural-language authoring', () => {
                 id: 'new-id', name: 'Valid amount', description: '', severity: 'Error', executionOrder: 1,
                 enabled: true, table: 'Orders', type: 'range', params: { column: 'Amount', min: 0, max: 100 },
             }, explanation: null });
+        const progress: RuleProgressEvent[] = [];
 
-        await expect(createNaturalLanguageRule(definitionId, request, 'admin')).resolves.toMatchObject({ outcome: 'mapped' });
+        await expect(createNaturalLanguageRule(definitionId, request, 'admin', {
+            onProgress: event => progress.push(event),
+        })).resolves.toMatchObject({ outcome: 'mapped' });
 
         expect(createResponse).toHaveBeenCalledTimes(2);
         expect(JSON.parse(createResponse.mock.calls[1][0].input).correctionFeedback).toContain('Function is not allowed');
+        expect(progress).toContainEqual(expect.objectContaining({
+            level: 'warning',
+            message: expect.stringContaining('$.params.failWhen'),
+        }));
         expect(Rule.create).toHaveBeenCalledTimes(1);
     });
 
