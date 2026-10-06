@@ -10,7 +10,7 @@ import { logger } from '../utils/logger';
 import { createGzip } from 'zlib';
 import { pipeline } from 'stream/promises';
 import { createReadStream, createWriteStream } from 'fs';
-import { Transform } from 'stream';
+import { Readable, Transform } from 'stream';
 import path from 'path';
 import os from 'os';
 
@@ -295,13 +295,29 @@ export class AzureStorageService {
         return { stream, size };
     }
 
-    async openBlobReadStream(blobName: string, containerName = this.containerName): Promise<NodeJS.ReadableStream> {
+    async openBlobReadStream(blobName: string, containerName = this.containerName): Promise<Readable> {
         const blockBlobClient = this.blobServiceClient
             .getContainerClient(containerName)
             .getBlockBlobClient(blobName);
         const response = await blockBlobClient.download(0);
         if (!response.readableStreamBody) throw new Error('Blob download returned no stream.');
-        return response.readableStreamBody;
+        return response.readableStreamBody as Readable;
+    }
+
+    async uploadStreamToBlob(
+        stream: Readable,
+        blobName: string,
+        containerName: string,
+    ): Promise<void> {
+        const blockBlobClient = this.blobServiceClient
+            .getContainerClient(containerName)
+            .getBlockBlobClient(blobName);
+
+        await blockBlobClient.uploadStream(stream, 4 * 1024 * 1024, 5, {
+            blobHTTPHeaders: {
+                blobContentType: this.getContentType(blobName),
+            },
+        });
     }
 
     /**
@@ -309,7 +325,7 @@ export class AzureStorageService {
      */
     async deleteBlob(blobName: string, containerName?: string): Promise<void> {
         const container = containerName || this.containerName;
-        const containerClient = await this.getOrCreateContainer(container);
+        const containerClient = this.blobServiceClient.getContainerClient(container);
         const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
         await blockBlobClient.deleteIfExists();

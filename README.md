@@ -98,7 +98,11 @@ Rules are stored as versioned JSON configurations in `Rules.Config`; indexed lis
 
 ## Delivery
 
-Delivery is optional. A file definition may set a **delivery folder** (Admin → File Definitions), which is resolved under `DELIVERY_ROOT_PATH` (default `Back-End/deliveries`). Validated uploads are copied there and finish as `DELIVERED`. Definitions without a delivery folder finish as `VALIDATED`.
+Delivery is optional. A file definition may set a **delivery folder** (Admin → File Definitions). With the default `DELIVERY_PROVIDER=local`, validated files are copied under `DELIVERY_ROOT_PATH` (default `Back-End/deliveries`). Definitions without a delivery folder finish as `VALIDATED`.
+
+In Azure, `DELIVERY_PROVIDER=azure` stores each output in the private `deliveries` Blob container (configurable with `AZURE_STORAGE_DELIVERIES_CONTAINER`). The definition's folder is a relative Blob name prefix; the final name is deterministic for the upload and sanitized source filename, so a replay replaces the same output. The API managed identity has Blob Data Contributor access scoped to this container. On Upload Details, an authorized user can download a completed output; the API checks access to the upload before streaming it and does not expose a public URL or SAS token. Explicitly deleting an upload also deletes its delivery output. Delivery outputs have no age-based expiry; the storage account's existing seven-day Blob soft-delete setting provides recovery after deletion.
+
+Local development continues to use filesystem copies. Outputs created by older deployments are not migrated automatically; only outputs recorded and delivered after enabling the Azure provider use the durable Blob destination.
 
 ## Storage
 

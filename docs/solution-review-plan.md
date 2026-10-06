@@ -802,9 +802,8 @@ Equivalent supported operations enforce the same contract and audit behavior.
 **Priority/evidence:** P0 rollout gate when delivery is promised;
 source-confirmed/readiness. Validation-only use can finish as `VALIDATED`.
 
-**Evidence:** [DeliveryTargets.service.ts](../Back-End/src/services/DeliveryTargets.service.ts),
-the single `FileCopy` target;
-[DeliveryWorker.service.ts](../Back-End/src/services/DeliveryWorker.service.ts),
+**Original evidence:** [DeliveryTargets.service.ts](../Back-End/src/services/DeliveryTargets.service.ts),
+the original `FileCopy` target; [DeliveryWorker.service.ts](../Back-End/src/services/DeliveryWorker.service.ts),
 filesystem writes; [appConfig.ts](../Back-End/src/config/appConfig.ts),
 `DELIVERY_ROOT_PATH`.
 
@@ -814,15 +813,25 @@ copy durable or customer-accessible. Container replacement or separate replicas
 cannot be treated as a reliable delivery store. Retry completion records also
 do not prove that a copy remains retrievable.
 
-**Follow-up:** Select a protected Blob destination or approved integration;
-define access, naming, overwrite, retrieval, retention and retry semantics.
-Provide a compatibility/migration path for existing delivery-folder settings.
-Include atomic/idempotent output behavior from FUN-04.
+**Resolution implemented:** `DELIVERY_PROVIDER=azure` directs cloud outputs to
+the private `deliveries` Blob container; `local` remains the development
+default. The existing delivery-folder setting is retained as a relative path
+prefix, and deterministic Blob names make retries/replays replace the same
+object. The API identity's Blob Data Contributor assignment is container-scoped.
+The authenticated delivery-download route checks existing upload access and
+only streams outputs recorded as `DELIVERED`; no public URLs or SAS tokens are
+issued. Explicit upload deletion removes its delivery artifact. No age-based
+expiry is configured; the storage account's seven-day Blob soft-delete recovery
+remains in effect. Existing local delivery records and folders are not migrated.
+See [README.md](../README.md#delivery) for operator and user behavior.
 
-**Acceptance:** A delivered fixture is retrievable after worker/API restart
-and revision replacement. Replays do not create inconsistent side effects.
-Permissions, supported local behavior, failure handling, and retention are
-documented and tested.
+**Verification:** Targeted backend tests cover Blob delivery, replay handling,
+retry scheduling, unsafe paths, authorized downloads, missing/not-ready output,
+and access denial. Backend typecheck and Bicep compilation pass.
+Deployment-specific acceptance remains pending until a delivered fixture is
+retrieved after API/worker restart or revision replacement, and deletion and
+authorization behavior are verified in the deployed environment. OPS-01 remains
+a rollout gate until that live acceptance evidence is recorded.
 
 ### DATA-01 - Retention and deletion lack a complete ownership contract
 
@@ -905,19 +914,23 @@ Do not introduce public SQL access or demo credentials as a bootstrap shortcut.
 **Priority/evidence:** P1; repository value compared with the official catalog
 on the review date. No live role lookup/assignment was performed.
 
-**Evidence:** [rbac.bicep](../infra/modules/rbac.bicep#L26) uses
+**Evidence:** [rbac.bicep](../infra/modules/rbac.bicep#L29) uses
 `4f6d3b9b-027b-4f4f-a9f5-4d5bc7e44f8f` for receiving grants.
 The [Microsoft Learn role definition](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/integration#azure-service-bus-data-receiver)
 identifies Azure Service Bus Data Receiver as
 `4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0`.
 
+**Status:** Corrected in Bicep after Azure CLI role-catalog lookup and a live
+provisioning failure confirmed the incorrect ID. Revalidation and live
+assignment/receive-operation checks remain pending.
+
 **Gap and impact:** The configured ID does not select the documented built-in
 role. Bicep accepts arbitrary GUID strings, so successful compilation misses
 this deployment/authorization blocker.
 
-**Follow-up:** Correct the catalog mapping, verify all receiving assignments,
-and add static assertions for known built-in roles. Do not substitute an
-invented/custom role or broaden to owner privileges to mask the issue.
+**Follow-up:** After provisioning, verify all receiving assignments and test
+the approved API/worker receive operations. Do not substitute an invented or
+custom role, or broaden to owner privileges to mask the issue.
 
 **Acceptance:** Every receiving assignment resolves to the intended scoped role;
 approved API/worker receive operations succeed and unrelated access remains denied.
@@ -1212,7 +1225,7 @@ These are explicitly not additional runtime-proven defects:
 
 | Area | Required decision or safe validation |
 |---|---|
-| Service Bus network boundary | [Microsoft Learn](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-ip-filtering) confirms **Standard supports IP filtering**; lack of Premium alone is not a defect. Still verify emitted Container Apps outbound IPs, actual default-deny behavior, app/job egress, and drift handling in [servicebus-firewall.bicep](../infra/modules/servicebus-firewall.bicep). |
+| Service Bus network boundary | [Microsoft Learn](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-ip-filtering) confirms **Standard supports IP filtering**, but the deployed Consumption Container Apps environment returns no outbound IP list. The owner chose public network reachability with Entra-only authentication and RBAC rather than adding NAT Gateway cost. Treat the broader network exposure as accepted for this PoC; use NAT plus static egress IP rules or Premium Private Link if policy later requires network restriction. See [servicebus-network-access.bicep](../infra/modules/servicebus-network-access.bicep). |
 | Scaling and realtime | [apps.bicep](../infra/modules/apps.bicep#L174) currently caps the API at one replica, consistent with process-local sockets/cache and a competing-consumer event subscription. Before raising the cap, prove cross-replica cache invalidation, realtime delivery and reconnect recovery. Do not report current multi-replica failure when only one is configured. |
 | Reverse-proxy rate limiting | Express does not configure trusted-proxy handling. Validate ACA forwarding semantics so users do not share proxy-address quotas and spoofed forwarding headers cannot bypass limits. Do not blindly trust arbitrary headers. |
 | Job capacity and termination | Verify actual managed-job replica/execution cardinality, empty-queue exits, slow messages, shutdown and lock renewal. `parallelism=5` and completion count 1 alone do not prove five concurrent replicas or premature cancellation. Application outcomes must be monitored separately from execution exit status. |

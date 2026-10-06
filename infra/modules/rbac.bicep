@@ -6,6 +6,12 @@ param apiPrincipalId string
 @description('Worker managed identity principal ID.')
 param workerPrincipalId string
 
+@description('Temporary SQL bootstrap managed identity principal ID.')
+param sqlBootstrapPrincipalId string
+
+@description('Frontend managed identity principal ID.')
+param frontendPrincipalId string
+
 @description('Storage account name.')
 param storageAccountName string
 
@@ -23,7 +29,7 @@ var blobDataReaderRoleId = subscriptionResourceId('Microsoft.Authorization/roleD
 var keyVaultSecretsUserRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 var acrPullRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 var serviceBusSenderRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39')
-var serviceBusReceiverRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4f6d3b9b-027b-4f4f-a9f5-4d5bc7e44f8f')
+var serviceBusReceiverRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0')
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' existing = {
   name: storageAccountName
@@ -52,6 +58,11 @@ resource staging 'Microsoft.Storage/storageAccounts/blobServices/containers@2024
 resource templates 'Microsoft.Storage/storageAccounts/blobServices/containers@2024-01-01' existing = {
   parent: blobService
   name: 'templates'
+}
+
+resource deliveries 'Microsoft.Storage/storageAccounts/blobServices/containers@2024-01-01' existing = {
+  parent: blobService
+  name: 'deliveries'
 }
 
 resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' existing = {
@@ -109,6 +120,16 @@ resource apiReportsContributor 'Microsoft.Authorization/roleAssignments@2022-04-
 resource apiTemplatesContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(templates.id, apiPrincipalId, blobDataContributorRoleId)
   scope: templates
+  properties: {
+    roleDefinitionId: blobDataContributorRoleId
+    principalId: apiPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource apiDeliveriesContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(deliveries.id, apiPrincipalId, blobDataContributorRoleId)
+  scope: deliveries
   properties: {
     roleDefinitionId: blobDataContributorRoleId
     principalId: apiPrincipalId
@@ -182,6 +203,26 @@ resource workerAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     roleDefinitionId: acrPullRoleId
     principalId: workerPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource sqlBootstrapAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, sqlBootstrapPrincipalId, acrPullRoleId)
+  scope: registry
+  properties: {
+    roleDefinitionId: acrPullRoleId
+    principalId: sqlBootstrapPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource frontendAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, frontendPrincipalId, acrPullRoleId)
+  scope: registry
+  properties: {
+    roleDefinitionId: acrPullRoleId
+    principalId: frontendPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

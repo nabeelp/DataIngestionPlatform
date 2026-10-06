@@ -17,6 +17,11 @@ const debugLog = (message: string, ...args: unknown[]) => {
     }
 };
 
+export const resolveApiBaseUrl = (environmentUrl?: string, runtimeUrl?: string): string | undefined => {
+    const url = environmentUrl || runtimeUrl;
+    return url?.replace(/\/+$/, '');
+};
+
 //#region EXPORTS
 export const apiConfig = {
     //#region API URL METHODS
@@ -25,13 +30,12 @@ export const apiConfig = {
      * Falls back to localhost for development
      */
     getBaseUrl: (): string => {
-        // First check for explicit VITE_API_URL
-        const url = import.meta.env.VITE_API_URL;
+        const url = resolveApiBaseUrl(import.meta.env.VITE_API_URL, window.__APP_CONFIG__?.apiUrl);
         
         debugLog('VITE_API_URL from env:', url);
         
         if (url) {
-            debugLog('Using VITE_API_URL:', url);
+            debugLog('Using configured API URL:', url);
             return url;
         }
 
@@ -63,9 +67,9 @@ export const apiConfig = {
             return wsUrl;
         }
         
-        // Socket.IO uses HTTP polling before upgrading to WebSocket.
-        // In development, Vite proxies /socket.io to the local backend.
-        const socketOrigin = window.location.origin;
+        // Socket.IO uses HTTP polling before upgrading to WebSocket. Resolve its
+        // origin from the API URL because the SPA and API use separate hosts in Azure.
+        const socketOrigin = new URL(apiConfig.getBaseUrl(), window.location.origin).origin;
         debugLog('Using default Socket.IO origin:', socketOrigin);
         return socketOrigin;
     },

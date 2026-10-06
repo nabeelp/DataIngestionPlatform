@@ -5,6 +5,7 @@
 import { Request, Response } from 'express';
 import { UploadService } from '../services/Upload.service';
 import { Upload } from '../models/Upload.model';
+import { DeliveryRecord } from '../models/DeliveryRecord.model';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { sanitizeFilename } from '../services/TemplateStorage.service';
@@ -16,6 +17,12 @@ import { pipeline } from 'stream/promises';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
 import { RulesService, RulesServiceError } from '../services/RulesService.service';
+import {
+    AZURE_BLOB_DELIVERY,
+    FILE_COPY_DELIVERY,
+    assertInsideDeliveryRoot,
+    assertSafeDeliveryBlobName,
+} from '../services/DeliveryTargets.service';
 const EXCEL_FILE_TYPES = ['xlsx', 'xlsm', 'xls', 'xlsb'];
 
 export class UploadController {
@@ -406,6 +413,26 @@ export class UploadController {
                 return;
             }
 
+            const deliveryRecords = await DeliveryRecord.findByUploadId(id);
+            for (const record of deliveryRecords) {
+                if (record.DeliveryType === AZURE_BLOB_DELIVERY) {
+                    if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
+                    assertSafeDeliveryBlobName(record.DestinationPath);
+                    await azureStorage.deleteBlob(
+                        record.DestinationPath,
+                        appConfig.azure.storage.deliveriesContainerName,
+                    );
+                } else if (record.DeliveryType === FILE_COPY_DELIVERY) {
+                    const destination = path.resolve(record.DestinationPath);
+                    assertInsideDeliveryRoot(destination);
+                    try {
+                        await fs.promises.unlink(destination);
+                    } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                    }
+                }
+            }
+
             if (azureStorage) {
                 await azureStorage.deleteBlob(upload.BlobName, upload.BlobContainer);
                 if (upload.ReportBlobName) {
@@ -469,6 +496,77 @@ export class UploadController {
                 return;
             }
             res.status(500).json({ success: false, message: 'Failed to download issues report' });
+        }
+    }
+
+    static async downloadDelivery(req: Request, res: Response): Promise<void> {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const deliveryId = Array.isArray(req.params.deliveryId) ? req.params.deliveryId[0] : req.params.deliveryId;
+        const userId = (req as any).user?.userId;
+        try {
+            if (!await Upload.hasAccessToUpload(id, userId)) {
+                res.status(403).json({ success: false, message: 'Access denied' });
+                return;
+            }
+
+            const upload = await Upload.findById(id);
+            if (!upload) {
+                res.status(404).json({ success: false, message: 'Upload not found' });
+                return;
+            }
+
+            const record = await DeliveryRecord.findById(deliveryId);
+            if (!record || record.UploadId !== id) {
+                res.status(404).json({ success: false, message: 'Delivery output not found' });
+                return;
+            }
+            if (record.Status !== 'DELIVERED') {
+                res.status(409).json({ success: false, message: 'Delivery output is not ready' });
+                return;
+            }
+
+            let stream: NodeJS.ReadableStream;
+            if (record.DeliveryType === AZURE_BLOB_DELIVERY) {
+                if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
+                assertSafeDeliveryBlobName(record.DestinationPath);
+                stream = await azureStorage.openBlobReadStream(
+                    record.DestinationPath,
+                    appConfig.azure.storage.deliveriesContainerName,
+                );
+            } else if (record.DeliveryType === FILE_COPY_DELIVERY) {
+                const destination = path.resolve(record.DestinationPath);
+                assertInsideDeliveryRoot(destination);
+                await fs.promises.access(destination);
+                stream = fs.createReadStream(destination);
+            } else {
+                res.status(404).json({ success: false, message: 'Delivery output is not downloadable' });
+                return;
+            }
+
+            const filename = sanitizeFilename(record.DestinationPath.split(/[\\/]/).pop() || 'delivery');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader(
+                'Content-Type',
+                path.extname(filename).toLowerCase() === '.csv' ? 'text/csv' : 'application/octet-stream',
+            );
+            await pipeline(stream, res);
+        } catch (error) {
+            const statusCode = (error as { statusCode?: unknown })?.statusCode;
+            const errorCode = (error as NodeJS.ErrnoException)?.code;
+            if (statusCode === 404 || errorCode === 'ENOENT') {
+                if (!res.headersSent) {
+                    res.status(404).json({ success: false, message: 'Delivery output is not available' });
+                } else {
+                    res.destroy();
+                }
+                return;
+            }
+            logger.error(`[UPLOAD-DELIVERY] Download failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+            if (res.headersSent) {
+                res.destroy();
+                return;
+            }
+            res.status(500).json({ success: false, message: 'Failed to download delivery output' });
         }
     }
 

@@ -1,8 +1,8 @@
 # Data Ingestion Platform: Architecture Overview
 
-**For:** Architecture Review Board · **Status:** Pre-production. Infrastructure is defined in Bicep/azd. The target region is **France Central**. Nothing is deployed yet (see [deployment.md](deployment.md)).
+**For:** Architecture Review Board · **Status:** Deployed for development; authenticated OPS-01 cloud acceptance pending. The target region is **France Central** (see [deployment.md](deployment.md)).
 
-> **Hosting change:** the web front end now runs on **Azure Container Apps** instead of Azure Static Web Apps. Static Web Apps isn't offered in France Central, and Container Apps puts every tier on one platform. The Bicep templates, `azd` configuration, hooks and [deployment.md](deployment.md) have been updated for the change (still uncommitted).
+> **Hosting change:** the web front end runs on **Azure Container Apps** instead of Azure Static Web Apps. Static Web Apps isn't offered in France Central, and Container Apps puts every tier on one platform.
 
 ## 1. Summary
 

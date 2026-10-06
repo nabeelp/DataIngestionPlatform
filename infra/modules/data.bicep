@@ -25,10 +25,6 @@ param sqlAdminObjectId string
 param sqlAdminLogin string
 
 @secure()
-@description('Bootstrap SQL administrator password. SQL authentication is disabled after server creation.')
-param sqlBootstrapPassword string
-
-@secure()
 @description('JWT signing secret written to Key Vault when supplied.')
 param jwtSecret string
 
@@ -124,6 +120,14 @@ resource templatesContainer 'Microsoft.Storage/storageAccounts/blobServices/cont
   }
 }
 
+resource deliveriesContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2024-01-01' = {
+  parent: blobService
+  name: 'deliveries'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
 resource stagingLifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
   parent: storageAccount
   name: 'default'
@@ -203,17 +207,6 @@ resource ssoKeyVaultSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (
   }
 }
 
-resource sqlBootstrapKeyVaultSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (!empty(sqlBootstrapPassword)) {
-  parent: keyVault
-  name: 'sql-bootstrap-password'
-  properties: {
-    value: sqlBootstrapPassword
-    attributes: {
-      enabled: true
-    }
-  }
-}
-
 resource appInsightsKeyVaultSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
   parent: keyVault
   name: 'app-insights-connection-string'
@@ -230,21 +223,16 @@ resource sqlServer 'Microsoft.Sql/servers@2025-01-01' = {
   location: location
   tags: tags
   properties: {
-    administratorLogin: 'sqlbootstrap'
-    administratorLoginPassword: sqlBootstrapPassword
+    administrators: {
+      administratorType: 'ActiveDirectory'
+      azureADOnlyAuthentication: true
+      login: sqlAdminLogin
+      principalType: 'User'
+      sid: sqlAdminObjectId
+      tenantId: tenantId
+    }
     publicNetworkAccess: 'Disabled'
     minimalTlsVersion: '1.2'
-  }
-}
-
-resource sqlAdministrator 'Microsoft.Sql/servers/administrators@2025-01-01' = {
-  parent: sqlServer
-  name: 'ActiveDirectory'
-  properties: {
-    administratorType: 'ActiveDirectory'
-    login: sqlAdminLogin
-    sid: sqlAdminObjectId
-    tenantId: tenantId
   }
 }
 

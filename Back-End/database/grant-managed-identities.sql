@@ -4,9 +4,12 @@ IF NOT EXISTS (
     WHERE name = N'$(ApiIdentityName)'
 )
 BEGIN
-    CREATE USER [$(ApiIdentityName)]
-        FROM EXTERNAL PROVIDER
-        WITH OBJECT_ID = '$(ApiIdentityPrincipalId)';
+    DECLARE @ApiIdentityClientId UNIQUEIDENTIFIER = '$(ApiIdentityClientId)';
+    DECLARE @ApiIdentitySid VARCHAR(34) =
+        CONVERT(VARCHAR(34), CONVERT(VARBINARY(16), @ApiIdentityClientId), 1);
+    DECLARE @CreateApiIdentityUser NVARCHAR(MAX) =
+        N'CREATE USER [$(ApiIdentityName)] WITH SID = ' + @ApiIdentitySid + N', TYPE = E;';
+    EXEC (@CreateApiIdentityUser);
 END;
 
 IF NOT EXISTS (
@@ -39,9 +42,12 @@ IF NOT EXISTS (
     WHERE name = N'$(WorkerIdentityName)'
 )
 BEGIN
-    CREATE USER [$(WorkerIdentityName)]
-        FROM EXTERNAL PROVIDER
-        WITH OBJECT_ID = '$(WorkerIdentityPrincipalId)';
+    DECLARE @WorkerIdentityClientId UNIQUEIDENTIFIER = '$(WorkerIdentityClientId)';
+    DECLARE @WorkerIdentitySid VARCHAR(34) =
+        CONVERT(VARCHAR(34), CONVERT(VARBINARY(16), @WorkerIdentityClientId), 1);
+    DECLARE @CreateWorkerIdentityUser NVARCHAR(MAX) =
+        N'CREATE USER [$(WorkerIdentityName)] WITH SID = ' + @WorkerIdentitySid + N', TYPE = E;';
+    EXEC (@CreateWorkerIdentityUser);
 END;
 
 IF NOT EXISTS (

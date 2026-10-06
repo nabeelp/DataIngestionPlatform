@@ -114,7 +114,7 @@ export interface IDeliveryRecord {
   Id: string;
   UploadId: string;
   UploadSheetId: string | null;
-  DeliveryType: 'FabricLakehouse' | 'SQLTable' | 'SharePoint';
+  DeliveryType: 'FileCopy' | 'AzureBlob' | 'FabricLakehouse' | 'SharePoint';
   DestinationPath: string;
   DestinationName: string | null;
   Status: 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'FAILED';
@@ -274,6 +274,43 @@ export const downloadUploadReport = async (id: string): Promise<void> => {
   const blob = await response.blob();
   const filename = response.headers.get('Content-Disposition')
     ?.match(/filename="([^"]+)"/i)?.[1] ?? `${id}-issues.csv`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  try {
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+};
+
+/** Download a delivered file through the authenticated API, not a public Blob URL. */
+export const downloadUploadDelivery = async (uploadId: string, deliveryId: string): Promise<void> => {
+  const response = await fetch(
+    `${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(uploadId)}/deliveries/${encodeURIComponent(deliveryId)}`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  if (!response.ok) {
+    let message = `Failed to download delivery output (HTTP ${response.status})`;
+    if (response.headers.get('Content-Type')?.includes('application/json')) {
+      const error: unknown = await response.json();
+      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        message = error.message || message;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const filename = response.headers.get('Content-Disposition')
+    ?.match(/filename="([^"]+)"/i)?.[1] ?? `${deliveryId}-delivery`;
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   try {

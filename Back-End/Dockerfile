@@ -20,6 +20,7 @@ WORKDIR /workspace/Back-End
 COPY Back-End/package.json Back-End/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY --from=build /workspace/Back-End/dist ./dist
+COPY Back-End/database ./database
 RUN mkdir -p /workspace/Back-End/logs /workspace/Back-End/deliveries "${UPLOAD_TEMP_DIR}" \
     && chown -R node:node /workspace/Back-End "${UPLOAD_TEMP_DIR}"
 

@@ -9,7 +9,13 @@ import { UploadService } from './Upload.service';
 import { azureStorage } from './AzureStorage.service';
 import { serviceBusService } from './ServiceBus.service';
 import { logger } from '../utils/logger';
-import { FILE_COPY_DELIVERY, assertInsideDeliveryRoot } from './DeliveryTargets.service';
+import { appConfig } from '../config/appConfig';
+import {
+    AZURE_BLOB_DELIVERY,
+    FILE_COPY_DELIVERY,
+    assertInsideDeliveryRoot,
+    assertSafeDeliveryBlobName,
+} from './DeliveryTargets.service';
 
 const MAX_DELIVERY_ATTEMPTS = 5;
 
@@ -28,17 +34,26 @@ export async function processDeliveryRequest(request: DeliveryRequest): Promise<
 
     try {
         for (const record of pendingRecords) {
-            if (record.DeliveryType !== FILE_COPY_DELIVERY) {
+            if (record.DeliveryType !== FILE_COPY_DELIVERY && record.DeliveryType !== AZURE_BLOB_DELIVERY) {
                 throw new Error(`Unsupported delivery type for upload ${uploadId}.`);
             }
 
-            const destination = path.resolve(record.DestinationPath);
-            assertInsideDeliveryRoot(destination);
-            await fs.mkdir(path.dirname(destination), { recursive: true });
             await DeliveryRecord.markStarted(record.Id);
 
             const source = await azureStorage.openBlobReadStream(upload.BlobName, upload.BlobContainer);
-            await pipeline(source, createWriteStream(destination));
+            if (record.DeliveryType === AZURE_BLOB_DELIVERY) {
+                assertSafeDeliveryBlobName(record.DestinationPath);
+                await azureStorage.uploadStreamToBlob(
+                    source,
+                    record.DestinationPath,
+                    appConfig.azure.storage.deliveriesContainerName,
+                );
+            } else {
+                const destination = path.resolve(record.DestinationPath);
+                assertInsideDeliveryRoot(destination);
+                await fs.mkdir(path.dirname(destination), { recursive: true });
+                await pipeline(source, createWriteStream(destination));
+            }
 
             await DeliveryRecord.markCompleted(record.Id, upload.RowCountNo || 0);
             await UploadService.updateDeliveryProgress(record.Id, 100, upload.RowCountNo || 0);

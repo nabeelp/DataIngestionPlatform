@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { downloadUploadReport } from '../services/uploadApi';
+import { downloadUploadDelivery, downloadUploadReport } from '../services/uploadApi';
 import { groupRulesBySheet } from './uploadRuleGroups';
 import { getValidationIssueCount, mapValidationCheckStatus, parseValidationIssues, type ValidationIssue, type ValidationCheckStatus } from './validationIssues';
 
@@ -29,6 +29,12 @@ interface RuleResult {
   errors?: ValidationIssue[];
 }
 
+interface DeliveryRecordSummary {
+  id: string;
+  filename: string;
+  status: string;
+}
+
 interface UploadDetail {
   id: string;
   filename: string;
@@ -43,6 +49,7 @@ interface UploadDetail {
   definitionVersion: number | null;
   sheets: SheetSummary[];
   rules: RuleResult[];
+  deliveryRecords: DeliveryRecordSummary[];
 }
 
 // ============================================================================
@@ -112,6 +119,15 @@ export const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
     };
   });
 
+  const deliveryRecords: DeliveryRecordSummary[] = (data.deliveryRecords || []).map((record: any) => {
+    const destinationPath = String(record.DestinationPath || record.destinationPath || '');
+    return {
+      id: record.Id || record.id,
+      filename: destinationPath.split(/[\\/]/).pop() || 'delivered file',
+      status: record.Status || record.status || '',
+    };
+  });
+
   return {
     id: upload.Id || upload.id,
     filename: upload.OriginalFilename || upload.originalFilename || 'Unknown',
@@ -128,6 +144,7 @@ export const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
     definitionVersion: data.definitionVersion?.versionNumber ?? null,
     sheets: mappedSheets,
     rules: mappedRules,
+    deliveryRecords,
   };
 };
 
@@ -255,6 +272,7 @@ const UploadDetails = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [deliveryLoadingId, setDeliveryLoadingId] = useState<string | null>(null);
 
   const { socket, user } = useAuth();
   const historyBase = user?.Role === 'admin' ? '/admin/history' : '/history';
@@ -377,6 +395,19 @@ const UploadDetails = () => {
       setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to download issues report' });
     } finally {
       setReportLoading(false);
+    }
+  };
+
+  const handleDownloadDelivery = async (deliveryId: string) => {
+    if (!id || deliveryLoadingId) return;
+    setDeliveryLoadingId(deliveryId);
+    setActionMessage(null);
+    try {
+      await downloadUploadDelivery(id, deliveryId);
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to download delivery output' });
+    } finally {
+      setDeliveryLoadingId(null);
     }
   };
 
@@ -606,6 +637,17 @@ const UploadDetails = () => {
           <p className="mt-1 text-sm font-medium text-gray-800 break-words max-w-md">
             {upload.deliveredTo || 'Not specified'}
           </p>
+          {upload.deliveryRecords.filter(record => record.status === 'DELIVERED').map(record => (
+            <button
+              key={record.id}
+              type="button"
+              onClick={() => handleDownloadDelivery(record.id)}
+              disabled={deliveryLoadingId !== null}
+              className="mt-3 mr-3 text-xs text-blue-600 hover:underline disabled:opacity-50"
+            >
+              {deliveryLoadingId === record.id ? 'Downloading...' : `Download ${record.filename}`}
+            </button>
+          ))}
         </div>
 
       </section>

@@ -19,6 +19,11 @@ const ensureTempDirectory = (): string => {
 // Initialize temp directory immediately
 const TEMP_DIR = ensureTempDirectory();
 
+const deliveryProvider = process.env.DELIVERY_PROVIDER ?? 'local';
+if (deliveryProvider !== 'local' && deliveryProvider !== 'azure') {
+    throw new Error('DELIVERY_PROVIDER must be either "local" or "azure".');
+}
+
 export const appConfig = {
     // Server
     port: process.env.PORT || 3000,
@@ -97,6 +102,7 @@ export const appConfig = {
             containerName: process.env.AZURE_STORAGE_UPLOADS_CONTAINER || 'uploads',
             reportsContainerName: process.env.AZURE_STORAGE_REPORTS_CONTAINER || 'reports',
             stagingContainerName: process.env.AZURE_STORAGE_STAGING_CONTAINER || 'staging',
+            deliveriesContainerName: process.env.AZURE_STORAGE_DELIVERIES_CONTAINER || 'deliveries',
             compressedContainerName: process.env.AZURE_STORAGE_COMPRESSED_CONTAINER || 'compressed',
         }
     },
@@ -149,6 +155,7 @@ export const appConfig = {
 
     // Optional file-copy delivery. Definition delivery folders are resolved under this root.
     delivery: {
+        provider: deliveryProvider,
         rootPath: process.env.DELIVERY_ROOT_PATH || path.join(process.cwd(), 'deliveries'),
     }
 };

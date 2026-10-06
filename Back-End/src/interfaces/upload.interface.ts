@@ -43,6 +43,7 @@ export interface IValidationIssue {
  */
 export type DeliveryType = 
     | 'FileCopy'
+    | 'AzureBlob'
     // Legacy values that may exist on historical delivery records
     | 'FabricLakehouse'
     | 'SharePoint';

@@ -134,6 +134,14 @@ router.get('/:id/report', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/uploads/:id/deliveries/:deliveryId
+ * Stream a delivered file after checking upload access.
+ */
+router.get('/:id/deliveries/:deliveryId', async (req: Request, res: Response) => {
+    await UploadController.downloadDelivery(req, res);
+});
+
+/**
  * POST /api/uploads
  * Upload a file (multipart form data)
  */

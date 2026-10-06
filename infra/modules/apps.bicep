@@ -15,11 +15,14 @@ param rulesServiceContainerAppName string
 @description('Validation worker Container Apps Job name.')
 param workerJobName string
 
+@description('One-shot SQL bootstrap Container Apps Job name.')
+param sqlBootstrapJobName string
+
+@description('Frontend Container App name.')
+param frontendContainerAppName string
+
 @description('Azure Container Registry login server.')
 param registryLoginServer string
-
-@description('Container image tag built by the predeploy hook.')
-param imageTag string
 
 @description('CPU cores allocated to each validation worker execution.')
 param workerCpu int
@@ -42,15 +45,29 @@ param workerIdentityId string
 @description('Worker user-assigned identity client ID.')
 param workerClientId string
 
+@description('API user-assigned identity resource name.')
+param apiIdentityName string
+
+@description('Worker user-assigned identity resource name.')
+param workerIdentityName string
+
+@description('SQL bootstrap user-assigned identity resource ID.')
+param sqlBootstrapIdentityId string
+
+@description('SQL bootstrap user-assigned identity client ID.')
+param sqlBootstrapClientId string
+
+@description('Frontend image-pull user-assigned identity resource ID.')
+param frontendIdentityId string
+
 @description('Container Apps delegated subnet ID.')
 param containerAppsSubnetId string
 
 @description('Log Analytics workspace customer ID.')
 param logAnalyticsCustomerId string
 
-@secure()
-@description('Log Analytics workspace shared key, resolved from the workspace at deployment time.')
-param logAnalyticsSharedKey string
+@description('Log Analytics workspace resource ID.')
+param logAnalyticsWorkspaceId string
 
 @description('Storage account Blob endpoint.')
 param storageAccountUrl string
@@ -79,9 +96,6 @@ param rulesServiceApiClientId string
 @description('Dedicated rules-service API registration audience, such as api://<client-id>.')
 param rulesServiceApiAudience string
 
-@description('Public Static Web App origin allowed by the API CORS policy.')
-param frontendOrigin string
-
 @description('Foundry account resource name.')
 param foundryResourceName string
 
@@ -90,6 +104,10 @@ param foundryProjectName string
 
 @description('Tags applied to resources.')
 param tags object
+
+// Keep provisioning independent of ACR image availability; azd deploy replaces this image after AcrPull propagates.
+var bootstrapImage = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+var logAnalyticsSharedKey = listKeys(logAnalyticsWorkspaceId, '2025-07-01').primarySharedKey
 
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2025-07-01' = {
   name: environmentName
@@ -177,7 +195,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
       containers: [
         {
           name: 'api'
-          image: '${registryLoginServer}/api:${imageTag}'
+          image: bootstrapImage
           resources: {
             cpu: 1
             memory: '2Gi'
@@ -209,7 +227,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
             }
             {
               name: 'MS_REDIRECT_URI'
-              value: '${frontendOrigin}/auth/callback'
+              value: 'https://invalid.invalid/auth/callback'
             }
             {
               name: 'MS_SSO_ENABLED'
@@ -217,7 +235,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
             }
             {
               name: 'CORS_ORIGIN'
-              value: frontendOrigin
+              value: 'https://invalid.invalid'
             }
             {
               name: 'DB_SERVER'
@@ -244,8 +262,16 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
               value: 'reports'
             }
             {
+              name: 'AZURE_STORAGE_DELIVERIES_CONTAINER'
+              value: 'deliveries'
+            }
+            {
               name: 'AZURE_STORAGE_TEMPLATES_CONTAINER'
               value: 'templates'
+            }
+            {
+              name: 'DELIVERY_PROVIDER'
+              value: 'azure'
             }
             {
               name: 'STORAGE_PROVIDER'
@@ -324,6 +350,103 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
   }
 }
 
+resource frontendContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
+  name: frontendContainerAppName
+  location: location
+  tags: union(tags, {
+    'azd-service-name': 'frontend'
+  })
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${frontendIdentityId}': {}
+    }
+  }
+  properties: {
+    managedEnvironmentId: containerAppsEnvironment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      registries: [
+        {
+          server: registryLoginServer
+          identity: frontendIdentityId
+        }
+      ]
+      ingress: {
+        external: true
+        targetPort: 8080
+        transport: 'auto'
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+    }
+    template: {
+      scale: {
+        minReplicas: 0
+        maxReplicas: 2
+        rules: [
+          {
+            name: 'http-requests'
+            http: {
+              metadata: {
+                concurrentRequests: '10'
+              }
+            }
+          }
+        ]
+      }
+      containers: [
+        {
+          name: 'frontend'
+          image: bootstrapImage
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'API_URL'
+              value: 'https://${apiContainerApp.properties.configuration.ingress.fqdn}/api/v1'
+            }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 3
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 3
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
 resource rulesServiceContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
   name: rulesServiceContainerAppName
   location: location
@@ -375,7 +498,7 @@ resource rulesServiceContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
       containers: [
         {
           name: 'rules-service'
-          image: '${registryLoginServer}/validation-service:${imageTag}'
+          image: bootstrapImage
           command: [
             'dq-engine'
           ]
@@ -548,7 +671,7 @@ resource validationWorker 'Microsoft.App/jobs@2025-07-01' = {
       containers: [
         {
           name: 'validation-worker'
-          image: '${registryLoginServer}/validation-service:${imageTag}'
+          image: bootstrapImage
           command: [
             'dq-engine'
           ]
@@ -609,10 +732,86 @@ resource validationWorker 'Microsoft.App/jobs@2025-07-01' = {
   }
 }
 
-output apiUrl string = 'https://${apiContainerApp.properties.configuration.ingress.fqdn}'
+resource sqlBootstrapJob 'Microsoft.App/jobs@2025-07-01' = {
+  name: sqlBootstrapJobName
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${sqlBootstrapIdentityId}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnvironment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      triggerType: 'Manual'
+      replicaTimeout: 1800
+      replicaRetryLimit: 2
+      registries: [
+        {
+          server: registryLoginServer
+          identity: sqlBootstrapIdentityId
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'sql-bootstrap'
+          image: bootstrapImage
+          command: [
+            'node'
+          ]
+          args: [
+            'dist/scripts/bootstrapSql.js'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'DB_SERVER'
+              value: '${sqlServerName}${environment().suffixes.sqlServerHostname}'
+            }
+            {
+              name: 'DB_DATABASE'
+              value: sqlDatabaseName
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: sqlBootstrapClientId
+            }
+            {
+              name: 'API_IDENTITY_NAME'
+              value: apiIdentityName
+            }
+            {
+              name: 'API_IDENTITY_CLIENT_ID'
+              value: apiClientId
+            }
+            {
+              name: 'WORKER_IDENTITY_NAME'
+              value: workerIdentityName
+            }
+            {
+              name: 'WORKER_IDENTITY_CLIENT_ID'
+              value: workerClientId
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+output apiUrl string = 'https://${apiContainerApp.properties.configuration.ingress.fqdn}/api/v1'
 output apiContainerAppName string = apiContainerApp.name
+output frontendContainerAppName string = frontendContainerApp.name
+output frontendUrl string = 'https://${frontendContainerApp.properties.configuration.ingress.fqdn}'
 output rulesServiceUrl string = 'https://${rulesServiceContainerApp.properties.configuration.ingress.fqdn}'
 output rulesServiceContainerAppName string = rulesServiceContainerApp.name
 output workerJobName string = validationWorker.name
-// The ARM response includes this runtime-only property, omitted from the Bicep type.
-output containerAppsOutboundIps array = any(containerAppsEnvironment.properties).outboundIpAddresses
+output sqlBootstrapJobName string = sqlBootstrapJob.name

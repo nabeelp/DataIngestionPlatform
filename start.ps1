@@ -5,8 +5,6 @@ $frontend = Join-Path $root 'Front-End'
 $pythonService = Join-Path $root 'Validation-Service'
 $backendEnv = Join-Path $backend '.env'
 $composeFile = Join-Path $root 'docker-compose.yml'
-$backendHealthUrl = 'http://localhost:3000/health'
-$rulesHealthUrl = 'http://localhost:8000/healthz'
 $processes = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 
 function Stop-ProcessTree {
@@ -38,6 +36,31 @@ function Get-ConfiguredValue {
     }
 
     return [string]$Settings[$Name]
+}
+
+function Get-ConfiguredPort {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter(Mandatory)]
+        [hashtable]$Settings,
+
+        [Parameter(Mandatory)]
+        [int]$Default
+    )
+
+    $value = Get-ConfiguredValue -Name $Name -Settings $Settings
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $Default
+    }
+
+    $port = 0
+    if (-not [int]::TryParse($value, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        throw "$Name must be a TCP port between 1 and 65535."
+    }
+
+    return $port
 }
 
 function Read-EnvironmentFile {
@@ -152,7 +175,15 @@ foreach ($project in @($backend, $frontend)) {
 }
 
 $settings = Read-EnvironmentFile -Path $backendEnv
-$requiredSettings = @('DB_CONNECTION_STRING', 'JWT_SECRET', 'MSSQL_SA_PASSWORD', 'ACCEPT_EULA')
+$requiredSettings = @(
+    'DB_CONNECTION_STRING',
+    'JWT_SECRET',
+    'MSSQL_SA_PASSWORD',
+    'ACCEPT_EULA',
+    'SERVICEBUS_CONNECTION_STRING',
+    'AZURE_STORAGE_CONNECTION_STRING',
+    'RULES_SERVICE_DEV_KEY'
+)
 foreach ($name in $requiredSettings) {
     if ([string]::IsNullOrWhiteSpace((Get-ConfiguredValue -Name $name -Settings $settings))) {
         throw "Configure $name in Back-End\.env before starting. Secret values are not displayed."
@@ -165,12 +196,14 @@ if ((Get-ConfiguredValue -Name 'ACCEPT_EULA' -Settings $settings) -ne 'Y') {
 $script:saPassword = Get-ConfiguredValue -Name 'MSSQL_SA_PASSWORD' -Settings $settings
 $dbConnectionString = Get-ConfiguredValue -Name 'DB_CONNECTION_STRING' -Settings $settings
 $databaseName = Get-ConfiguredValue -Name 'SQLCMD_DATABASE' -Settings $settings
-$emulatorHttpPort = Get-ConfiguredValue -Name 'SERVICEBUS_EMULATOR_HTTP_PORT' -Settings $settings
+$backendPort = Get-ConfiguredPort -Name 'PORT' -Settings $settings -Default 3000
+$rulesPort = Get-ConfiguredPort -Name 'RULES_SERVICE_PORT' -Settings $settings -Default 8000
+$emulatorHttpPort = Get-ConfiguredPort -Name 'SERVICEBUS_EMULATOR_HTTP_PORT' -Settings $settings -Default 5300
+$backendHealthUrl = "http://localhost:$backendPort/health"
+$rulesHealthUrl = "http://localhost:$rulesPort/healthz"
+$frontendUrl = 'http://localhost:5173'
 if ([string]::IsNullOrWhiteSpace($databaseName)) {
     $databaseName = 'FileValidationPlatform'
-}
-if ([string]::IsNullOrWhiteSpace($emulatorHttpPort)) {
-    $emulatorHttpPort = '5300'
 }
 try {
     $dbSettings = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($dbConnectionString)
@@ -188,11 +221,11 @@ if ($dbSettings.UserID -ne 'sa' -or $dbSettings.Password -ne $script:saPassword)
     throw 'DB_CONNECTION_STRING must use the local SQL Server credentials configured in Back-End/.env.'
 }
 
-$ports = @(1433, 5173, 3000, 5672, [int]$emulatorHttpPort, 10000, 10001, 10002)
+$ports = @(1433, 5173, $backendPort, 5672, $emulatorHttpPort, 10000, 10001, 10002) | Select-Object -Unique
 $composePortContainers = @{
     1433 = 'data-ingestion-sql'
     5672 = 'servicebus-emulator'
-    ([int]$emulatorHttpPort) = 'servicebus-emulator'
+    $emulatorHttpPort = 'servicebus-emulator'
     10000 = 'data-ingestion-azurite'
     10001 = 'data-ingestion-azurite'
     10002 = 'data-ingestion-azurite'
@@ -219,7 +252,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'Docker Compose failed to start the local infrastructure. Check the Docker output above.'
     }
-    foreach ($port in @(1433, 5672, [int]$emulatorHttpPort, 10000)) {
+    foreach ($port in @(1433, 5672, $emulatorHttpPort, 10000)) {
         Wait-ForTcpPort -Port $port -TimeoutSeconds 60
     }
 
@@ -253,12 +286,13 @@ try {
     Write-Host 'Starting frontend...'
     $frontendProcess = Start-Process npm.cmd -WorkingDirectory $frontend -ArgumentList 'run', 'dev' -NoNewWindow -PassThru
     $processes.Add($frontendProcess)
+    Wait-ForHttpProcess -Process $frontendProcess -HealthUrl $frontendUrl
 
     Write-Host "Health: $backendHealthUrl"
     if ((Test-Path $pythonApiEntry) -and (Test-Path $pythonWorkerEntry)) {
         Write-Host "Rules service: $rulesHealthUrl"
     }
-    Write-Host 'Frontend: http://localhost:5173'
+    Write-Host "Frontend: $frontendUrl"
     Write-Host 'Press Ctrl-C to stop the application processes. Docker services remain running.'
 
     while (($processes | Where-Object { -not $_.HasExited }).Count -eq $processes.Count) {

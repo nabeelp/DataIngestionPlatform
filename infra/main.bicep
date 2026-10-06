@@ -22,10 +22,6 @@ param sqlAdminObjectId string
 @description('Display name of the SQL Entra administrator.')
 param sqlAdminLogin string
 
-@secure()
-@description('SQL bootstrap password required for server creation; SQL authentication is disabled after provisioning.')
-param sqlBootstrapPassword string
-
 @description('Client ID of the dedicated rules-service Entra API registration.')
 param rulesServiceApiClientId string
 
@@ -43,9 +39,6 @@ param foundryResourceName string = 'aif-zlyway6g7icoy-0'
 
 @description('Foundry project name used by the existing application configuration.')
 param foundryProjectName string = 'citadel-governance-project'
-
-@description('Container image tag for this deployment.')
-param imageTag string = 'bootstrap'
 
 @description('CPU cores allocated to each validation worker execution.')
 param workerCpu int = 2
@@ -85,6 +78,7 @@ var names = {
   containerAppsEnvironment: 'cae-${workloadName}-${environmentName}'
   apiContainerApp: 'ca-${workloadName}-api-${environmentName}'
   rulesServiceContainerApp: 'ca-${workloadName}-rules-${environmentName}'
+  frontendContainerApp: 'ca-${workloadName}-frontend-${environmentName}'
   workerJob: 'job-${workloadName}-worker-${environmentName}'
   storageAccount: take(toLower('st${normalizedWorkloadName}${suffix}'), 24)
   keyVault: take('kv-${take(normalizedWorkloadName, 8)}-${suffix}', 24)
@@ -94,9 +88,11 @@ var names = {
   registry: take(toLower(replace('cr${normalizedWorkloadName}${suffix}', '-', '')), 50)
   logAnalytics: 'log-${workloadName}-${environmentName}'
   appInsights: 'appi-${workloadName}-${environmentName}'
-  staticWebApp: 'swa-${take(normalizedWorkloadName, 8)}-${suffix}'
   apiIdentity: 'id-${workloadName}-api-${environmentName}'
   workerIdentity: 'id-${workloadName}-worker-${environmentName}'
+  sqlBootstrapIdentity: 'id-${workloadName}-sql-bootstrap-${environmentName}'
+  frontendIdentity: 'id-${workloadName}-frontend-${environmentName}'
+  sqlBootstrapJob: 'job-${workloadName}-sqlb-${environmentName}'
 }
 
 module network './modules/network.bicep' = {
@@ -127,6 +123,8 @@ module identities './modules/identities.bicep' = {
     location: location
     apiIdentityName: names.apiIdentity
     workerIdentityName: names.workerIdentity
+    sqlBootstrapIdentityName: names.sqlBootstrapIdentity
+    frontendIdentityName: names.frontendIdentity
     tags: tags
   }
 }
@@ -136,15 +134,6 @@ module registry './modules/registry.bicep' = {
   params: {
     location: location
     registryName: names.registry
-    tags: tags
-  }
-}
-
-module staticWebApp './modules/static-web-app.bicep' = {
-  name: 'static-web-app'
-  params: {
-    name: names.staticWebApp
-    location: location
     tags: tags
   }
 }
@@ -169,7 +158,6 @@ module data './modules/data.bicep' = {
     tenantId: tenantId
     sqlAdminObjectId: sqlAdminObjectId
     sqlAdminLogin: sqlAdminLogin
-    sqlBootstrapPassword: sqlBootstrapPassword
     jwtSecret: jwtSecret
     msClientSecret: msClientSecret
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
@@ -186,6 +174,8 @@ module rbac './modules/rbac.bicep' = {
   params: {
     apiPrincipalId: identities.outputs.apiPrincipalId
     workerPrincipalId: identities.outputs.workerPrincipalId
+    sqlBootstrapPrincipalId: identities.outputs.sqlBootstrapPrincipalId
+    frontendPrincipalId: identities.outputs.frontendPrincipalId
     storageAccountName: data.outputs.storageAccountName
     keyVaultName: data.outputs.keyVaultName
     registryName: registry.outputs.registryName
@@ -200,9 +190,10 @@ module apps './modules/apps.bicep' = {
     environmentName: names.containerAppsEnvironment
     apiContainerAppName: names.apiContainerApp
     rulesServiceContainerAppName: names.rulesServiceContainerApp
+    frontendContainerAppName: names.frontendContainerApp
     workerJobName: names.workerJob
+    sqlBootstrapJobName: names.sqlBootstrapJob
     registryLoginServer: registry.outputs.loginServer
-    imageTag: imageTag
     workerCpu: workerCpu
     workerMemory: workerMemory
     apiIdentityId: identities.outputs.apiIdentityId
@@ -210,9 +201,14 @@ module apps './modules/apps.bicep' = {
     apiPrincipalId: identities.outputs.apiPrincipalId
     workerIdentityId: identities.outputs.workerIdentityId
     workerClientId: identities.outputs.workerClientId
+    apiIdentityName: names.apiIdentity
+    workerIdentityName: names.workerIdentity
+    sqlBootstrapIdentityId: identities.outputs.sqlBootstrapIdentityId
+    sqlBootstrapClientId: identities.outputs.sqlBootstrapClientId
+    frontendIdentityId: identities.outputs.frontendIdentityId
     containerAppsSubnetId: network.outputs.containerAppsSubnetId
     logAnalyticsCustomerId: monitoring.outputs.logAnalyticsCustomerId
-    logAnalyticsSharedKey: listKeys(resourceId('Microsoft.OperationalInsights/workspaces', names.logAnalytics), '2025-07-01').primarySharedKey
+    logAnalyticsWorkspaceId: monitoring.outputs.logAnalyticsWorkspaceId
     storageAccountUrl: data.outputs.storageAccountUrl
     sqlServerName: data.outputs.sqlServerName
     sqlDatabaseName: data.outputs.sqlDatabaseName
@@ -222,7 +218,6 @@ module apps './modules/apps.bicep' = {
     ssoClientId: ssoClientId
     rulesServiceApiClientId: rulesServiceApiClientId
     rulesServiceApiAudience: rulesServiceApiAudience
-    frontendOrigin: staticWebApp.outputs.url
     foundryResourceName: foundryResourceName
     foundryProjectName: foundryProjectName
     tags: tags
@@ -232,11 +227,10 @@ module apps './modules/apps.bicep' = {
   ]
 }
 
-module serviceBusFirewall './modules/servicebus-firewall.bicep' = {
-  name: 'servicebus-firewall'
+module serviceBusNetworkAccess './modules/servicebus-network-access.bicep' = {
+  name: 'servicebus-network-access'
   params: {
     namespaceName: messaging.outputs.namespaceName
-    containerAppsOutboundIps: apps.outputs.containerAppsOutboundIps
   }
 }
 
@@ -254,11 +248,13 @@ module foundryRole './modules/foundry-role.bicep' = if (!empty(foundryProjectRes
 output API_URL string = apps.outputs.apiUrl
 output AZURE_RESOURCE_GROUP string = resourceGroup().name
 output API_CONTAINER_APP_NAME string = apps.outputs.apiContainerAppName
+output FRONTEND_CONTAINER_APP_NAME string = apps.outputs.frontendContainerAppName
+output FRONTEND_URL string = apps.outputs.frontendUrl
 output RULES_SERVICE_URL string = apps.outputs.rulesServiceUrl
 output RULES_SERVICE_CONTAINER_APP_NAME string = apps.outputs.rulesServiceContainerAppName
 output WORKER_JOB_NAME string = apps.outputs.workerJobName
+output SQL_BOOTSTRAP_JOB_NAME string = apps.outputs.sqlBootstrapJobName
 output CONTAINER_APPS_ENVIRONMENT_NAME string = names.containerAppsEnvironment
-output CONTAINER_APPS_OUTBOUND_IPS array = apps.outputs.containerAppsOutboundIps
 output AZURE_CONTAINER_REGISTRY_NAME string = registry.outputs.registryName
 output ACR_LOGIN_SERVER string = registry.outputs.loginServer
 output AZURE_STORAGE_ACCOUNT_NAME string = data.outputs.storageAccountName
@@ -267,9 +263,10 @@ output SQL_SERVER_NAME string = data.outputs.sqlServerName
 output SQL_DATABASE_NAME string = data.outputs.sqlDatabaseName
 output KEY_VAULT_NAME string = data.outputs.keyVaultName
 output LOG_ANALYTICS_WORKSPACE_ID string = monitoring.outputs.logAnalyticsWorkspaceId
-output STATIC_WEB_APP_NAME string = staticWebApp.outputs.name
-output STATIC_WEB_APP_URL string = staticWebApp.outputs.url
 output API_IDENTITY_NAME string = names.apiIdentity
 output API_IDENTITY_PRINCIPAL_ID string = identities.outputs.apiPrincipalId
 output WORKER_IDENTITY_NAME string = names.workerIdentity
 output WORKER_IDENTITY_PRINCIPAL_ID string = identities.outputs.workerPrincipalId
+output SQL_BOOTSTRAP_IDENTITY_NAME string = names.sqlBootstrapIdentity
+output SQL_BOOTSTRAP_IDENTITY_PRINCIPAL_ID string = identities.outputs.sqlBootstrapPrincipalId
+output FRONTEND_IDENTITY_PRINCIPAL_ID string = identities.outputs.frontendPrincipalId
