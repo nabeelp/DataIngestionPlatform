@@ -214,6 +214,7 @@ module apps './modules/apps.bicep' = {
     sqlDatabaseName: data.outputs.sqlDatabaseName
     keyVaultUri: data.outputs.keyVaultUri
     serviceBusNamespace: messaging.outputs.fullyQualifiedNamespace
+    serviceBusNamespaceName: messaging.outputs.namespaceName
     tenantId: tenantId
     ssoClientId: ssoClientId
     rulesServiceApiClientId: rulesServiceApiClientId

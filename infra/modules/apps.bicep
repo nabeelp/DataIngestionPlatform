@@ -84,6 +84,9 @@ param keyVaultUri string
 @description('Service Bus namespace FQDN.')
 param serviceBusNamespace string
 
+@description('Service Bus namespace name without the FQDN suffix.')
+param serviceBusNamespaceName string
+
 @description('Microsoft Entra tenant ID.')
 param tenantId string
 
@@ -657,7 +660,7 @@ resource validationWorker 'Microsoft.App/jobs@2025-07-01' = {
               name: 'validation-requests'
               type: 'azure-servicebus'
               metadata: {
-                namespace: serviceBusNamespace
+                namespace: serviceBusNamespaceName
                 queueName: 'validation-requests'
                 messageCount: '1'
               }

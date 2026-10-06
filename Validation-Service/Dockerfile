@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/workspace/Validation-Service/.venv/bin:${PATH}"
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y libodbc2 \
+    && apt-get install --no-install-recommends -y libltdl7 libkrb5-3 libgssapi-krb5-2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /uvx /bin/
