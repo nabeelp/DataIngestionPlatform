@@ -155,7 +155,22 @@ GitHub environment with required reviewers if deployment approval is needed,
 then create federated credentials for the workflow identity. Set the
 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_LOCATION`
 GitHub environment variables. The workflow deploys to an already provisioned
-`azd` environment; it does not provision infrastructure.
+`azd` environment; it does not provision infrastructure. Its `deployment_target`
+input supports:
+
+- `frontend`: Build and deploy only the SPA image. Use this for frontend-only
+  changes such as the admin user-management UI.
+- `worker`: Build and update only the validation Container Apps Job image. It
+  does not start an execution or modify Service Bus messages.
+- `all`: Run `azd deploy` for the API, rules service and frontend, including
+  the configured postdeploy SQL bootstrap and worker-image update hooks.
+
+All targets use the workflow run's commit SHA as an immutable image tag. The
+frontend and worker targets verify the existing managed identity's `AcrPull`
+assignment before deployment and then verify the resulting image; the frontend
+target also checks `/health`. For Bicep changes, review and approve a separate
+`azd provision` after a what-if preview; selecting a deployment target never
+applies infrastructure changes.
 
 ## Preview, provision and deploy
 
@@ -186,8 +201,9 @@ GitHub environment variables. The workflow deploys to an already provisioned
     even if the job fails, and updates the validation worker job to the built
     validation-service image.
 
-The repository workflow is manual and runs `azd deploy`; infrastructure
-provisioning remains a separate, explicitly approved step.
+The repository workflow is manual; use `all` for a coordinated application
+deployment or a targeted frontend/worker deployment to avoid unrelated updates.
+Infrastructure provisioning remains a separate, explicitly approved step.
 
 ## Post-deployment checks
 

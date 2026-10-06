@@ -69,3 +69,16 @@ jobs:
         working-directory: Front-End
       - run: npm run build
         working-directory: Front-End
+
+  infrastructure:
+    name: Azure Bicep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bicep CLI
+        run: az bicep install
+      - name: Build Bicep templates and parameters
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep build --file infra/modules/apps.bicep --stdout > /dev/null
+          az bicep build-params --file infra/main.bicepparam --stdout > /dev/null

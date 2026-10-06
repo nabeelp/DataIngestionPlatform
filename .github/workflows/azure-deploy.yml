@@ -6,8 +6,17 @@ on:
       environment:
         description: Existing azd environment to deploy
         required: true
-        default: dev
+        default: sbfracent
         type: string
+      deployment_target:
+        description: Deploy all services (including postdeploy hooks), or update one workload without provisioning
+        required: true
+        default: frontend
+        type: choice
+        options:
+          - frontend
+          - worker
+          - all
 
 permissions:
   contents: read
@@ -15,9 +24,12 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy application
+    name: Deploy ${{ inputs.deployment_target }} to ${{ inputs.environment }}
     runs-on: ubuntu-latest
     environment: azure-deployment
+    concurrency:
+      group: azure-deploy-${{ inputs.environment }}
+      cancel-in-progress: false
     env:
       AZURE_ENV_NAME: ${{ inputs.environment }}
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
@@ -26,7 +38,18 @@ jobs:
       AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in AZURE_ENV_NAME AZURE_LOCATION AZURE_SUBSCRIPTION_ID AZURE_TENANT_ID AZURE_CLIENT_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Required GitHub Environment variable or input '$name' is empty."
+              exit 1
+            fi
+          done
       - uses: actions/setup-node@v4
+        if: inputs.deployment_target == 'all'
         with:
           node-version: 24
       - uses: azure/login@v2
@@ -35,14 +58,216 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - uses: Azure/setup-azd@v2
-      - name: Initialize azd environment
+      - name: Initialize and refresh existing azd environment
         shell: bash
         run: |
-          azd env new "$AZURE_ENV_NAME" \
-            --subscription "$AZURE_SUBSCRIPTION_ID" \
-            --location "$AZURE_LOCATION"
+          set -euo pipefail
+          if ! azd env select "$AZURE_ENV_NAME" --no-prompt; then
+            azd env new "$AZURE_ENV_NAME" \
+              --subscription "$AZURE_SUBSCRIPTION_ID" \
+              --location "$AZURE_LOCATION" \
+              --no-prompt
+          fi
+          azd env set AZURE_SUBSCRIPTION_ID "$AZURE_SUBSCRIPTION_ID"
+          azd env set AZURE_LOCATION "$AZURE_LOCATION"
           azd env set AZURE_TENANT_ID "$AZURE_TENANT_ID"
+          azd env refresh "$AZURE_ENV_NAME" --no-prompt
           azd env set IMAGE_TAG "$GITHUB_SHA"
-          azd env refresh
-      - name: Deploy
-        run: azd deploy --environment "$AZURE_ENV_NAME"
+          environment_subscription="$(azd env get-value AZURE_SUBSCRIPTION_ID --environment "$AZURE_ENV_NAME")"
+          environment_location="$(azd env get-value AZURE_LOCATION --environment "$AZURE_ENV_NAME")"
+          active_subscription="$(az account show --query id --output tsv)"
+          if [[ "$environment_subscription" != "$AZURE_SUBSCRIPTION_ID" ||
+                "$active_subscription" != "$AZURE_SUBSCRIPTION_ID" ]]; then
+            echo "::error::Azure CLI and azd environment subscription IDs do not match the configured deployment subscription."
+            exit 1
+          fi
+          if [[ "${environment_location,,}" != "${AZURE_LOCATION,,}" ]]; then
+            echo "::error::The azd environment location does not match AZURE_LOCATION."
+            exit 1
+          fi
+      - name: Deploy all application services
+        if: inputs.deployment_target == 'all'
+        shell: bash
+        run: |
+          set -euo pipefail
+          azd deploy --environment "$AZURE_ENV_NAME" --no-prompt
+          api_url="$(azd env get-value API_URL --environment "$AZURE_ENV_NAME")"
+          frontend_url="$(azd env get-value FRONTEND_URL --environment "$AZURE_ENV_NAME")"
+          api_origin="${api_url%/api/v1}"
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 10 --retry-connrefused \
+            "${api_origin}/health"
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 10 --retry-connrefused \
+            "${frontend_url}/health"
+          azd show
+          {
+            echo "### Application deployment succeeded"
+            echo "- Environment: \`$AZURE_ENV_NAME\`"
+            echo "- API health: ${api_origin}/health (HTTP 200)"
+            echo "- Frontend health: ${frontend_url}/health (HTTP 200)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and deploy frontend only
+        if: inputs.deployment_target == 'frontend'
+        shell: bash
+        run: |
+          set -euo pipefail
+          get_azd_value() {
+            local name="$1"
+            local value
+            value="$(azd env get-value "$name" --environment "$AZURE_ENV_NAME")"
+            if [[ -z "$value" ]]; then
+              echo "::error::Required azd environment value '$name' is empty."
+              return 1
+            fi
+            printf '%s' "$value"
+          }
+
+          acr_login_server="$(get_azd_value ACR_LOGIN_SERVER)"
+          resource_group="$(get_azd_value AZURE_RESOURCE_GROUP)"
+          app_name="$(get_azd_value FRONTEND_CONTAINER_APP_NAME)"
+          frontend_url="$(get_azd_value FRONTEND_URL)"
+          acr_name="${acr_login_server%%.*}"
+          image="data-ingestion-platform/frontend-${AZURE_ENV_NAME}:${GITHUB_SHA}"
+          full_image="${acr_login_server}/${image}"
+
+          principal_id="$(az containerapp show \
+            --name "$app_name" \
+            --resource-group "$resource_group" \
+            --query "identity.userAssignedIdentities.*.principalId | [0]" \
+            --output tsv)"
+          acr_id="$(az acr show \
+            --name "$acr_name" \
+            --resource-group "$resource_group" \
+            --query id \
+            --output tsv)"
+          if [[ -z "$principal_id" || -z "$acr_id" ]]; then
+            echo "::error::Could not resolve the frontend identity or ACR resource ID."
+            exit 1
+          fi
+          pull_assignment_count="$(az role assignment list \
+            --scope "$acr_id" \
+            --assignee-object-id "$principal_id" \
+            --query "[?roleDefinitionName=='AcrPull'] | length(@)" \
+            --output tsv)"
+          if [[ "$pull_assignment_count" -lt 1 ]]; then
+            echo "::error::Frontend managed identity has no AcrPull assignment on '$acr_name'."
+            exit 1
+          fi
+
+          az acr build \
+            --registry "$acr_name" \
+            --image "$image" \
+            --file Front-End/Dockerfile \
+            --platform linux/amd64 \
+            .
+          az containerapp update \
+            --name "$app_name" \
+            --resource-group "$resource_group" \
+            --image "$full_image"
+
+          deployed_image="$(az containerapp show \
+            --name "$app_name" \
+            --resource-group "$resource_group" \
+            --query "properties.template.containers[0].image" \
+            --output tsv)"
+          if [[ "$deployed_image" != "$full_image" ]]; then
+            echo "::error::Frontend image verification failed: expected '$full_image', got '$deployed_image'."
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 10 --retry-connrefused \
+            "${frontend_url}/health"
+          {
+            echo "### Frontend deployment succeeded"
+            echo "- Environment: \`$AZURE_ENV_NAME\`"
+            echo "- Image: \`$full_image\`"
+            echo "- Health: ${frontend_url}/health (HTTP 200)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and deploy validation worker only
+        if: inputs.deployment_target == 'worker'
+        shell: bash
+        run: |
+          set -euo pipefail
+          get_azd_value() {
+            local name="$1"
+            local value
+            value="$(azd env get-value "$name" --environment "$AZURE_ENV_NAME")"
+            if [[ -z "$value" ]]; then
+              echo "::error::Required azd environment value '$name' is empty."
+              return 1
+            fi
+            printf '%s' "$value"
+          }
+
+          acr_login_server="$(get_azd_value ACR_LOGIN_SERVER)"
+          resource_group="$(get_azd_value AZURE_RESOURCE_GROUP)"
+          job_name="$(get_azd_value WORKER_JOB_NAME)"
+          acr_name="${acr_login_server%%.*}"
+          image="data-ingestion-platform/rules-service-${AZURE_ENV_NAME}:${GITHUB_SHA}"
+          full_image="${acr_login_server}/${image}"
+
+          principal_id="$(az containerapp job show \
+            --name "$job_name" \
+            --resource-group "$resource_group" \
+            --query "identity.userAssignedIdentities.*.principalId | [0]" \
+            --output tsv)"
+          acr_id="$(az acr show \
+            --name "$acr_name" \
+            --resource-group "$resource_group" \
+            --query id \
+            --output tsv)"
+          if [[ -z "$principal_id" || -z "$acr_id" ]]; then
+            echo "::error::Could not resolve the worker identity or ACR resource ID."
+            exit 1
+          fi
+          pull_assignment_count="$(az role assignment list \
+            --scope "$acr_id" \
+            --assignee-object-id "$principal_id" \
+            --query "[?roleDefinitionName=='AcrPull'] | length(@)" \
+            --output tsv)"
+          if [[ "$pull_assignment_count" -lt 1 ]]; then
+            echo "::error::Worker managed identity has no AcrPull assignment on '$acr_name'."
+            exit 1
+          fi
+
+          az acr build \
+            --registry "$acr_name" \
+            --image "$image" \
+            --file Validation-Service/Dockerfile \
+            --platform linux/amd64 \
+            .
+          az containerapp job update \
+            --name "$job_name" \
+            --resource-group "$resource_group" \
+            --image "$full_image"
+
+          deployed_image="$(az containerapp job show \
+            --name "$job_name" \
+            --resource-group "$resource_group" \
+            --query "properties.template.containers[0].image" \
+            --output tsv)"
+          scaler_namespace="$(az containerapp job show \
+            --name "$job_name" \
+            --resource-group "$resource_group" \
+            --query "properties.configuration.eventTriggerConfig.scale.rules[?name=='validation-requests'].metadata.namespace | [0]" \
+            --output tsv)"
+          scaler_queue="$(az containerapp job show \
+            --name "$job_name" \
+            --resource-group "$resource_group" \
+            --query "properties.configuration.eventTriggerConfig.scale.rules[?name=='validation-requests'].metadata.queueName | [0]" \
+            --output tsv)"
+          if [[ "$deployed_image" != "$full_image" ]]; then
+            echo "::error::Worker image verification failed: expected '$full_image', got '$deployed_image'."
+            exit 1
+          fi
+          if [[ -z "$scaler_namespace" || "$scaler_queue" != "validation-requests" ]]; then
+            echo "::error::Worker Service Bus scaler verification failed."
+            exit 1
+          fi
+          {
+            echo "### Validation worker deployment succeeded"
+            echo "- Environment: \`$AZURE_ENV_NAME\`"
+            echo "- Image: \`$full_image\`"
+            echo "- Service Bus scaler: \`$scaler_namespace/validation-requests\`"
+          } >> "$GITHUB_STEP_SUMMARY"

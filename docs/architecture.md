@@ -205,9 +205,9 @@ flowchart LR
 - **Telemetry:** OpenTelemetry/App Insights traces for each validation stage (download, parse, rules, write, persist) and a rows/sec metric. Log Analytics retains data for 30 days. Prometheus metrics are exposed by the API.
 - **Queue health:** queue depth and dead-letter counts are shown on the admin Monitoring page.
 - **Logging policy:** no cell values, file contents, tokens or secrets in logs.
-- **CI** (GitHub Actions on every PR and push to main): lint, type-check, unit tests and build for all three components. Playwright end-to-end tests and a sample corpus are available locally.
+- **CI** (GitHub Actions on every PR and push to main): lint, type-check, unit tests and build for all three components, plus compile the Bicep templates and parameter file. Playwright end-to-end tests and a sample corpus are available locally.
 - **CD:**
-  - A manual `azd deploy` workflow uses OIDC and a protected GitHub environment. Provisioning is a separate step that requires approval.
+  - A manual workflow uses OIDC and a protected GitHub environment. It supports targeted frontend and validation-worker image deployments, plus an all-services `azd deploy`; provisioning is a separate step that requires approval.
   - Images for the web front end, the API and the rules service/worker are built remotely in ACR with immutable tags.
   - The web image has no hard-coded API URL. At start, it writes `runtime-config.js` from `API_URL`, which must be HTTPS and end in `/api/v1`. One image can therefore be promoted across environments. The postprovision hook sets the API CORS origin and the SSO callback to the front-end URL.
   - Schema migrations run as an in-VNet job. The job temporarily elevates the bootstrap MI and always restores the SQL admin.
