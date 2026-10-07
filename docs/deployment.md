@@ -117,6 +117,56 @@ limited to the reports container; the worker writes the reports.
   origin. The API uses managed identity for SQL, Blob Storage, Service Bus,
   Key Vault and the rules-service token.
 
+## API proxy trust and rate limiting
+
+The API uses `TRUST_PROXY_HOPS` to configure Express before any middleware.
+Unset defaults to `0` for direct local access; the API Container Apps template
+sets `1` for the direct Container Apps ingress path. Values must contain only
+decimal digits and represent a non-negative safe integer. Invalid values fail
+startup rather than silently changing the trust boundary.
+
+[Container Apps ingress](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#http-headers)
+appends to `X-Forwarded-For` and supplies only its rightmost IP. Trusting one hop
+uses that IP for the global API, login, and admin-stats rate limiters, ignoring
+untrusted prefixes supplied by clients. Do not set Express proxy trust to
+boolean `true`, disable rate-limit validation, or select the leftmost header IP.
+Reassess this setting if another proxy is introduced or callers can reach the
+container listener through a shorter path.
+
+To deploy this fix, apply the API template setting using the existing
+`azd provision` workflow, then build and deploy the API with `azd deploy api`.
+Provisioning can affect other infrastructure: review those changes before
+running it. Updating the environment variable alone on an old API image does
+not fix the issue; both the rebuilt image and the setting are required.
+An API image-only deployment to an existing Container App also does not apply
+new Bicep environment settings.
+
+Verify the active API image/revision and only the non-secret
+`TRUST_PROXY_HOPS` setting. Check `/health`, then send normal authenticated
+`/api/v1` requests and inspect fresh revision logs for
+`ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`; `/health` does not exercise rate limiting.
+Local regression tests cover separate client buckets and spoofed header
+prefixes. Confirm the live ingress path during deployment without exposing a
+public IP-debug endpoint or exhausting production rate limits.
+If acceptance fails, restore the previous API image and environment
+configuration together using the existing revision/deployment workflow.
+
+This fix adds no Azure services. Deployment needs the existing image build/push
+and Container App update permissions. Rate-limit state remains in memory and
+replica-local; the API template currently caps the API at one replica.
+
+The proxy fix was deployed to the existing France Central API on
+2026-10-07 using a scoped ACR remote build and a single Container App update
+that set both the image and `TRUST_PROXY_HOPS=1`. This intentionally avoided
+the project-wide AZD hooks, which also bootstrap SQL and update the worker.
+Image tag: `proxytrust-20261007-0525`; active healthy revision:
+`ca-dataingest-api-sbfracent--proxytrust-20261007-0525`.
+Health returned HTTP 200, an unauthenticated protected API request with a
+forwarded prefix returned the expected HTTP 401, and fresh revision logs
+contained startup/Service Bus initialization without the forwarded-header
+validation error. Authenticated workflows and live multi-client isolation
+remain untested; no production limits were exhausted.
+
 ## Parameters and secrets
 
 Create a local `azd` environment and set its subscription and region. For example,

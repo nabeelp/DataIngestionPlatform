@@ -5,6 +5,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import { parseTrustProxyHops } from './proxyTrust';
 dotenv.config();
 
 // Ensure temp directory exists at startup
@@ -28,6 +29,7 @@ export const appConfig = {
     // Server
     port: process.env.PORT || 3000,
     nodeEnv: process.env.NODE_ENV || 'development',
+    trustProxyHops: parseTrustProxyHops(process.env.TRUST_PROXY_HOPS),
 
     // Database
     database: {

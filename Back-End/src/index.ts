@@ -11,6 +11,7 @@ import http from 'http';
 import crypto from 'crypto';
 import client from 'prom-client';
 import { appConfig } from './config/appConfig';
+import { configureProxyTrust } from './config/proxyTrust';
 import { logger } from './utils/logger';
 import indexRoutes from './routes/index';
 import { errorHandler } from './middleware/errorHandler';
@@ -19,6 +20,7 @@ import { initSocket, closeSocket } from './websocket/socketServer';
 dotenv.config();
 
 const app: Express = express();
+configureProxyTrust(app, appConfig.trustProxyHops);
 const httpServer = http.createServer(app);
 initSocket(httpServer);
 

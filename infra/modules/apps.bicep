@@ -213,6 +213,10 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
               value: '3000'
             }
             {
+              name: 'TRUST_PROXY_HOPS'
+              value: '1'
+            }
+            {
               name: 'JWT_SECRET'
               secretRef: 'jwt-secret'
             }
