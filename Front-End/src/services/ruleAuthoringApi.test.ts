@@ -61,6 +61,18 @@ describe('reviewNaturalLanguageRule', () => {
     await expect(review()).rejects.toThrow('The model reached its output limit of 16000 tokens [response resp_1]');
   });
 
+  it('preserves the validation explanation and next step in a rejected result', async () => {
+    const reason = 'The proposed rule was not saved. The generated SQL has invalid syntax. Split the request into simpler conditions.';
+    stubStream([
+      JSON.stringify({ type: 'progress', level: 'error', message: reason, elapsedMs: 32 }) + '\n',
+      JSON.stringify({ type: 'result', success: true, outcome: 'rejected', reason }) + '\n',
+    ]);
+    const activity: ReviewActivity[] = [];
+
+    await expect(review(entry => activity.push(entry))).resolves.toMatchObject({ outcome: 'rejected', reason });
+    expect(activity[0].message).toBe(reason);
+  });
+
   it('explains a stream that ends without a result', async () => {
     stubStream(['{"type":"progress","level":"info","message":"Asking","elapsedMs":1}\n']);
     await expect(review()).rejects.toThrow('The connection to the server closed before the rule review finished');

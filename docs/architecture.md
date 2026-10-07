@@ -133,6 +133,17 @@ sequenceDiagram
 - `sqlguard` parses the SQL with sqlglot and checks it against allow-lists. Only declared columns and approved functions are permitted. Files, DDL/DML and non-deterministic functions are blocked.
 - SQL runs in a spawned subprocess with a 30-second timeout.
 - An admin must publish a rule before it applies to uploads.
+- Single-rule validation and example testing check the candidate against the definition's schema and
+  lookups independently of other draft rules. Invalid existing rules do not block creating, editing,
+  or regenerating a candidate; full publication validation still rejects them. No existing rule is
+  automatically changed or removed.
+- Authoring failures explain the reason and next action, alongside safe validation paths or failing
+  example indices, in streamed activity and final rejection messages. Known SQL/reference failures,
+  example expectation mismatches, and rules-service availability/authentication errors receive specific
+  guidance. Invalid definition/existing-rule failures stop without a model correction. Final validation
+  rejections include a response reference; unknown raw errors are withheld rather than echoed or guessed.
+  Backend `[NATURAL_LANGUAGE_RULE_VALIDATION]` warnings correlate response ID, attempt, phase, and safe
+  explanations without logging raw rule/schema payloads or example values.
 
 ## 5. Data architecture
 

@@ -351,7 +351,15 @@ def _compile_rule(contract: DefinitionContract, rule: RuleConfig) -> list[dict[s
     return []
 
 
+def _single_rule_context(contract_data: object) -> object:
+    # Other draft rules are validated at publication, not while authoring this candidate.
+    if isinstance(contract_data, dict) and isinstance(contract_data.get("rules"), list):
+        return {**contract_data, "rules": []}
+    return contract_data
+
+
 def validate_rule_payload(contract_data: object, rule_data: object) -> dict[str, Any]:
+    contract_data = _single_rule_context(contract_data)
     errors = _schema_errors("definition-contract.schema.json", contract_data)
     if errors:
         return {"ok": False, "errors": errors, "normalizedRule": None, "explanation": None}
@@ -414,6 +422,7 @@ def test_rule_examples(
     rule_data: object,
     examples_data: object | None,
 ) -> dict[str, Any]:
+    contract_data = _single_rule_context(contract_data)
     validation = validate_rule_payload(contract_data, rule_data)
     if not validation["ok"]:
         return {"ok": False, "errors": validation["errors"], "results": []}

@@ -112,6 +112,30 @@ key in source control.
 | `POST /v1/dry-run` | Preview checks for an upload or blob; uses matching stored Parquet tables for upload IDs when available, otherwise reads the source blob; limited to 60 seconds |
 | `POST /v1/examples/analyze` | Propose tables, columns, and candidate Enum/Range rules from an example blob |
 
+Single-rule validation and example testing use the definition's tables, columns, layout, and lookups,
+but do not validate or execute other rules in its draft `rules` array. This allows creating, editing,
+and regenerating a candidate while another draft rule needs repair. The contract envelope must still
+be valid (including a `rules` array), and the candidate must pass reference checks, SQL restrictions,
+compilation, and example testing. The supplied draft is not modified.
+
+Publication through `/v1/contracts/validate` still validates every existing rule and its examples.
+Creating a valid candidate does not make an otherwise invalid draft publishable.
+
+Backend authoring failures emit `[NATURAL_LANGUAGE_RULE_VALIDATION]` warning records containing the
+model response ID, attempt, phase, sanitized validation paths, failing example indices, and safe
+explanations. The UI activity and final rejection explain known failures (unsupported SQL, invalid
+syntax, undeclared columns/tables, invalid configuration, and example mismatches) and provide a next
+step. For example, "Example 1 was expected to pass but the rule rejected it" asks the author to clarify
+passing/failing cases. Service timeouts and authentication/connectivity failures recommend retrying
+or contacting an administrator rather than changing the rule request. Final validation rejections
+include a response reference for support. An invalid definition or existing-rule failure stops
+immediately without asking the model to repair unrelated configuration.
+
+These diagnostics omit raw schema error messages, SQL, requests, and example values; unrecognized
+errors are explicitly identified as such and directed to an administrator, not guessed. Existing opt-in
+`NATURAL_LANGUAGE_RULE_DEBUG=true` model-response logging contains proposal content; use it only with
+non-sensitive test data and disable it during normal operation.
+
 The local Azurite service uses `--skipApiVersionCheck` so its pinned emulator can accept the API version
 sent by the installed Azure Storage SDK. This flag applies only to local Docker; Azure requests use the
 SDK's configured service API version.

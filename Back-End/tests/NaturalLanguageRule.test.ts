@@ -8,7 +8,7 @@ import {
 import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { Rule } from '../src/models/Rule.model';
 import { DefinitionVersionService } from '../src/services/DefinitionVersion.service';
-import { RulesService } from '../src/services/RulesService.service';
+import { RulesService, RulesServiceError } from '../src/services/RulesService.service';
 import { logger } from '../src/utils/logger';
 
 const createResponse = jest.fn();
@@ -31,6 +31,7 @@ jest.mock('../src/services/DefinitionVersion.service', () => ({
     DefinitionVersionService: { getDraftContract: jest.fn() },
 }));
 jest.mock('../src/services/RulesService.service', () => ({
+    ...jest.requireActual('../src/services/RulesService.service'),
     RulesService: { validateRule: jest.fn(), testRule: jest.fn() },
 }));
 
@@ -380,6 +381,191 @@ describe('RuleConfig natural-language authoring', () => {
         const result = await createNaturalLanguageRule(definitionId, request, 'admin');
         expect(result).toMatchObject({ outcome: 'rejected' });
         expect(createResponse).toHaveBeenCalledTimes(2);
+        expect(Rule.create).not.toHaveBeenCalled();
+    });
+
+    it('reports candidate validation paths and logs safe failure metadata without raw Python messages', async () => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        const sensitiveMessage = 'PRIVATE-CUSTOMER-PAYLOAD is not valid under any schema';
+        jest.mocked(RulesService.validateRule).mockResolvedValue({
+            ok: false,
+            errors: [
+                { path: '$.params.failWhen', message: sensitiveMessage },
+                { path: '$.lookups.PRIVATE-CUSTOMER-KEY', message: sensitiveMessage },
+            ],
+            normalizedRule: null,
+            explanation: null,
+        });
+        const logWarning = jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+        const progress: RuleProgressEvent[] = [];
+        try {
+            const result = await createNaturalLanguageRule(definitionId, request, 'admin', {
+                onProgress: event => progress.push(event),
+            });
+
+            expect(result).toMatchObject({
+                outcome: 'rejected',
+                reason: expect.stringContaining('Candidate rule validation failed at $.params.failWhen'),
+            });
+            expect(progress).toContainEqual(expect.objectContaining({
+                level: 'error',
+                message: expect.stringContaining('$.params.failWhen'),
+            }));
+            expect(logWarning).toHaveBeenCalledTimes(2);
+            const prefix = '[NATURAL_LANGUAGE_RULE_VALIDATION] ';
+            const logged = JSON.parse(String(logWarning.mock.calls[0][0]).slice(prefix.length));
+            expect(logged).toEqual({
+                responseId: 'resp_1',
+                attempt: 1,
+                phase: 'validation',
+                paths: ['$.params.failWhen', '$'],
+                failedExamples: [],
+                details: expect.arrayContaining([expect.stringContaining('unrecognized failure')]),
+            });
+            const diagnostics = JSON.stringify({ progress, result, logs: logWarning.mock.calls });
+            expect(diagnostics).not.toContain('PRIVATE-CUSTOMER');
+            expect(diagnostics).not.toContain(request);
+            expect(diagnostics).not.toContain(naturalProposal.params.failWhen);
+            expect(Rule.create).not.toHaveBeenCalled();
+        } finally {
+            logWarning.mockRestore();
+        }
+    });
+
+    it('identifies failing example indices even when the Python endpoint returns no errors', async () => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        jest.mocked(RulesService.testRule).mockResolvedValue({
+            ok: false,
+            errors: [],
+            results: [
+                { index: 1, table: 'Orders', expectedValid: true, actualValid: true, passed: true, error: null },
+                { index: 2, table: 'Orders', expectedValid: false, actualValid: true, passed: false, error: 'PRIVATE-EXAMPLE' },
+                { index: 3, table: 'Orders', expectedValid: true, actualValid: true, passed: true, error: null },
+            ],
+        });
+        const logWarning = jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+        try {
+            const result = await createNaturalLanguageRule(definitionId, request, 'admin');
+
+            expect(result).toMatchObject({
+                outcome: 'rejected',
+                reason: expect.stringContaining('Candidate example testing failed for example(s) 2'),
+            });
+            expect(String(logWarning.mock.calls[0][0])).toContain('"failedExamples":[2]');
+            expect(JSON.stringify({ result, logs: logWarning.mock.calls })).not.toContain('PRIVATE-EXAMPLE');
+            expect(Rule.create).not.toHaveBeenCalled();
+        } finally {
+            logWarning.mockRestore();
+        }
+    });
+
+    it.each([
+        ['Function `strpos` is not allowed.', 'The generated SQL uses an unsupported function.', 'supported comparisons'],
+        ['Natural-language SQL could not be parsed.', 'The generated SQL has invalid syntax.', 'simpler conditions'],
+        ['Rule references undeclared column "PRIVATE-COLUMN" in table "PRIVATE-TABLE".',
+            'The rule references a column that is not declared in the definition.', 'defined column names'],
+    ])('explains the validation reason and next step for %s', async (message, explanation, action) => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        jest.mocked(RulesService.validateRule).mockResolvedValue({
+            ok: false, errors: [{ path: '$.params.failWhen', message }],
+            normalizedRule: null, explanation: null,
+        });
+        const progress: RuleProgressEvent[] = [];
+
+        const result = await createNaturalLanguageRule(definitionId, request, 'admin', {
+            onProgress: event => progress.push(event),
+        });
+
+        expect(result).toMatchObject({ outcome: 'rejected', reason: expect.stringContaining(explanation) });
+        expect(result).toMatchObject({ reason: expect.stringContaining(action) });
+        expect(progress[progress.length - 1]?.message).toContain(explanation);
+        expect(JSON.stringify({ result, progress })).not.toContain('PRIVATE-');
+        expect(Rule.create).not.toHaveBeenCalled();
+    });
+
+    it('explains example mismatches without exposing example values', async () => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        jest.mocked(RulesService.testRule).mockResolvedValue({
+            ok: false, errors: [], results: [
+                { index: 1, table: 'Orders', expectedValid: true, actualValid: false, passed: false, error: null },
+                { index: 2, table: 'Orders', expectedValid: false, actualValid: false, passed: true, error: null },
+                { index: 3, table: 'Orders', expectedValid: true, actualValid: true, passed: true, error: null },
+            ],
+        });
+
+        const result = await createNaturalLanguageRule(definitionId, request, 'admin');
+
+        expect(result).toMatchObject({
+            outcome: 'rejected',
+            reason: expect.stringContaining('Example 1 was expected to pass but the rule rejected it.'),
+        });
+        expect(result).toMatchObject({ reason: expect.stringContaining('passing and failing cases') });
+    });
+
+    it('identifies an invalid existing draft rule without asking the model to repair the candidate', async () => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        jest.mocked(RulesService.validateRule).mockResolvedValue({
+            ok: false, errors: [{ path: '$.rules[3]', message: 'PRIVATE-RULE-PAYLOAD is not valid under any schema' }],
+            normalizedRule: null, explanation: null,
+        });
+
+        const result = await createNaturalLanguageRule(definitionId, request, 'admin');
+
+        expect(result).toMatchObject({
+            outcome: 'rejected',
+            reason: expect.stringContaining('Existing draft rule 4 has an invalid configuration.'),
+        });
+        expect(result).toMatchObject({ reason: expect.stringContaining('repair that rule') });
+        expect(JSON.stringify(result)).not.toContain('PRIVATE-');
+        expect(createResponse).toHaveBeenCalledTimes(1);
+        expect(Rule.create).not.toHaveBeenCalled();
+    });
+
+    it('reports a specific proposal configuration error', async () => {
+        createResponse.mockResolvedValue(response({ ...naturalProposal, examples: [naturalProposal.examples[0]] }));
+
+        const result = await createNaturalLanguageRule(definitionId, request, 'admin');
+
+        expect(result).toMatchObject({
+            outcome: 'rejected',
+            reason: expect.stringContaining('require 2 to 20 examples including passing and failing cases'),
+        });
+        expect(Rule.create).not.toHaveBeenCalled();
+    });
+
+    it('explains incomplete example results rather than claiming an example mismatch', async () => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        jest.mocked(RulesService.testRule).mockResolvedValue({ ok: true, errors: [], results: [] });
+
+        const result = await createNaturalLanguageRule(definitionId, request, 'admin');
+
+        expect(result).toMatchObject({
+            outcome: 'rejected',
+            reason: expect.stringContaining('returned 0 results for 3 examples'),
+        });
+        expect(result).toMatchObject({ reason: expect.stringContaining('administrator') });
+        expect(Rule.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [504, 'Rule validation timed out', 'Retry shortly'],
+        [503, 'credentials are unavailable', 'authentication configuration'],
+        [502, 'could not complete validation', 'connectivity and service health'],
+    ])('explains rules service failures with status %s', async (status, explanation, action) => {
+        createResponse.mockResolvedValue(response(naturalProposal));
+        jest.mocked(RulesService.validateRule).mockRejectedValue(new RulesServiceError('PRIVATE-SERVICE-DETAIL', status));
+        const progress: RuleProgressEvent[] = [];
+
+        await expect(createNaturalLanguageRule(definitionId, request, 'admin', {
+            onProgress: event => progress.push(event),
+        })).rejects.toMatchObject({
+            statusCode: status,
+            message: expect.stringContaining(explanation),
+        });
+
+        expect(progress[progress.length - 1]?.message).toContain(action);
+        expect(JSON.stringify(progress)).not.toContain('PRIVATE-SERVICE');
+        expect(createResponse).toHaveBeenCalledTimes(1);
         expect(Rule.create).not.toHaveBeenCalled();
     });
 
