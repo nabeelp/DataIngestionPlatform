@@ -29,6 +29,7 @@ from dq_engine.engine import (
 )
 from dq_engine.io.models import UnrecoverableFileError
 from dq_engine.io.readers import read_file
+from dq_engine.telemetry import configure_telemetry, shutdown_telemetry, shutdown_telemetry_after_error
 
 CSV_ENGINE_BUDGET_SECONDS = 1.5
 XLSX_ENGINE_BUDGET_SECONDS = 3.0
@@ -235,25 +236,39 @@ def _bench_command(arguments: argparse.Namespace) -> int:
 
 
 def _api_command(arguments: argparse.Namespace) -> None:
-    import uvicorn
+    configure_telemetry()
+    try:
+        import uvicorn
 
-    settings = get_settings()
-    uvicorn.run(
-        "dq_engine.api.app:app",
-        host=arguments.host or settings.api_host,
-        port=arguments.port or settings.api_port,
-        log_level=os.getenv("LOG_LEVEL", "info").casefold(),
-    )
+        settings = get_settings()
+        uvicorn.run(
+            "dq_engine.api.app:app",
+            host=arguments.host or settings.api_host,
+            port=arguments.port or settings.api_port,
+            log_level=os.getenv("LOG_LEVEL", "info").casefold(),
+        )
+    except BaseException as error:
+        shutdown_telemetry_after_error(error)
+        raise
+    else:
+        shutdown_telemetry()
 
 
 def _worker_command(arguments: argparse.Namespace) -> None:
-    from dq_engine.messaging.servicebus import run_worker
+    configure_telemetry("data-ingestion-worker")
+    try:
+        from dq_engine.messaging.servicebus import run_worker
 
-    settings = get_settings()
-    max_messages = arguments.max_messages
-    if max_messages is None and settings.worker_mode.casefold() == "job":
-        max_messages = settings.worker_max_messages
-    run_worker(max_messages=max_messages, settings=settings)
+        settings = get_settings()
+        max_messages = arguments.max_messages
+        if max_messages is None and settings.worker_mode.casefold() == "job":
+            max_messages = settings.worker_max_messages
+        run_worker(max_messages=max_messages, settings=settings)
+    except BaseException as error:
+        shutdown_telemetry_after_error(error)
+        raise
+    else:
+        shutdown_telemetry()
 
 
 def main() -> None:

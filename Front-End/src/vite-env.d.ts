@@ -13,5 +13,7 @@ interface ImportMeta {
 interface Window {
   __APP_CONFIG__?: {
     readonly apiUrl?: string;
+    readonly applicationInsightsConnectionString?: string;
+    readonly applicationInsightsSamplingPercentage?: number;
   };
 }

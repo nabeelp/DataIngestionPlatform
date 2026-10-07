@@ -149,6 +149,20 @@ managed identity in Azure. `WORKER_MODE=local` receives continuously. `WORKER_MO
 `WORKER_MAX_MESSAGES` (default 1) and exits if the queue is empty. Successful SQL writes replace any prior
 result rows for the same upload in the same transaction, so a redelivered request is idempotent.
 
+The API and worker initialize Azure Monitor OpenTelemetry before loading FastAPI or starting work. Their
+default service names are `data-ingestion-rules` and `data-ingestion-worker`; `OTEL_SERVICE_NAME` overrides
+either default. `LOG_LEVEL` controls Python log forwarding (default `INFO`). When
+`APPLICATIONINSIGHTS_CONNECTION_STRING` is unset, telemetry is explicitly reported as disabled and local
+operation continues; empty or whitespace-only connection strings are treated as unset. `APPLICATIONINSIGHTS_SAMPLING_RATIO` selects fixed-percentage trace sampling, defaults
+to `1`, and must be in `[0, 1]`; the Python distro's rate-limited sampler is explicitly disabled. Metrics,
+including validation counters and stage attributes, aren't affected by trace sampling. Before export, custom
+processors remove URL/query, SQL, GenAI payload, and exception-message attributes from spans and logs.
+Log export is limited to safe worker lifecycle summaries and validation counts/status; other log bodies are
+redacted and arbitrary log attributes are not forwarded. Shutdown force-flushes each signal with a 5-second
+provider timeout, then bounds the combined flush-and-shutdown phase to 10 seconds across all providers.
+Shutdown failures are surfaced, while an existing application exception remains the primary exception.
+No connection string or validation payload is included in telemetry startup diagnostics.
+
 Run unit tests with `uv run pytest`. The worker integration test targets the local SQL Server, Azurite, and
 Service Bus emulator and creates/deletes uniquely identified test rows and blobs; enable it explicitly with
 `$env:RUN_DQ_INTEGRATION_TESTS = '1'` after the local services and database schema are ready, then run

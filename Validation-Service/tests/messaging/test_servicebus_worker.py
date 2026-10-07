@@ -48,9 +48,21 @@ def test_job_worker_exits_when_queue_is_empty(monkeypatch: Any) -> None:
     receiver = _Receiver()
     client = _Client(receiver, object())
     renewer = _Context(object())
-    monkeypatch.setattr(servicebus, "_service_bus_client", lambda _: client)
+    events: list[str] = []
+
+    def configure_worker_telemetry(service_name: str) -> tuple[None, None]:
+        events.append(f"telemetry:{service_name}")
+        return None, None
+
+    monkeypatch.setattr(
+        servicebus,
+        "configure_telemetry",
+        configure_worker_telemetry,
+    )
+    monkeypatch.setattr(servicebus, "_service_bus_client", lambda _: (events.append("client"), client)[1])
     monkeypatch.setattr(servicebus, "AutoLockRenewer", lambda **_: renewer)
 
     servicebus.run_worker(max_messages=1, settings=get_settings())
 
     assert receiver.calls == 1
+    assert events == ["telemetry:data-ingestion-worker", "client"]

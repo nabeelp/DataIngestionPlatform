@@ -33,7 +33,6 @@ from dq_engine.rules.base import RuleConfigurationError
 from dq_engine.telemetry import configure_telemetry
 
 logger = logging.getLogger("dq_engine.worker")
-_TRACER, _ROWS_PER_SECOND = configure_telemetry()
 
 
 def _body_bytes(body: Any) -> bytes:
@@ -108,10 +107,11 @@ def process_validation_request(
 ) -> dict[str, int]:
     started_at = datetime.now(UTC)
     progress = ProgressPublisher(send_event, request.uploadId)
-    with _TRACER.start_as_current_span("validation") as root_span:
+    tracer, rows_per_second = configure_telemetry("data-ingestion-worker")
+    with tracer.start_as_current_span("validation") as root_span:
         root_span.set_attribute("upload.id", request.uploadId)
         try:
-            with _TRACER.start_as_current_span("load_pinned_definition"):
+            with tracer.start_as_current_span("load_pinned_definition"):
                 upload, contract_payload = sql.load_job(request)
             contract = DefinitionContract.model_validate(contract_payload)
             if request.blob.container != get_settings().uploads_container:
@@ -123,7 +123,7 @@ def process_validation_request(
             store = blob_store or BlobStore()
             with tempfile.TemporaryDirectory(prefix="dq-validation-") as directory:
                 path = Path(directory) / f"upload.{request.fileType}"
-                with _TRACER.start_as_current_span("download_blob"):
+                with tracer.start_as_current_span("download_blob"):
                     try:
                         store.download_to_path(request.blob.container, request.blob.name, path)
                     except ResourceNotFoundError as error:
@@ -138,24 +138,24 @@ def process_validation_request(
                         raise UnrecoverableFileError("The uploaded file checksum does not match its record.")
 
                 progress.publish("sniff", 25)
-                with _TRACER.start_as_current_span("parse_file"):
+                with tracer.start_as_current_span("parse_file"):
                     parsed = read_file(path, contract)
                 progress.publish("parse", 45)
-                with _TRACER.start_as_current_span("evaluate_rules") as rules_span:
+                with tracer.start_as_current_span("evaluate_rules") as rules_span:
                     engine_started = time.perf_counter()
                     outcome = validate_parsed(parsed, contract, validation_date)
                     engine_seconds = time.perf_counter() - engine_started
                     row_count = sum(outcome.row_counts.values())
                     rules_span.set_attribute("validation.rows", row_count)
                     if engine_seconds > 0:
-                        _ROWS_PER_SECOND.record(row_count / engine_seconds)
+                        rows_per_second.record(row_count / engine_seconds)
                 progress.publish("rules", 75)
 
                 output_directory = Path(directory) / "outputs"
                 write_outputs(parsed, outcome, output_directory)
                 report_blob_name = f"{request.uploadId}/issues.csv"
                 parquet_prefix = f"parquet/{request.uploadId}/"
-                with _TRACER.start_as_current_span("write_artifacts"):
+                with tracer.start_as_current_span("write_artifacts"):
                     store.upload_file(
                         get_settings().reports_container,
                         report_blob_name,
@@ -172,7 +172,7 @@ def process_validation_request(
                         )
                 progress.publish("persist", 90)
 
-                with _TRACER.start_as_current_span("persist_results"):
+                with tracer.start_as_current_span("persist_results"):
                     counts = sql.persist_success(
                         request.uploadId,
                         outcome,
@@ -302,6 +302,7 @@ def run_worker(
     settings: Settings | None = None,
 ) -> None:
     configuration = settings or get_settings()
+    configure_telemetry("data-ingestion-worker")
     logger.info("Starting validation worker mode=%s", configuration.worker_mode)
     client = _service_bus_client(configuration)
     processed = 0

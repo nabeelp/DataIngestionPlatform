@@ -1,4 +1,5 @@
 import { Component, ReactNode } from 'react';
+import { trackBrowserException } from '../telemetry/applicationInsights';
 
 interface Props {
   children: ReactNode;
@@ -21,6 +22,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    trackBrowserException('react-render');
   }
 
   render() {
@@ -53,4 +55,3 @@ class ErrorBoundary extends Component<Props, State> {
 }
 
 export default ErrorBoundary;
-

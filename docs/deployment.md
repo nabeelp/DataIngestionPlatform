@@ -274,6 +274,98 @@ Infrastructure provisioning remains a separate, explicitly approved step.
 - Review failed messages and dead-letter counts before enabling production
   traffic. Never log uploaded cell values, file contents, tokens or secrets.
 
+## Application Insights telemetry
+
+Container Apps console/system logs and application telemetry are separate
+pipelines. Console output appears in `ContainerAppConsoleLogs_CL` in the
+Log Analytics workspace; it does not automatically become Application Insights
+requests, dependencies, exceptions, or traces.
+
+The application initializes Azure Monitor OpenTelemetry before loading the
+Node API and Python rules API. Node instruments HTTP, Express route templates,
+native `fetch`, Azure SDK clients, the Azure SQL Tedious driver, and Winston.
+The Python worker also exports its existing validation-stage spans and
+`dq.rows_per_second` metric. Worker exit and API shutdown flush exporters with
+bounded timeouts; flush failures are reported rather than silently discarded.
+The LocalDB native driver is not instrumented by Tedious.
+
+| Workload | Application Insights role | Configuration |
+|---|---|---|
+| Node API | `data-ingestion-api` | Key Vault-backed `APPLICATIONINSIGHTS_CONNECTION_STRING` |
+| Python rules API | `data-ingestion-rules` | Key Vault-backed connection string; SDK initialized before FastAPI loads |
+| Validation worker | `data-ingestion-worker` | Key Vault-backed connection string; final trace/log/metric flush before job exit |
+| React browser | `data-ingestion-web` | Public routing configuration generated in the frontend's runtime config |
+
+Leaving the connection string unset disables telemetry locally without changing
+application behavior. A configured SDK that fails to initialize is reported
+explicitly. `OTEL_SERVICE_NAME` identifies server roles. Server trace sampling
+defaults to `APPLICATIONINSIGHTS_SAMPLING_RATIO=1` (full development capture);
+set a value from `0` to `1` in the azd environment before provisioning to reduce
+production ingestion. Sampling is not a guarantee of a fixed monthly cost:
+logs, metrics, traffic volume, retention, and browser telemetry also contribute.
+Browser sampling defaults to `APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE=100`
+so development verification is not hidden by session sampling. Set a percentage
+greater than `0` and at most `100` (for example, `10` for production) in the azd
+environment before provisioning. The frontend reads it as the runtime field
+`applicationInsightsSamplingPercentage`; the connection string field is
+`applicationInsightsConnectionString`.
+
+Browser telemetry uses the Application Insights JavaScript SDK, not server-side
+OpenTelemetry. Its routing connection string is intentionally visible to the
+browser and is not an authorization credential. Bicep supplies it directly from
+the monitoring component; the frontend identity still has only `AcrPull` and
+does not gain Key Vault or data permissions. Never place JWT, Entra, SQL,
+Storage, or other credentials in browser runtime configuration.
+
+Telemetry processors omit raw URL query strings, SQL text, model inputs/outputs,
+and uploaded-file payloads. Exported Node logs retain severity and allowlisted
+categories, not arbitrary raw message text or error stacks; detailed existing
+console logs remain in Log Analytics and require the same access/retention
+controls as before. Browser route and exception telemetry is sanitized to avoid
+authentication codes, query strings, dynamic IDs, document titles, and raw
+exception messages. Standard HTTP trace headers correlate supported browser/API
+and API/rules-service calls; custom Service Bus worker spans do not by themselves
+guarantee an end-to-end HTTP-to-queue trace.
+
+### Applying and verifying telemetry changes
+
+Code changes require rebuilding and deploying all affected images. **An image
+deployment alone does not apply Bicep changes:** review the provision preview
+and obtain approval before applying the new frontend runtime setting, server
+role names, or sampling configuration. Provisioning preserves the existing
+monitoring resources; no new monitoring service is needed.
+
+After the approved deployment:
+
+1. Check console startup diagnostics for telemetry enabled/disabled and SDK or
+   flush failures, without printing connection strings.
+2. Open the SPA, navigate between routes, issue an authenticated API call that
+   reaches the rules service, and validate an approved non-sensitive sample.
+3. Allow several minutes for ingestion, then run this query in the **Application
+   Insights** Logs scope:
+
+   ```kusto
+   union withsource=TelemetryTable
+       requests, dependencies, exceptions, traces, customMetrics, pageViews
+   | where timestamp > ago(30m)
+   | summarize Items=count() by TelemetryTable, cloud_RoleName
+   | order by cloud_RoleName asc, TelemetryTable asc
+   ```
+
+4. Confirm requests and traces for both APIs, browser page views, worker
+   dependencies/stage spans and `dq.rows_per_second` in `customMetrics`.
+   Exceptions require a controlled failure; empty exception tables alone are
+   not an ingestion problem.
+5. Inspect a representative transaction's `operation_Id` across requests and
+   dependencies. Check that exported telemetry has no raw query strings,
+   authorization headers, SQL/model content, cell values, or exception payloads.
+
+In workspace Logs scope, use the corresponding `AppRequests`, `AppDependencies`,
+`AppExceptions`, `AppTraces`, `AppMetrics`, and `AppPageViews` tables with
+`TimeGenerated` and `AppRoleName`. For production, review sampling and retention,
+restrict workspace access, and alert on export failures or missing telemetry
+while application traffic is present.
+
 ## Cost and teardown
 
 The main cost drivers are the always-on API replica, frontend Container Apps

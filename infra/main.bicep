@@ -46,6 +46,12 @@ param workerCpu int = 2
 @description('Memory allocated to each validation worker execution.')
 param workerMemory string = '4Gi'
 
+@description('Fraction of server traces to retain, from 0 to 1. Defaults to full capture for development.')
+param telemetrySamplingRatio string = '1'
+
+@description('Percentage of browser telemetry to retain, greater than 0 and at most 100. Defaults to full development capture.')
+param telemetryBrowserSamplingPercentage string = '100'
+
 @description('JWT signing secret written to Key Vault.')
 @secure()
 param jwtSecret string = ''
@@ -209,6 +215,9 @@ module apps './modules/apps.bicep' = {
     containerAppsSubnetId: network.outputs.containerAppsSubnetId
     logAnalyticsCustomerId: monitoring.outputs.logAnalyticsCustomerId
     logAnalyticsWorkspaceId: monitoring.outputs.logAnalyticsWorkspaceId
+    appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
+    telemetrySamplingRatio: telemetrySamplingRatio
+    telemetryBrowserSamplingPercentage: telemetryBrowserSamplingPercentage
     storageAccountUrl: data.outputs.storageAccountUrl
     sqlServerName: data.outputs.sqlServerName
     sqlDatabaseName: data.outputs.sqlDatabaseName

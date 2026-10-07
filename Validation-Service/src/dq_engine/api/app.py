@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import json
@@ -6,9 +8,15 @@ import queue
 import re
 import tempfile
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from dq_engine.telemetry import configure_telemetry, shutdown_telemetry, shutdown_telemetry_after_error
+
+configure_telemetry()
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -35,7 +43,20 @@ _SCHEMAS = {
     for path in _CONTRACTS.rglob("*.schema.json")
 }
 _SUPPORTED_TYPES = {"csv", "tsv", "txt", "xlsx", "xlsm", "xls", "xlsb"}
-app = FastAPI(title="Data Quality Rules Service", version="0.1.0")
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        shutdown_telemetry_after_error(error)
+        raise
+    else:
+        shutdown_telemetry()
+
+
+app = FastAPI(title="Data Quality Rules Service", version="0.1.0", lifespan=_lifespan)
 
 
 class RuleRequest(BaseModel):

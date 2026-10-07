@@ -213,7 +213,7 @@ flowchart LR
 
 ## 9. Observability and operations
 
-- **Telemetry:** OpenTelemetry/App Insights traces for each validation stage (download, parse, rules, write, persist) and a rows/sec metric. Log Analytics retains data for 30 days. Prometheus metrics are exposed by the API.
+- **Telemetry:** Azure Monitor OpenTelemetry instruments the Node API, Python rules API, and validation worker with separate service roles; the worker exports validation-stage spans (download, parse, rules, write, persist) and a rows/sec metric with bounded exporter flushing before job exit. The React browser uses the Application Insights JavaScript SDK through public runtime routing configuration. Exported telemetry excludes raw query strings and application payloads. Container console/system logs remain a separate Log Analytics pipeline with 30-day workspace retention. Prometheus metrics are still exposed by the API. See [telemetry configuration and verification](deployment.md#application-insights-telemetry).
 - **Queue health:** queue depth and dead-letter counts are shown on the admin Monitoring page.
 - **Logging policy:** no cell values, file contents, tokens or secrets in logs.
 - **CI** (GitHub Actions on every PR and push to main): lint, type-check, unit tests and build for all three components, plus compile the Bicep templates and parameter file. Playwright end-to-end tests and a sample corpus are available locally.

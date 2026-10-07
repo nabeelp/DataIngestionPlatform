@@ -69,6 +69,15 @@ param logAnalyticsCustomerId string
 @description('Log Analytics workspace resource ID.')
 param logAnalyticsWorkspaceId string
 
+@description('Public Application Insights routing configuration for browser telemetry; not an authorization credential.')
+param appInsightsConnectionString string
+
+@description('Fraction of server traces to retain, from 0 to 1.')
+param telemetrySamplingRatio string
+
+@description('Percentage of browser telemetry to retain, greater than 0 and at most 100.')
+param telemetryBrowserSamplingPercentage string
+
 @description('Storage account Blob endpoint.')
 param storageAccountUrl string
 
@@ -317,6 +326,14 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
               secretRef: 'app-insights-connection-string'
             }
             {
+              name: 'OTEL_SERVICE_NAME'
+              value: 'data-ingestion-api'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_SAMPLING_RATIO'
+              value: telemetrySamplingRatio
+            }
+            {
               name: 'AZURE_FOUNDRY_RESOURCE'
               value: foundryResourceName
             }
@@ -420,6 +437,14 @@ resource frontendContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
             {
               name: 'API_URL'
               value: 'https://${apiContainerApp.properties.configuration.ingress.fqdn}/api/v1'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: appInsightsConnectionString
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE'
+              value: telemetryBrowserSamplingPercentage
             }
           ]
           probes: [
@@ -556,6 +581,14 @@ resource rulesServiceContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
               secretRef: 'app-insights-connection-string'
+            }
+            {
+              name: 'OTEL_SERVICE_NAME'
+              value: 'data-ingestion-rules'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_SAMPLING_RATIO'
+              value: telemetrySamplingRatio
             }
           ]
           probes: [
@@ -731,6 +764,14 @@ resource validationWorker 'Microsoft.App/jobs@2025-07-01' = {
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
               secretRef: 'app-insights-connection-string'
+            }
+            {
+              name: 'OTEL_SERVICE_NAME'
+              value: 'data-ingestion-worker'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_SAMPLING_RATIO'
+              value: telemetrySamplingRatio
             }
           ]
         }

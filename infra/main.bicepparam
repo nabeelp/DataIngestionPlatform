@@ -14,5 +14,7 @@ param foundryResourceName = readEnvironmentVariable('AZURE_FOUNDRY_RESOURCE', 'a
 param foundryProjectName = readEnvironmentVariable('AZURE_FOUNDRY_PROJECT', 'citadel-governance-project')
 param workerCpu = int(readEnvironmentVariable('WORKER_CPU', '2'))
 param workerMemory = readEnvironmentVariable('WORKER_MEMORY', '4Gi')
+param telemetrySamplingRatio = readEnvironmentVariable('APPLICATIONINSIGHTS_SAMPLING_RATIO', '1')
+param telemetryBrowserSamplingPercentage = readEnvironmentVariable('APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE', '100')
 param jwtSecret = readEnvironmentVariable('JWT_SECRET', '')
 param msClientSecret = readEnvironmentVariable('MS_CLIENT_SECRET', '')

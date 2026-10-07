@@ -2,6 +2,7 @@
 // Main Entry Point - Express API, Socket.IO, and upload workers
 // =============================================================================
 
+import { shutdownTelemetry } from './telemetry';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -141,9 +142,15 @@ const shutdown = async (signal: string) => {
         const { closeConnection } = await import('./config/database');
         await closeConnection();
         logger.info('Shutdown complete');
+        await shutdownTelemetry();
         process.exit(0);
     } catch (error) {
         logger.error('Error during shutdown', error);
+        try {
+            await shutdownTelemetry();
+        } catch {
+            process.stderr.write('[TELEMETRY] Could not flush telemetry during shutdown.\n');
+        }
         process.exit(1);
     }
 };
@@ -151,7 +158,12 @@ const shutdown = async (signal: string) => {
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-startServer().catch(error => {
+startServer().catch(async error => {
     logger.error('Startup failed; upload processing is unavailable:', error);
+    try {
+        await shutdownTelemetry();
+    } catch {
+        process.stderr.write('[TELEMETRY] Could not flush telemetry after startup failure.\n');
+    }
     process.exit(1);
 });
