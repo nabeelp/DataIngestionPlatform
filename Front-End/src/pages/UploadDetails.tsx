@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiConfig } from '../config/api';
+import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
 import { downloadUploadDelivery, downloadUploadReport } from '../services/uploadApi';
 import { groupRulesBySheet } from './uploadRuleGroups';
@@ -46,6 +47,8 @@ interface UploadDetail {
   uploaded: string;
   validated: string | null;
   deliveredTo: string;
+  definitionId: string;
+  definitionName: string;
   definitionVersion: number | null;
   sheets: SheetSummary[];
   rules: RuleResult[];
@@ -141,6 +144,8 @@ export const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
       ? formatDate(upload.ValidationCompletedAt || upload.validationCompletedAt) 
       : null,
     deliveredTo: upload.DeliveredTo || upload.deliveredTo || '',
+    definitionId: upload.FileDefinitionId || upload.fileDefinitionId || '',
+    definitionName: upload.DefinitionName || upload.definitionName || 'Unknown definition',
     definitionVersion: data.definitionVersion?.versionNumber ?? null,
     sheets: mappedSheets,
     rules: mappedRules,
@@ -459,13 +464,20 @@ const UploadDetails = () => {
             <p className="text-xs text-gray-400 font-medium">{upload.fileType}</p>
           </div>
           <div className="flex gap-2">
+            <Link
+              to={`${roleBasePath(user?.Role)}/upload?definitionId=${encodeURIComponent(upload.definitionId)}`}
+              className="inline-flex min-h-11 items-center rounded border border-blue-200 px-4 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
+            >
+              Upload corrected file
+            </Link>
             {canRetry(upload.statusCode) && (
               <button 
                 onClick={handleRetry}
                 disabled={actionLoading}
+                title="Reprocess this stored file against its recorded definition version"
                 className="px-4 py-1.5 bg-yellow-500 text-white text-xs font-bold rounded hover:bg-yellow-600 transition disabled:opacity-50"
               >
-                {actionLoading ? 'Retrying...' : 'Retry'}
+                {actionLoading ? 'Retrying...' : 'Retry stored file'}
               </button>
             )}
             {canDelete(upload.statusCode) && (
@@ -500,11 +512,12 @@ const UploadDetails = () => {
           
           <p className="text-xs text-gray-500 mb-6 font-medium">Validation Failed</p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-8">
             <InfoItem label="File Size" value={upload.fileSize} />
             <InfoItem label="Row Count" value={upload.rowCount.toLocaleString()} />
             <InfoItem label="Uploaded" value={upload.uploaded} />
             <InfoItem label="Validated" value={upload.validated || '-'} />
+            <InfoItem label="Definition" value={upload.definitionName} />
             <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
           </div>
         </section>
@@ -567,11 +580,12 @@ const UploadDetails = () => {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-8">
             <InfoItem label="File Size" value={upload.fileSize} />
             <InfoItem label="Row Count" value={upload.rowCount.toLocaleString()} />
             <InfoItem label="Uploaded" value={upload.uploaded} />
             <InfoItem label="Validated" value={upload.validated || '-'} />
+            <InfoItem label="Definition" value={upload.definitionName} />
             <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
           </div>
         </section>
@@ -624,11 +638,12 @@ const UploadDetails = () => {
           {upload.statusCode === 'DELIVERED' ? 'Delivered' : 'Validated'} {sheetCount} sheet(s)
         </p>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-8">
           <InfoItem label="File Size" value={upload.fileSize} />
           <InfoItem label="Row Count" value={upload.rowCount.toLocaleString()} />
           <InfoItem label="Uploaded" value={upload.uploaded} />
           <InfoItem label="Validated" value={upload.validated || '-'} />
+          <InfoItem label="Definition" value={upload.definitionName} />
           <InfoItem label="Definition Version" value={upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'} />
         </div>
 
@@ -731,7 +746,13 @@ export const UploadValidationResults = ({ upload, reportLoading, onDownloadRepor
   upload: Pick<UploadDetail, 'id' | 'rules' | 'sheets' | 'status'>;
   reportLoading: boolean;
   onDownloadReport: () => void;
-}) => (
+}) => {
+  const failedChecks = upload.rules.filter(rule => rule.status === 'Failed' || rule.status === 'Error').length;
+  const warningChecks = upload.rules.filter(rule => rule.status === 'Warning').length;
+  const passedChecks = upload.rules.filter(rule => rule.status === 'Passed').length;
+  const affectedRows = new Set(upload.rules.flatMap(rule => rule.errors?.flatMap(issue => issue.rowNumber ?? []) ?? [])).size;
+
+  return (
   <div className="space-y-6">
     <div className="flex justify-between items-center gap-4">
       <h2 className="text-xl font-bold text-[#1e293b]">Validation Results</h2>
@@ -747,6 +768,19 @@ export const UploadValidationResults = ({ upload, reportLoading, onDownloadRepor
         {reportLoading ? 'Downloading issues report...' : 'Download full issues report'}
       </a>
     </div>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Validation summary">
+      {[
+        { label: 'Failed checks', value: failedChecks, style: 'text-red-700 bg-red-50 border-red-200' },
+        { label: 'Warnings', value: warningChecks, style: 'text-amber-800 bg-amber-50 border-amber-200' },
+        { label: 'Affected rows', value: affectedRows, style: 'text-slate-800 bg-slate-50 border-slate-200' },
+        { label: 'Passed checks', value: passedChecks, style: 'text-emerald-800 bg-emerald-50 border-emerald-200' },
+      ].map(({ label, value, style }) => (
+        <div key={label} className={`rounded-lg border p-3 ${style}`}>
+          <p className="text-xs font-medium">{label}</p>
+          <p className="mt-1 text-2xl font-bold">{value}</p>
+        </div>
+      ))}
+    </div>
     {groupRulesBySheet(upload.rules, upload.sheets, upload.status).map(group => (
       <section key={group.key} className="space-y-4">
         <div className="flex justify-between items-center">
@@ -759,7 +793,8 @@ export const UploadValidationResults = ({ upload, reportLoading, onDownloadRepor
       </section>
     ))}
   </div>
-);
+  );
+};
 
 interface RuleResultSectionProps {
   rule: RuleResult;
@@ -774,6 +809,17 @@ const RuleResultSection = ({ rule }: RuleResultSectionProps) => {
   const color = statusTextClass(rule.status);
   const badgeBackground = isPassed ? 'bg-[#f0fdf4]' :
     rule.status === 'Failed' || isError ? 'bg-[#fef2f2]' : 'bg-[#fffbeb]';
+
+  if (isPassed) {
+    return (
+      <details className="rounded-lg border border-gray-200 bg-white px-5 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-emerald-700">
+          {rule.title} <span className="ml-2 text-xs font-normal text-gray-500">{rule.type} · Passed</span>
+        </summary>
+        <p className="mt-2 text-xs text-gray-500">Completed in {rule.time || '0ms'} with no issues.</p>
+      </details>
+    );
+  }
 
   return (
     <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">

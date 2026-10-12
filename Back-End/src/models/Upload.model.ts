@@ -53,9 +53,12 @@ export class Upload {
             // Admin sees all uploads
             if (status) {
                 query = `
-                    SELECT * FROM ${this.TABLE_NAME} 
-                    WHERE Status = @Status
-                    ORDER BY UploadedAt DESC
+                    SELECT u.*, fd.Name AS DefinitionName, fdv.VersionNumber AS DefinitionVersionNumber
+                    FROM ${this.TABLE_NAME} u
+                    INNER JOIN FileDefinitions fd ON fd.Id = u.FileDefinitionId
+                    LEFT JOIN FileDefinitionVersions fdv ON fdv.Id = u.FileDefinitionVersionId
+                    WHERE u.Status = @Status
+                    ORDER BY u.UploadedAt DESC
                     OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY
                 `;
                 countQuery = `
@@ -64,8 +67,11 @@ export class Upload {
                 `;
             } else {
                 query = `
-                    SELECT * FROM ${this.TABLE_NAME} 
-                    ORDER BY UploadedAt DESC
+                    SELECT u.*, fd.Name AS DefinitionName, fdv.VersionNumber AS DefinitionVersionNumber
+                    FROM ${this.TABLE_NAME} u
+                    INNER JOIN FileDefinitions fd ON fd.Id = u.FileDefinitionId
+                    LEFT JOIN FileDefinitionVersions fdv ON fdv.Id = u.FileDefinitionVersionId
+                    ORDER BY u.UploadedAt DESC
                     OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY
                 `;
                 countQuery = `SELECT COUNT(*) as total FROM ${this.TABLE_NAME}`;
@@ -74,8 +80,11 @@ export class Upload {
             // Regular user sees their uploads and shared uploads
             if (status) {
                 query = `
-                    SELECT DISTINCT u.* FROM ${this.TABLE_NAME} u
+                    SELECT DISTINCT u.*, fd.Name AS DefinitionName, fdv.VersionNumber AS DefinitionVersionNumber
+                    FROM ${this.TABLE_NAME} u
                     LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
+                    INNER JOIN FileDefinitions fd ON fd.Id = u.FileDefinitionId
+                    LEFT JOIN FileDefinitionVersions fdv ON fdv.Id = u.FileDefinitionVersionId
                     WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                     AND u.Status = @Status
                     ORDER BY u.UploadedAt DESC
@@ -89,8 +98,11 @@ export class Upload {
                 `;
             } else {
                 query = `
-                    SELECT DISTINCT u.* FROM ${this.TABLE_NAME} u
+                    SELECT DISTINCT u.*, fd.Name AS DefinitionName, fdv.VersionNumber AS DefinitionVersionNumber
+                    FROM ${this.TABLE_NAME} u
                     LEFT JOIN ${this.ACCESS_TABLE} ua ON u.Id = ua.UploadId
+                    INNER JOIN FileDefinitions fd ON fd.Id = u.FileDefinitionId
+                    LEFT JOIN FileDefinitionVersions fdv ON fdv.Id = u.FileDefinitionVersionId
                     WHERE (u.UploadedBy = @UserId OR ua.UserId = @UserId)
                     ORDER BY u.UploadedAt DESC
                     OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY

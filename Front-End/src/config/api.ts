@@ -30,7 +30,8 @@ export const apiConfig = {
      * Falls back to localhost for development
      */
     getBaseUrl: (): string => {
-        const url = resolveApiBaseUrl(import.meta.env.VITE_API_URL, window.__APP_CONFIG__?.apiUrl);
+        const runtimeUrl = typeof window === 'undefined' ? undefined : window.__APP_CONFIG__?.apiUrl;
+        const url = resolveApiBaseUrl(import.meta.env.VITE_API_URL, runtimeUrl);
         
         debugLog('VITE_API_URL from env:', url);
         

@@ -38,6 +38,13 @@ Rule failures with severity `Warning` do not fail the upload. Up to 100 sample i
 
 Only admins can create, edit, enable/disable or delete rules. Standard users can view the rules for the file definitions they have access to.
 
+### Definition, rule, and upload workflow
+
+1. An admin creates a definition and its first published version. Later column and rule changes are saved to a draft; existing and new uploads continue to use the active published version until the admin selects **Review changes & publish**.
+2. Definition links preserve the selected definition between **File Definitions**, **Rules**, and **Upload File**. Uploaders can review the published version, expected sheets/columns, and active rule counts before choosing a file.
+3. **Upload and validate** stores the file and adds it to upload history. History and result pages show the definition name and pinned version so validation outcomes remain explainable after a newer version is published.
+4. A failed result prioritizes failed checks, warnings, affected rows, and sample values. **Retry stored file** reprocesses the stored upload against its recorded version; use **Upload corrected file** to submit changed data with the same definition preselected.
+
 ### Create a rule from plain language
 
 Admins can click **New Rule**, choose **Natural language** under **Evaluation Strategy**, and describe a single check in the drawer. The backend sends the request and the selected definition's draft column names, types and sheet names to the configured Microsoft Foundry project, and the model decides:

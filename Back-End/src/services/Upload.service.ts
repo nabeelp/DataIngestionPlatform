@@ -578,13 +578,18 @@ export class UploadService {
         const validationResult = await ValidationResult.findByUploadId(uploadId);
         const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
         const deliveryRecords = await DeliveryRecord.findByUploadId(uploadId);
+        const definition = await FileDefinition.findById(upload.FileDefinitionId);
         const version = upload.FileDefinitionVersionId
             ? await DefinitionVersionService.findVersion(upload.FileDefinitionVersionId)
             : null;
 
         return {
             success: true,
-            upload,
+            upload: {
+                ...upload,
+                DefinitionName: definition?.Name,
+                DefinitionVersionNumber: version?.VersionNumber ?? null,
+            },
             definitionVersion: toVersionSummary(version),
             sheets,
             validationResult,

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getFileDefinitionsAdmin } from '../services/adminApi';
 import {
   regenerateNaturalLanguageRule,
@@ -33,6 +33,8 @@ import RuleConfigDetails from './RuleConfigDetails';
 import RuleConfigFields from './RuleConfigFields';
 import NaturalLanguageExamplesEditor, { type NaturalLanguageExample } from './NaturalLanguageExamplesEditor';
 import RuleReviewActivity from './RuleReviewActivity';
+import DefinitionContextCard from '../components/DefinitionContextCard';
+import { getFileDefinitions, mapDefinitionSummary, type DefinitionSummary } from '../services/definitionApi';
 
 //#region INTERFACES & TYPES
 interface Rule {
@@ -57,9 +59,7 @@ type GenerationResult =
   | { outcome: 'rejected'; reason: string }
   | { outcome: 'mapped' | 'natural_language'; reason: string; config: RuleConfig };
 
-interface Definition {
-  id: string;
-  name: string;
+interface Definition extends DefinitionSummary {
   /** Sheet tables rules can target (empty for single-table definitions). */
   sheets: string[];
   lookups: string[];
@@ -119,11 +119,12 @@ const isGeneratedRule = (rule: Pick<Rule, 'config'> | null | undefined) => rule?
 export default function ValidationRules() {
   const { token, user } = useAuth();
   const canManageRules = user?.Role === 'admin';
+  const [searchParams, setSearchParams] = useSearchParams();
 
   //#region STATE MANAGERS
   const [rules, setRules] = useState<Rule[]>([]);
   const [definitions, setDefinitions] = useState<Definition[]>([]);
-  const [selectedDefinitionId, setSelectedDefinitionId] = useState<string>('');
+  const [selectedDefinitionId, setSelectedDefinitionId] = useState<string>(() => searchParams.get('definitionId') ?? '');
   
   // Loaders & Errors
   const [definitionsLoading, setDefinitionsLoading] = useState(true);
@@ -179,6 +180,14 @@ export default function ValidationRules() {
 
   const selectedSheets = definitions.find(def => def.id === selectedDefinitionId)?.sheets ?? [];
   const selectedLookupIds = definitions.find(def => def.id === selectedDefinitionId)?.lookups ?? [];
+  const selectedDefinition = definitions.find(def => def.id === selectedDefinitionId) ?? null;
+  const handleDefinitionChange = (definitionId: string) => {
+    setSelectedDefinitionId(definitionId);
+    const next = new URLSearchParams(searchParams);
+    if (definitionId) next.set('definitionId', definitionId);
+    else next.delete('definitionId');
+    setSearchParams(next, { replace: true });
+  };
   // A plain-language review saved a rule: the drawer offers Done / Create another instead of reviewing again.
   const ruleCreated = !editingRule && formData.ruleType === NATURAL_LANGUAGE_STRATEGY
     && generationResult !== null && generationResult.outcome !== 'rejected';
@@ -326,20 +335,14 @@ export default function ValidationRules() {
   const fetchDefinitions = async () => {
     try {
       setDefinitionsLoading(true);
-      const baseUrl = apiConfig.getBaseUrl();
-      const response = await fetch(`${baseUrl}/definitions`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch definitions');
-
-      const data = await response.json();
-      if (data.success && data.definitions) {
+      const data = await getFileDefinitions();
+      if (data.definitions) {
         // Admins edit draft rules, so they target the draft's sheet tables; others see the published ones.
-        const draftSettings = new Map<string, { sheets: string[]; lookups: string[] }>();
+        const draftSettings = new Map<string, {
+          sheets: string[];
+          lookups: string[];
+          summary: DefinitionSummary;
+        }>();
         if (canManageRules) {
           const admin = await getFileDefinitionsAdmin().catch(() => null);
           for (const def of admin?.definitions ?? []) {
@@ -349,24 +352,22 @@ export default function ValidationRules() {
                 ? contract.tables.flatMap(table => table.sheet ? [table.sheet] : [])
                 : (def.tables ?? []).map(table => table.sheet),
               lookups: Object.keys(contract?.lookups ?? {}),
+              summary: mapDefinitionSummary(def as unknown as Record<string, unknown>),
             });
           }
         }
-        const defs = data.definitions.map((def: any) => {
-          const id = def.Id || def.id;
-          const publishedSheets = (def.Tables || def.tables || []).map((table: { sheet: string }) => table.sheet);
-          const draft = draftSettings.get(String(id).toLowerCase());
+        const defs = data.definitions.map(def => {
+          const draft = draftSettings.get(def.id.toLowerCase());
           return {
-            id,
-            name: def.Name || def.name,
-            sheets: draft?.sheets ?? publishedSheets,
+            ...(draft?.summary ?? def),
+            sheets: draft?.sheets ?? def.tables.flatMap(table => table.sheet ? [table.sheet] : []),
             lookups: draft?.lookups ?? [],
           };
         });
         setDefinitions(defs);
-        if (defs.length > 0 && !selectedDefinitionId) {
-          setSelectedDefinitionId(defs[0].id);
-        }
+        setSelectedDefinitionId(current => defs.some(definition => definition.id === current)
+          ? current
+          : defs[0]?.id ?? '');
       }
     } catch (err) {
       console.error('Error fetching definitions:', err);
@@ -734,11 +735,8 @@ export default function ValidationRules() {
     return matchesSearch && rule.severity.toUpperCase() === severityFilter;
   });
 
-  const totalCount = rules.length;
   const activeCount = rules.filter(r => r.isEnabled).length;
-  const errorCount = rules.filter(r => r.severity.toUpperCase() === 'ERROR').length;
   const warningCount = rules.filter(r => r.severity.toUpperCase() === 'WARNING' || r.severity.toUpperCase() === 'WARN').length;
-  const disabledCount = totalCount - activeCount;
   //#endregion
 
   //#region UTILITY RENDERING ASSISTS
@@ -813,20 +811,29 @@ export default function ValidationRules() {
             </div>
           )}
 
-          {/* Upload Definition & Dynamic Aggregations Row */}
+          {selectedDefinition && (
+            <DefinitionContextCard
+              definition={selectedDefinition}
+              showDraftState={canManageRules}
+              actions={canManageRules ? (
+                <Link
+                  to={`/admin/file-definitions?definitionId=${encodeURIComponent(selectedDefinition.id)}&view=versions`}
+                  className="inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Review changes &amp; publish
+                </Link>
+              ) : undefined}
+            />
+          )}
+
           {selectedDefinitionId && (
-            <div role="note" className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-blue-900 text-sm">
-              {canManageRules ? (
-                <>
-                  Rule changes are saved as a draft. Uploads keep using the active version until you publish a new version from{' '}
-                  <Link to="/admin/file-definitions" className="font-semibold underline">File Definitions → Versions</Link>.
-                </>
-              ) : publishedVersion ? (
-                `Showing the rules of published version v${publishedVersion}, which new uploads are validated against.`
-              ) : (
-                'Showing the rules currently applied to new uploads.'
-              )}
-            </div>
+            <p role="note" className="text-sm text-slate-600">
+              {canManageRules
+                ? 'Rule changes are saved to the draft. New uploads keep using the published version until you publish.'
+                : publishedVersion
+                  ? `These are the rules in published version v${publishedVersion}.`
+                  : 'These rules are applied to new uploads.'}
+            </p>
           )}
 
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-center justify-between gap-6">
@@ -837,7 +844,7 @@ export default function ValidationRules() {
                   disabled={generatingRule}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
                   value={selectedDefinitionId}
-                  onChange={(e) => setSelectedDefinitionId(e.target.value)}
+                  onChange={(e) => handleDefinitionChange(e.target.value)}
                 >
                   {definitions.length === 0 ? (
                     <option value="">No definitions available</option>
@@ -876,26 +883,6 @@ export default function ValidationRules() {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Core Analytics KPI Summary Block */}
-          <div className="grid grid-cols-4 gap-4">
-            {[
-              { label: 'Total Rules', count: totalCount, icon: Database, color: 'text-blue-600', bg: 'bg-blue-50' },
-              { label: 'Error Rules', count: errorCount, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
-              { label: 'Warnings Rules', count: warningCount, icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50' },
-              { label: 'Disabled Rules', count: disabledCount, icon: Power, color: 'text-slate-400', bg: 'bg-slate-100' },
-            ].map((stat, i) => (
-              <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-4 shadow-sm">
-                <div className={`p-3 rounded-xl ${stat.bg} ${stat.color}`}>
-                  <stat.icon className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-slate-500">{stat.label}</div>
-                  <div className="text-2xl font-bold text-slate-900 mt-0.5">{stat.count}</div>
-                </div>
-              </div>
-            ))}
           </div>
 
           {/* Filtering Control Bar */}
@@ -1096,7 +1083,7 @@ export default function ValidationRules() {
 
                 {!editingRule && (
                   <div className="space-y-1.5">
-                    <label htmlFor="ruleStrategy" className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
+                    <label htmlFor="ruleStrategy" className="text-xs font-bold text-slate-600">Rule type <span className="text-red-500">*</span></label>
                     <select
                       id="ruleStrategy"
                       value={formData.ruleType}
@@ -1368,7 +1355,7 @@ export default function ValidationRules() {
                   <>
                 {editingRule && (
                   <div className="space-y-1.5">
-                    <label htmlFor="editRuleStrategy" className="text-xs font-bold text-slate-600">Evaluation Strategy <span className="text-red-500">*</span></label>
+                    <label htmlFor="editRuleStrategy" className="text-xs font-bold text-slate-600">Rule type <span className="text-red-500">*</span></label>
                     <select
                       id="editRuleStrategy"
                       value={formData.ruleType}

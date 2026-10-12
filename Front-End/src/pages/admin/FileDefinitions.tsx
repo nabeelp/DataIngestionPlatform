@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   getFileDefinitionsAdmin, 
   createFileDefinitionAdmin, 
@@ -19,12 +19,14 @@ import {
 } from '../../services/adminApi';
 import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../../contracts/definition-contract';
 
-import { Plus, Edit, Trash2, X, Check, Users, History } from 'lucide-react';
+import { Plus, Trash2, X, Check, Users } from 'lucide-react';
 import { Download } from 'lucide-react';
 import DefinitionVersionsModal from './DefinitionVersionsModal';
 import ExampleFileAssistant from './ExampleFileAssistant';
 import ColumnsEditor from './ColumnsEditor';
 import { rulesForLayout, type ColumnHint, type DefinitionLayout, type ExampleProposal } from './exampleProposal';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Search } from 'lucide-react';
 
 const INITIAL_COLUMNS: FileDefinitionColumn[] = [
   { name: 'Column1', type: 'string', required: true, mustExist: true, nullable: false }
@@ -132,6 +134,8 @@ export const buildDefinitionContract = (form: DefinitionForm): DefinitionContrac
 };
 
 export default function FileDefinitions() {
+  const [searchParams] = useSearchParams();
+  const handledDeepLink = useRef('');
   const [definitions, setDefinitions] = useState<FileDefinitionAdmin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,12 +160,37 @@ export default function FileDefinitions() {
   const [notice, setNotice] = useState<{ text: string; definition?: FileDefinitionAdmin } | null>(null);
   const [exampleHints, setExampleHints] = useState<Record<string, ColumnHint>>({});
   const [pendingRules, setPendingRules] = useState<InitialRule[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'unpublished'>('all');
 
   const editingDefinition = editingId ? definitions.find(def => def.id === editingId) : undefined;
+  const filteredDefinitions = definitions.filter(definition => {
+    const query = searchTerm.trim().toLowerCase();
+    const matchesSearch = !query
+      || definition.name.toLowerCase().includes(query)
+      || definition.description.toLowerCase().includes(query);
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'active' && definition.status === 'Active')
+      || (statusFilter === 'inactive' && definition.status === 'Inactive')
+      || (statusFilter === 'unpublished' && Boolean(definition.hasUnpublishedChanges));
+    return matchesSearch && matchesStatus;
+  });
 
   useEffect(() => {
     fetchDefinitions();
   }, []);
+
+  useEffect(() => {
+    const definitionId = searchParams.get('definitionId');
+    if (!definitionId || definitions.length === 0) return;
+    const deepLinkKey = `${definitionId}:${searchParams.get('view') ?? ''}`;
+    if (handledDeepLink.current === deepLinkKey) return;
+    const definition = definitions.find(item => item.id === definitionId);
+    if (!definition) return;
+    handledDeepLink.current = deepLinkKey;
+    if (searchParams.get('view') === 'versions') setVersionsFor(definition);
+    if (searchParams.get('view') === 'edit') handleEdit(definition);
+  }, [definitions, searchParams]);
 
   // Fetch user counts for table
   useEffect(() => {
@@ -537,6 +566,35 @@ export default function FileDefinitions() {
         </div>
       )}
 
+      {definitions.length > 0 && (
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative min-w-0 flex-1 sm:max-w-md">
+            <span className="sr-only">Search file definitions</span>
+            <Search size={18} className="pointer-events-none absolute left-3 top-3 text-gray-400" aria-hidden="true" />
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={event => setSearchTerm(event.target.value)}
+              placeholder="Search definitions"
+              className="min-h-11 w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            Status
+            <select
+              value={statusFilter}
+              onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}
+              className="min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2"
+            >
+              <option value="all">All definitions</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="unpublished">Draft changes</option>
+            </select>
+          </label>
+        </div>
+      )}
+
       {definitions.length === 0 ? (
         <div className="bg-white shadow rounded-lg p-8 text-center text-gray-500">
           No file definitions found. Click "Add Definition" to create one.
@@ -556,7 +614,7 @@ export default function FileDefinitions() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {definitions.map((def) => {
+                {filteredDefinitions.map((def) => {
                   const userCount = definitionUserCounts[def.id] || 0;
                   return (
                     <tr key={def.id} className="hover:bg-gray-50">
@@ -612,18 +670,21 @@ export default function FileDefinitions() {
                       <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap">
                         <button
                           onClick={() => handleEdit(def)}
-                          className="text-blue-600 hover:text-blue-900 mr-3"
-                          title="Edit"
+                          className="mr-3 font-semibold text-blue-700 hover:text-blue-900"
                         >
-                          <Edit size={18} />
+                          Edit
                         </button>
+                        <Link
+                          to={`/admin/rules?definitionId=${encodeURIComponent(def.id)}`}
+                          className="mr-3 font-semibold text-blue-700 hover:text-blue-900"
+                        >
+                          Rules
+                        </Link>
                         <button
                           onClick={() => setVersionsFor(def)}
-                          className="text-purple-600 hover:text-purple-900 mr-3"
-                          title="Versions"
-                          aria-label={`Versions for ${def.name}`}
+                          className="mr-3 font-semibold text-purple-700 hover:text-purple-900"
                         >
-                          <History size={18} />
+                          Versions
                         </button>
                         <button
                           onClick={() => handleDownload(def.id)}
@@ -644,6 +705,13 @@ export default function FileDefinitions() {
                     </tr>
                   );
                 })}
+                {filteredDefinitions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500">
+                      No definitions match the current search and status filter.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -653,12 +721,12 @@ export default function FileDefinitions() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div role="dialog" aria-modal="true" aria-labelledby="definition-editor-title" className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="text-lg font-bold">
+              <h2 id="definition-editor-title" className="text-lg font-bold">
                 {editingId ? 'Edit File Definition' : 'Add File Definition'}
               </h2>
-              <button onClick={closeModal} className="text-gray-500 hover:text-gray-700">
+              <button onClick={closeModal} className="min-h-11 min-w-11 text-gray-500 hover:text-gray-700" aria-label="Close definition editor">
                 <X size={24} />
               </button>
             </div>
@@ -934,8 +1002,11 @@ export default function FileDefinitions() {
                 </div>
               )}
 
+              <details className="mb-4 rounded-md border border-gray-200 p-3">
+                <summary className="cursor-pointer font-medium text-gray-800">Delivery and reusable template</summary>
+                <p className="mt-1 text-xs text-gray-500">Optional settings for what happens after validation and for helping users prepare files.</p>
               {/* Delivery Section */}
-              <div className="mb-4">
+              <div className="mt-4 mb-4">
                 <label htmlFor="deliveryFolder" className="block text-sm font-medium text-gray-700 mb-2">
                   Delivery folder (optional)
                 </label>
@@ -975,8 +1046,9 @@ export default function FileDefinitions() {
                   </div>
                 )}
               </div>
+              </details>
 
-              <div className="flex justify-end gap-3 pt-4 border-t">
+              <div className="sticky bottom-0 -mx-4 flex justify-end gap-3 border-t bg-white px-4 pt-4 pb-1 shadow-[0_-8px_16px_-16px_rgba(15,23,42,0.5)]">
                 <button
                   type="button"
                   onClick={closeModal}
@@ -990,7 +1062,7 @@ export default function FileDefinitions() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Check size={18} />
-                  {uploading ? 'Saving...' : (editingId ? 'Update' : 'Create')}
+                  {uploading ? 'Saving...' : (editingId ? 'Save draft changes' : 'Create and publish version 1')}
                 </button>
               </div>
             </form>

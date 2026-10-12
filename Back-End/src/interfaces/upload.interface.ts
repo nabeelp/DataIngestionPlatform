@@ -105,6 +105,10 @@ export interface IUpload {
     DeliveredTo: string | null;
     DeliveredAt: Date | null;
     ErrorMessage: string | null;
+    /** Read-only list/detail context populated from the related definition. */
+    DefinitionName?: string;
+    /** Read-only list context populated from the pinned definition version. */
+    DefinitionVersionNumber?: number | null;
 }
 
 /**
