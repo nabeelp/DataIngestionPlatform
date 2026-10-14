@@ -195,6 +195,28 @@ export const uploadTemplate = async (req: AuthRequest, res: Response, next: Next
     }
 };
 
+export const removeTemplate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId = req.params.id as string;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Admin access required' });
+        }
+
+        const previousTemplate = await FileDefinitionService.getTemplateBlobName(definitionId);
+        await FileDefinitionService.clearTemplateFilename(definitionId);
+        if (previousTemplate) {
+            await TemplateStorage.delete(previousTemplate);
+        }
+
+        res.json({ success: true, message: 'Template removed successfully' });
+    } catch (error) {
+        logger.error('[FILEDEF_ADMIN_CTRL] Error removing template:', error);
+        next(error);
+    }
+};
+
 
 
 /**
@@ -271,6 +293,14 @@ const mapVersion = (version: IFileDefinitionVersion) => ({
         table: rule.Table,
         naturalLanguageText: rule.NaturalLanguageText ?? null,
     })),
+    definitionMetadata: version.DefinitionMetadata
+        ? {
+            ...version.DefinitionMetadata,
+            templateFilename: version.DefinitionMetadata.templateFilename
+                ? getTemplateDisplayName(version.DefinitionMetadata.templateFilename)
+                : null,
+        }
+        : null,
     changeNote: version.ChangeNote,
     createdByName: version.CreatedByName,
     activatedAt: version.ActivatedAt,
@@ -301,7 +331,7 @@ export const getFileDefinitionVersions = async (req: AuthRequest, res: Response,
             success: true,
             activeVersionNumber: state.activeVersion?.VersionNumber ?? null,
             hasUnpublishedChanges: state.diff.hasChanges,
-            changes: { columns: state.diff.columns, rules: state.diff.rules },
+            changes: { metadata: state.diff.metadata, columns: state.diff.columns, rules: state.diff.rules },
             versions: versions.map(mapVersion),
         });
     } catch (error) {

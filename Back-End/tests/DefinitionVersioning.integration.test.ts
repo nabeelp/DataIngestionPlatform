@@ -105,6 +105,42 @@ describeDb('definition versioning (SQL Server)', () => {
         expect((await m.versions.DefinitionVersionService.getDraftState(definition.Id)).diff.hasChanges).toBe(false);
     });
 
+    it('publishes metadata-only edits with their change note', async () => {
+        const definition = await newDefinition();
+        await m.definitions.FileDefinitionService.updateDefinition(definition.Id, {
+            Name: `${definition.Name} updated`,
+            Description: 'Updated definition details',
+            Status: 'Inactive',
+            DeliveryFolder: 'archive/amounts',
+        });
+
+        const draft = await m.versions.DefinitionVersionService.getDraftState(definition.Id);
+        expect(draft.diff).toMatchObject({
+            hasChanges: true,
+            metadata: {
+                added: [],
+                removed: [],
+                changed: ['Name', 'Description', 'Status', 'Delivery folder'],
+            },
+            columns: { added: [], removed: [], changed: [] },
+            rules: { added: [], removed: [], changed: [] },
+        });
+
+        const published = await m.versions.DefinitionVersionService.publish(definition.Id, adminId, 'Update delivery details');
+        expect(published).toMatchObject({
+            VersionNumber: 2,
+            ChangeNote: 'Update delivery details',
+            DefinitionMetadata: {
+                name: `${definition.Name} updated`,
+                description: 'Updated definition details',
+                status: 'Inactive',
+                deliveryFolder: 'archive/amounts',
+                templateFilename: null,
+            },
+        });
+        expect((await m.versions.DefinitionVersionService.getDraftState(definition.Id)).diff.hasChanges).toBe(false);
+    });
+
     it('refuses to publish when nothing changed', async () => {
         const definition = await newDefinition();
 

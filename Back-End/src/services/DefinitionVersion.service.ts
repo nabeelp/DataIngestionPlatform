@@ -13,7 +13,7 @@ import {
     type ContractDiff,
     type ContractSnapshot,
 } from './validation/DefinitionContract';
-import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import type { DefinitionContract } from '../contracts/definition-contract';
 import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
 import { RulesService } from './RulesService.service';
@@ -34,7 +34,7 @@ export interface VersionSummary {
 export interface DraftState {
     activeVersion: IFileDefinitionVersion | null;
     draft: ContractSnapshot;
-    diff: ContractDiff;
+    diff: DefinitionDiff;
 }
 
 export interface DefinitionVersionState {
@@ -58,12 +58,51 @@ const MAX_CHANGE_NOTE_LENGTH = 500;
 interface DraftContract {
     contract: DefinitionContract;
     snapshot: ContractSnapshot;
+    metadata: IDefinitionMetadataSnapshot;
 }
+
+export interface DefinitionDiff extends ContractDiff {
+    metadata: ContractDiff['columns'];
+}
+
+const METADATA_LABELS: Record<keyof IDefinitionMetadataSnapshot, string> = {
+    name: 'Name',
+    description: 'Description',
+    status: 'Status',
+    deliveryFolder: 'Delivery folder',
+    templateFilename: 'Reusable template',
+};
+
+const diffDefinition = (
+    active: IFileDefinitionVersion | null,
+    draft: Pick<DraftContract, 'snapshot' | 'metadata'>,
+): DefinitionDiff => {
+    const contract = diffContracts(contractOf(active), draft.snapshot);
+    const metadata: DefinitionDiff['metadata'] = { added: [], removed: [], changed: [] };
+    if (!active?.DefinitionMetadata) {
+        metadata.added = Object.values(METADATA_LABELS);
+    } else {
+        for (const key of Object.keys(METADATA_LABELS) as Array<keyof IDefinitionMetadataSnapshot>) {
+            if (active.DefinitionMetadata[key] !== draft.metadata[key]) {
+                metadata.changed.push(METADATA_LABELS[key]);
+            }
+        }
+    }
+    return {
+        ...contract,
+        metadata,
+        hasChanges: contract.hasChanges || metadata.added.length > 0 || metadata.changed.length > 0,
+    };
+};
 
 async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<DraftContract | null> {
     const definition = await db.request()
         .input('Id', fileDefinitionId)
-        .query(`SELECT Id, Contract FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''} WHERE Id = @Id`);
+        .query(`
+            SELECT Id, Name, Description, Status, DeliveryFolder, TemplateFilename, Contract
+            FROM FileDefinitions ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''}
+            WHERE Id = @Id
+        `);
     if (!definition.recordset[0]) return null;
 
     const rules = await db.request()
@@ -102,7 +141,18 @@ async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: str
         rules: ruleConfigs,
         lookups,
     };
-    return { contract, snapshot: legacySnapshotFromContract(contract) };
+    const row = definition.recordset[0];
+    return {
+        contract,
+        snapshot: legacySnapshotFromContract(contract),
+        metadata: {
+            name: String(row.Name),
+            description: String(row.Description ?? ''),
+            status: row.Status === 'Inactive' ? 'Inactive' : 'Active',
+            deliveryFolder: row.DeliveryFolder ?? null,
+            templateFilename: row.TemplateFilename ?? null,
+        },
+    };
 }
 
 export class DefinitionVersionService {
@@ -115,7 +165,7 @@ export class DefinitionVersionService {
         if (!draft) throw new DefinitionVersionError('File definition not found', 404);
 
         const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
-        return { activeVersion, draft: draft.snapshot, diff: diffContracts(contractOf(activeVersion), draft.snapshot) };
+        return { activeVersion, draft: draft.snapshot, diff: diffDefinition(activeVersion, draft) };
     }
 
     static async getDraftContract(fileDefinitionId: string): Promise<DefinitionContract> {
@@ -170,7 +220,7 @@ export class DefinitionVersionService {
             if (!draft) return;
             states.set(definition.Id, {
                 activeVersion: toVersionSummary(active),
-                hasUnpublishedChanges: diffContracts(contractOf(active), draft.snapshot).hasChanges,
+                hasUnpublishedChanges: diffDefinition(active, draft).hasChanges,
             });
         }));
         return states;
@@ -238,7 +288,7 @@ export class DefinitionVersionService {
                 await tx.commit();
                 return active;
             }
-            if (active && !diffContracts(contractOf(active), draft.snapshot).hasChanges) {
+            if (active && !diffDefinition(active, draft).hasChanges) {
                 throw new DefinitionVersionError(`There are no changes to publish; version ${active.VersionNumber} is already active`, 409);
             }
             if (options.validate) {
@@ -251,7 +301,7 @@ export class DefinitionVersionService {
                 }
             }
 
-            versionId = await FileDefinitionVersion.activate(tx, fileDefinitionId, draft.contract, userId, note);
+            versionId = await FileDefinitionVersion.activate(tx, fileDefinitionId, draft.contract, draft.metadata, userId, note);
             await tx.commit();
         } catch (error) {
             await tx.rollback().catch(rollbackError => logger.warn('[DEF_VERSION] Rollback failed', rollbackError));

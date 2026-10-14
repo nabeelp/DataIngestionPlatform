@@ -23,6 +23,21 @@ export const emptyDefinitionContract = (): DefinitionContract => ({
 });
 
 const ruleTypes = new Set<string>(RULE_CONFIG_TYPES);
+type ContractColumn = DefinitionContract['tables'][number]['columns'][number];
+
+const canonicalColumn = (column: ContractColumn): ContractColumn => ({
+    name: column.name,
+    type: column.type,
+    mustExist: column.mustExist,
+    nullable: column.nullable,
+    ...(column.format !== undefined ? { format: column.format } : {}),
+    ...(column.decimalSeparator !== undefined ? { decimalSeparator: column.decimalSeparator } : {}),
+    ...(column.thousandsSeparator !== undefined ? { thousandsSeparator: column.thousandsSeparator } : {}),
+    ...(column.precision !== undefined ? { precision: column.precision } : {}),
+    ...(column.scale !== undefined ? { scale: column.scale } : {}),
+    ...(column.maxLength !== undefined ? { maxLength: column.maxLength } : {}),
+    ...(column.unique !== undefined ? { unique: column.unique } : {}),
+});
 
 export function parseRuleConfig(value: unknown): RuleConfig {
     let parsed = value;
@@ -75,7 +90,14 @@ export function parseDefinitionContract(value: unknown): DefinitionContract {
     }
 
     const contract = parsed as DefinitionContract;
-    return { ...contract, rules: contract.rules.map(parseRuleConfig) };
+    return {
+        ...contract,
+        tables: contract.tables.map(table => ({
+            ...table,
+            columns: table.columns.map(canonicalColumn),
+        })) as DefinitionContract['tables'],
+        rules: contract.rules.map(parseRuleConfig),
+    };
 }
 
 const contractColumn = (column: IColumn) => ({

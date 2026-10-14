@@ -317,6 +317,10 @@ router.post(
     },
     FileDefinitionAdminController.uploadTemplate
 );
+router.delete(
+    '/file-definitions/:id/template',
+    FileDefinitionAdminController.removeTemplate
+);
 
 /**
  * POST /api/admin/file-definitions/analyze-example

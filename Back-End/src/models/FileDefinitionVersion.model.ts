@@ -5,7 +5,7 @@
 import type { ConnectionPool, Request, Transaction } from 'mssql';
 import { v4 as uuidv4 } from 'uuid';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import { legacySnapshotFromContract, parseDefinitionContract } from './contractMapper';
 
 type Queryable = ConnectionPool | Transaction;
@@ -22,6 +22,7 @@ export function mapVersionRow(row: any): IFileDefinitionVersion {
         Columns: contract.columns,
         Tables: contract.tables,
         Rules: contract.rules,
+        DefinitionMetadata: row.DefinitionMetadata ? JSON.parse(row.DefinitionMetadata) as IDefinitionMetadataSnapshot : null,
         ChangeNote: row.ChangeNote ?? null,
         CreatedBy: row.CreatedBy ?? null,
         CreatedByName: row.CreatedByName ?? null,
@@ -70,6 +71,7 @@ export class FileDefinitionVersion {
         tx: Transaction,
         fileDefinitionId: string,
         contract: DefinitionContract,
+        definitionMetadata: IDefinitionMetadataSnapshot,
         createdBy: string | null,
         changeNote: string | null,
     ): Promise<string> {
@@ -91,13 +93,14 @@ export class FileDefinitionVersion {
             .input('Id', id)
             .input('VersionNumber', next.recordset[0].VersionNumber)
             .input('Contract', JSON.stringify(contract))
+            .input('DefinitionMetadata', JSON.stringify(definitionMetadata))
             .input('ChangeNote', changeNote)
             .input('CreatedBy', createdBy)
             .query(`
                 INSERT INTO FileDefinitionVersions
-                    (Id, FileDefinitionId, VersionNumber, Status, Contract, ChangeNote, CreatedBy, ActivatedAt)
+                    (Id, FileDefinitionId, VersionNumber, Status, Contract, DefinitionMetadata, ChangeNote, CreatedBy, ActivatedAt)
                 VALUES
-                    (@Id, @FileDefinitionId, @VersionNumber, 'Active', @Contract, @ChangeNote, @CreatedBy, @Now)
+                    (@Id, @FileDefinitionId, @VersionNumber, 'Active', @Contract, @DefinitionMetadata, @ChangeNote, @CreatedBy, @Now)
             `);
 
         return id;

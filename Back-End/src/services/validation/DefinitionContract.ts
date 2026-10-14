@@ -1,7 +1,5 @@
 // =============================================================================
-// Definition Contract - the versioned part of a file definition
-// A contract is the definition's tables (columns) plus its enabled rules: everything that decides
-// whether an upload is valid. Operational settings (name, status, delivery folder) are not versioned.
+// Definition Contract - the validation portion of a versioned file definition.
 //
 // Layouts:
 // - Single table: `columns` apply to a CSV file and to every sheet of a workbook; `tables` is empty.

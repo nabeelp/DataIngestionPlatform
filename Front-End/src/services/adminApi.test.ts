@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import { createFileDefinitionAdmin, getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion } from './adminApi';
+import { createFileDefinitionAdmin, getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion, removeTemplate } from './adminApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -57,7 +57,11 @@ describe('definition version API', () => {
       success: true,
       activeVersionNumber: 2,
       hasUnpublishedChanges: true,
-      changes: { columns: { added: ['Email'], removed: [], changed: [] }, rules: { added: [], removed: [], changed: [] } },
+      changes: {
+        metadata: { added: [], removed: [], changed: ['Description'] },
+        columns: { added: ['Email'], removed: [], changed: [] },
+        rules: { added: [], removed: [], changed: [] },
+      },
       versions: [{ id: 'v2', versionNumber: 2, status: 'Active' }],
     });
 
@@ -80,6 +84,15 @@ describe('definition version API', () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/admin/file-definitions/def%2F1/versions');
     expect(history).toMatchObject({ activeVersionNumber: 2, hasUnpublishedChanges: true, versions: [{ versionNumber: 2 }] });
+  });
+
+  it('removes a reusable template from the definition draft', async () => {
+    const fetchMock = stubFetch(200, { success: true });
+
+    await removeTemplate('def/1');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/admin/file-definitions/def%2F1/template');
+    expect(fetchMock.mock.calls[0][1].method).toBe('DELETE');
   });
 
   it('publishes the draft with a change note', async () => {

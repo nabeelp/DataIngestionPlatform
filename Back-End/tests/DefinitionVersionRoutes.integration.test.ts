@@ -141,6 +141,48 @@ describeDb('definition version routes', () => {
         expect(res.body.message).toContain('version 1 is already active');
     });
 
+    it('publishes metadata-only changes and returns them in history', async () => {
+        const created = await call('admin', 'POST', '/admin/file-definitions', {
+            name: `Metadata routes ${Date.now()}`,
+            columns: [{ name: 'Code', type: 'string', required: true }],
+        });
+        const id = created.body.definition.id;
+        createdDefinitions.push(id);
+
+        const updatedName = `${created.body.definition.name} updated`;
+        const updated = await call('admin', 'PUT', `/admin/file-definitions/${id}`, {
+            name: updatedName,
+            description: 'Metadata-only update',
+            status: 'Inactive',
+            deliveryFolder: 'archive/codes',
+        });
+        expect(updated.status).toBe(200);
+
+        const draft = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
+        expect(draft.body).toMatchObject({
+            hasUnpublishedChanges: true,
+            changes: {
+                metadata: { added: [], removed: [], changed: ['Name', 'Description', 'Status', 'Delivery folder'] },
+                columns: { added: [], removed: [], changed: [] },
+                rules: { added: [], removed: [], changed: [] },
+            },
+        });
+
+        const published = await call('admin', 'POST', `/admin/file-definitions/${id}/versions`, { changeNote: 'Metadata-only publish' });
+        expect(published.status).toBe(201);
+        expect(published.body.version).toMatchObject({
+            versionNumber: 2,
+            changeNote: 'Metadata-only publish',
+            definitionMetadata: {
+                name: updatedName,
+                description: 'Metadata-only update',
+                status: 'Inactive',
+                deliveryFolder: 'archive/codes',
+                templateFilename: null,
+            },
+        });
+    });
+
     it('publishes rules accepted at creation in version 1', async () => {
         const created = await call('admin', 'POST', '/admin/file-definitions', {
             name: `Routes ${Date.now()}`,

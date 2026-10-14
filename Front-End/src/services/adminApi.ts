@@ -333,10 +333,19 @@ export interface DefinitionVersion {
   tables?: FileDefinitionTable[];
   contract?: DefinitionContract;
   rules: DefinitionVersionRule[];
+  definitionMetadata: DefinitionMetadataSnapshot | null;
   changeNote: string | null;
   createdByName: string | null;
   activatedAt: string;
   supersededAt: string | null;
+}
+
+export interface DefinitionMetadataSnapshot {
+  name: string;
+  description: string;
+  status: 'Active' | 'Inactive';
+  deliveryFolder: string | null;
+  templateFilename: string | null;
 }
 
 export interface ContractChanges {
@@ -348,7 +357,7 @@ export interface ContractChanges {
 export interface DefinitionVersionHistory {
   activeVersionNumber: number | null;
   hasUnpublishedChanges: boolean;
-  changes: { columns: ContractChanges; rules: ContractChanges };
+  changes: { metadata: ContractChanges; columns: ContractChanges; rules: ContractChanges };
   versions: DefinitionVersion[];
 }
 
@@ -419,6 +428,13 @@ export const publishFileDefinitionVersion = async (definitionId: string, changeN
     { method: 'POST', body: { changeNote: changeNote?.trim() || null } }
   );
   return data.version;
+};
+
+export const removeTemplate = async (definitionId: string): Promise<void> => {
+  await apiRequest<{ success: true }>(
+    `/admin/file-definitions/${encodeURIComponent(definitionId)}/template`,
+    { method: 'DELETE' }
+  );
 };
 
 export const getFileDefinitionsAdmin = async (): Promise<{

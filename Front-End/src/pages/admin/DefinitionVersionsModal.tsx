@@ -47,7 +47,21 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
     ? version.tables
     : [{ sheet: null as string | null, columns: version.columns }];
   return (
-    <div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm">
+    <div className="mt-3 space-y-3 text-sm">
+      {version.definitionMetadata ? (
+        <dl className="grid gap-2 rounded border border-gray-200 bg-gray-50 p-3 sm:grid-cols-2">
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Name</dt><dd>{version.definitionMetadata.name}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Status</dt><dd>{version.definitionMetadata.status}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Delivery folder</dt><dd>{version.definitionMetadata.deliveryFolder || 'None'}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Reusable template</dt><dd>{version.definitionMetadata.templateFilename || 'None'}</dd></div>
+          {version.definitionMetadata.description && (
+            <div className="sm:col-span-2"><dt className="text-xs font-semibold uppercase text-gray-500">Description</dt><dd>{version.definitionMetadata.description}</dd></div>
+          )}
+        </dl>
+      ) : (
+        <p className="rounded border border-gray-200 bg-gray-50 p-3 text-gray-500">Metadata was not recorded for this legacy version.</p>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-2">
         {tables.map(table => (
           <div key={table.sheet ?? ''}>
@@ -82,6 +96,7 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
             ))}
           </ul>
         )}
+      </div>
       </div>
     </div>
   );
@@ -167,6 +182,7 @@ export default function DefinitionVersionsModal({ definitionId, definitionName, 
                       ? `Uploads are still validated against v${active}. Publish to apply these changes to new uploads.`
                       : 'This definition has not been published yet.'}
                   </p>
+                  <ChangeList label="Definition details" changes={history.changes.metadata} />
                   <ChangeList label="Columns" changes={history.changes.columns} />
                   <ChangeList label="Rules" changes={history.changes.rules} />
                   <label htmlFor="changeNote" className="block text-sm font-medium text-gray-700 mt-3 mb-1">

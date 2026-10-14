@@ -11,6 +11,8 @@ import {
   getFileDefinitionUserCounts,
   exportFileDefinition,
   uploadTemplate,
+  removeTemplate,
+  publishFileDefinitionVersion,
   FileDefinitionAdmin,
   FileDefinitionColumn,
   FileDefinitionTable,
@@ -23,8 +25,7 @@ import { ArrowLeft, Check, FilePlus2, FileUp, Plus, Trash2, Users, X } from 'luc
 import { Download } from 'lucide-react';
 import DefinitionVersionsModal from './DefinitionVersionsModal';
 import ExampleFileAssistant from './ExampleFileAssistant';
-import ColumnsEditor from './ColumnsEditor';
-import { rulesForLayout, type ColumnHint, type DefinitionLayout, type ExampleProposal } from './exampleProposal';
+import { rulesForLayout, type DefinitionLayout, type ExampleProposal } from './exampleProposal';
 import { Link, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 
@@ -139,50 +140,6 @@ export const buildDefinitionContract = (form: DefinitionForm): DefinitionContrac
     tables: [tables[0] ?? fallbackTable, ...tables.slice(1)],
   };
 };
-
-function LayoutSelector({ layout, onChange }: { layout: DefinitionLayout; onChange: (layout: DefinitionLayout) => void }) {
-  return (
-    <fieldset>
-      <legend className="mb-2 text-sm font-semibold text-gray-900">Layout</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 ${
-          layout === 'single' ? 'border-blue-400 bg-white' : 'border-gray-200 bg-white/70'
-        }`}>
-          <input
-            type="radio"
-            name="layout"
-            checked={layout === 'single'}
-            onChange={() => onChange('single')}
-            className="mt-1"
-          />
-          <span>
-            <span className="block text-sm font-semibold text-gray-900">Single table</span>
-            <span className="mt-0.5 block text-xs text-gray-600">
-              One column structure for CSV files or every sheet in a workbook.
-            </span>
-          </span>
-        </label>
-        <label className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 ${
-          layout === 'sheets' ? 'border-blue-400 bg-white' : 'border-gray-200 bg-white/70'
-        }`}>
-          <input
-            type="radio"
-            name="layout"
-            checked={layout === 'sheets'}
-            onChange={() => onChange('sheets')}
-            className="mt-1"
-          />
-          <span>
-            <span className="block text-sm font-semibold text-gray-900">Multiple tables</span>
-            <span className="mt-0.5 block text-xs text-gray-600">
-              A separate column structure for each named Excel worksheet.
-            </span>
-          </span>
-        </label>
-      </div>
-    </fieldset>
-  );
-}
 
 function BasicColumnsEditor({
   columns,
@@ -313,12 +270,13 @@ export default function FileDefinitions() {
   const [uploading, setUploading] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [currentTemplateFilename, setCurrentTemplateFilename] = useState<string | null>(null);
+  const [removeTemplateRequested, setRemoveTemplateRequested] = useState(false);
   const [notice, setNotice] = useState<{ text: string; definition?: FileDefinitionAdmin } | null>(null);
-  const [exampleHints, setExampleHints] = useState<Record<string, ColumnHint>>({});
   const [pendingRules, setPendingRules] = useState<InitialRule[]>([]);
   const [showContractSettings, setShowContractSettings] = useState(false);
   const [creationPath, setCreationPath] = useState<'example' | 'clean' | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
+  const [changeNote, setChangeNote] = useState('');
   const [exampleProposal, setExampleProposal] = useState<ExampleProposal | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'unpublished'>('all');
@@ -365,11 +323,12 @@ export default function FileDefinitions() {
       setFormData(EMPTY_FORM);
       setCurrentTemplateFilename(null);
       setTemplateFile(null);
-      setExampleHints({});
+      setRemoveTemplateRequested(false);
       setPendingRules([]);
       setShowContractSettings(false);
       setCreationPath(null);
       setWizardStep(1);
+      setChangeNote('');
       setExampleProposal(null);
       setError(null);
       return;
@@ -447,34 +406,33 @@ export default function FileDefinitions() {
     let savedId: string | null = null;
     const wasEditing = Boolean(editingId);
     let succeeded = false;
+    let publishedVersion: { versionNumber: number } | null = null;
+
     try {
       setUploading(true);
       setError(null);
+
       const saved = editingId
         ? await updateFileDefinitionAdmin(editingId, payload)
         : await createFileDefinitionAdmin(initialRules.length > 0 ? { ...payload, rules: initialRules } : payload);
       savedId = saved?.id || editingId;
-    } catch (err) {
-      console.error('Failed to save file definition:', err);
-      setError(err instanceof Error ? err.message : 'Failed to save file definition');
-      setUploading(false);
-      return;
-    }
-
-    try {
       if (templateFile) {
         if (!savedId) {
           throw new Error('Definition was saved, but its id was not returned');
         }
         await uploadTemplate(savedId, templateFile);
+      } else if (editingId && removeTemplateRequested && currentTemplateFilename) {
+        await removeTemplate(editingId);
+      }
+      if (editingId) {
+        const published = await publishFileDefinitionVersion(editingId, changeNote || undefined);
+        publishedVersion = { versionNumber: published.versionNumber };
       }
       succeeded = true;
       closeWorkspace();
     } catch (err) {
-      console.error('Failed to upload template:', err);
-      // Keep the workspace open in edit mode so the admin can retry the template upload.
-      if (savedId) setEditingId(savedId);
-      setError(`Definition saved, but the template upload failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+      console.error('Failed to publish file definition:', err);
+      setError(err instanceof Error ? err.message : 'Failed to publish file definition');
     } finally {
       setUploading(false);
       const refreshed = await fetchDefinitions();
@@ -483,6 +441,8 @@ export default function FileDefinitions() {
         if (!wasEditing) {
           const ruleText = initialRules.length > 0 ? ` It includes ${initialRules.length} rule${initialRules.length === 1 ? '' : 's'}.` : '';
           setNotice({ text: `"${current.name}" was created and published as version ${current.activeVersion?.versionNumber ?? 1}.${ruleText}` });
+        } else if (publishedVersion) {
+          setNotice({ text: `"${current.name}" was published as version ${publishedVersion.versionNumber}.` });
         } else if (current.hasUnpublishedChanges) {
           setNotice({
             text: `"${current.name}" has unpublished changes. Uploads keep using v${current.activeVersion?.versionNumber ?? '-'} until you publish a new version.`,
@@ -530,11 +490,13 @@ export default function FileDefinitions() {
     });
     setCurrentTemplateFilename(def.templateFilename || null);
     setTemplateFile(null);
-    setExampleHints({});
+    setRemoveTemplateRequested(false);
     setPendingRules([]);
-    setShowContractSettings(true);
-    setCreationPath(null);
+    setShowContractSettings(false);
+    setCreationPath('clean');
     setExampleProposal(null);
+    setWizardStep(1);
+    setChangeNote('');
   };
 
   const applyExample = (proposal: ExampleProposal) => {
@@ -545,7 +507,6 @@ export default function FileDefinitions() {
       columns: proposal.layout === 'single' ? proposal.columns : prev.columns,
       tables: proposal.layout === 'sheets' ? proposal.tables : prev.tables,
     }));
-    setExampleHints(proposal.hints);
     setPendingRules(proposal.rules);
   };
 
@@ -554,10 +515,23 @@ export default function FileDefinitions() {
     : ['Details', 'Tables and columns', 'Review'];
   const finalWizardStep = stepLabels.length;
   const structureWizardStep = creationPath === 'example' ? 3 : 2;
-  const isStructureWizardStep = !editingId && wizardStep === structureWizardStep;
+  const isStructureWizardStep = wizardStep === structureWizardStep;
+  const isReviewStep = wizardStep === finalWizardStep;
+  const nextPublishedVersionNumber = editingDefinition?.activeVersion ? editingDefinition.activeVersion.versionNumber + 1 : 1;
 
   const canMoveToNextStep = () => {
-    if (editingId) return true;
+    if (editingId) {
+      if (wizardStep === 1) return Boolean(formData.name.trim());
+      if (wizardStep === 2) {
+        const tables = formData.layout === 'single'
+          ? [{ sheet: null, columns: formData.columns }]
+          : formData.tables;
+        return tables.length > 0
+          && tables.every(table => table.columns.length > 0 && table.columns.every(column => column.name.trim()))
+          && (tables.length === 1 || tables.every(table => table.sheet?.trim()));
+      }
+      return true;
+    }
     if (wizardStep === 1) return Boolean(formData.name.trim()) && Boolean(creationPath);
     if (creationPath === 'example' && wizardStep === 2) return Boolean(exampleProposal);
     if (wizardStep === structureWizardStep) {
@@ -571,29 +545,12 @@ export default function FileDefinitions() {
     return true;
   };
 
-  // Switching layout keeps the other layout's columns in the form (only the chosen layout is saved);
-  // the first switch seeds the new layout from the current columns.
-  const switchLayout = (layout: DefinitionLayout) => {
-    setFormData(prev => {
-      if (layout === prev.layout) return prev;
-      if (layout === 'sheets') {
-        return { ...prev, layout, tables: prev.tables.length > 0 ? prev.tables : [{ sheet: 'Sheet1', columns: prev.columns }] };
-      }
-      return { ...prev, layout, columns: prev.columns.length > 0 ? prev.columns : (prev.tables[0]?.columns ?? INITIAL_COLUMNS) };
-    });
-  };
-
-  const updateTable = (index: number, changes: Partial<FileDefinitionTable>) => {
-    setFormData(prev => ({
-      ...prev,
-      tables: prev.tables.map((table, i) => (i === index ? { ...table, ...changes } : table)),
-    }));
-  };
-
   const cleanSlateTables = formData.layout === 'single'
-    ? formData.tables.length > 0
-      ? [{ ...formData.tables[0], columns: formData.columns }]
-      : [{ sheet: 'Table 1', columns: formData.columns }]
+    ? [{
+        ...formData.contract.tables[0],
+        sheet: 'Table 1',
+        columns: formData.columns,
+      }]
     : formData.tables;
   const summaryTables: FileDefinitionTable[] = formData.layout === 'single'
     ? [{
@@ -609,12 +566,18 @@ export default function FileDefinitions() {
   const updateCleanSlateTable = (index: number, changes: Partial<FileDefinitionTable>) => {
     setFormData(prev => {
       if (prev.layout === 'single') {
-        const current = prev.tables[0] ?? { sheet: 'Table 1', columns: prev.columns };
-        const updated = { ...current, ...changes };
         return {
           ...prev,
           columns: changes.columns ?? prev.columns,
-          tables: [updated],
+          contract: {
+            ...prev.contract,
+            tables: [{
+              ...prev.contract.tables[0],
+              ...changes,
+              sheet: null,
+              columns: prev.contract.tables[0]?.columns ?? [],
+            }],
+          },
         };
       }
       return {
@@ -653,16 +616,6 @@ export default function FileDefinitions() {
     });
   };
 
-  const updateSingleTable = (changes: Partial<ContractTable>) => {
-    setFormData(prev => {
-      const [first, ...rest] = prev.contract.tables;
-      return {
-        ...prev,
-        contract: { ...prev.contract, tables: [{ ...first, ...changes }, ...rest] },
-      };
-    });
-  };
-
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this file definition?')) return;
     
@@ -679,12 +632,14 @@ export default function FileDefinitions() {
   const closeWorkspace = () => {
     setEditingId(null);
     setTemplateFile(null);
+    setRemoveTemplateRequested(false);
     setCurrentTemplateFilename(null);
-    setExampleHints({});
     setPendingRules([]);
     setShowContractSettings(false);
     setCreationPath(null);
     setExampleProposal(null);
+    setWizardStep(1);
+    setChangeNote('');
     setFormData(EMPTY_FORM);
     setError(null);
     initializedWorkspace.current = '';
@@ -797,6 +752,7 @@ export default function FileDefinitions() {
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setTemplateFile(file);
+    if (file) setRemoveTemplateRequested(false);
   };
 
 
@@ -1074,44 +1030,43 @@ export default function FileDefinitions() {
             <form onSubmit={handleSubmit} className="p-4 sm:p-6">
               {editingDefinition?.activeVersion && (
                 <p className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-900">
-                  Column changes are saved as a draft. Uploads keep using v{editingDefinition.activeVersion.versionNumber} until
-                  you publish a new version from Versions. Name, status, delivery folder and template apply immediately.
+                  Edit the definition below, then publish a new version when you are ready. Uploads keep using v{editingDefinition.activeVersion.versionNumber} until the new version is published.
                 </p>
               )}
-              {!editingId && (
-                <div className="mb-6 rounded-md border border-blue-200 bg-blue-50 p-4">
-                  <h2 className="font-semibold text-blue-950">Create and publish in one workspace</h2>
-                  <p className="mt-1 text-sm text-blue-900">
-                    Capture the definition details, choose how you want to start, then review and publish version 1.
-                  </p>
-                  <ol
-                    className={`mt-3 grid gap-2 text-sm ${stepLabels.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}
-                    aria-label="Definition setup steps"
-                  >
-                    {stepLabels.map((label, index) => (
-                      <li
-                        key={label}
-                        className={`rounded px-3 py-2 font-medium ${
-                          wizardStep === index + 1
-                            ? 'bg-blue-600 text-white'
-                            : index + 1 < wizardStep
-                              ? 'bg-blue-100 text-blue-900'
-                              : 'bg-white/80 text-blue-900'
-                        }`}
-                      >
-                        {index + 1}. {label}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+              <div className="mb-6 rounded-md border border-blue-200 bg-blue-50 p-4">
+                <h2 className="font-semibold text-blue-950">Create and publish in one workspace</h2>
+                <p className="mt-1 text-sm text-blue-900">
+                  {editingId
+                    ? `Update the definition details and structure, then review and publish version ${nextPublishedVersionNumber}.`
+                    : 'Capture the definition details, choose how you want to start, then review and publish version 1.'}
+                </p>
+                <ol
+                  className={`mt-3 grid gap-2 text-sm ${stepLabels.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}
+                  aria-label="Definition setup steps"
+                >
+                  {stepLabels.map((label, index) => (
+                    <li
+                      key={label}
+                      className={`rounded px-3 py-2 font-medium ${
+                        wizardStep === index + 1
+                          ? 'bg-blue-600 text-white'
+                          : index + 1 < wizardStep
+                            ? 'bg-blue-100 text-blue-900'
+                            : 'bg-white/80 text-blue-900'
+                      }`}
+                    >
+                      {index + 1}. {label}
+                    </li>
+                  ))}
+                </ol>
+              </div>
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700" role="alert">
                   {error}
                 </div>
               )}
 
-              {!editingId && wizardStep === 1 && (
+              {wizardStep === 1 && (
                 <>
                   <div className="mb-4">
                     <label htmlFor="definition-name" className="block text-sm font-medium text-gray-700 mb-2">
@@ -1140,6 +1095,7 @@ export default function FileDefinitions() {
                     />
                   </div>
 
+                  {!editingId && (
                   <section className="mb-5" aria-labelledby="definition-start-heading">
                     <h2 id="definition-start-heading" className="mb-2 text-sm font-medium text-gray-700">
                       How would you like to define the file structure?
@@ -1151,7 +1107,6 @@ export default function FileDefinitions() {
                         onClick={() => {
                           setCreationPath('example');
                           setExampleProposal(null);
-                          setExampleHints({});
                           setPendingRules([]);
                         }}
                         className={`w-full rounded-lg border p-4 text-left transition-colors ${
@@ -1177,7 +1132,6 @@ export default function FileDefinitions() {
                         onClick={() => {
                           setCreationPath('clean');
                           setExampleProposal(null);
-                          setExampleHints({});
                           setPendingRules([]);
                           setFormData(prev => ({
                             ...prev,
@@ -1212,10 +1166,11 @@ export default function FileDefinitions() {
                       </button>
                     </div>
                   </section>
+                  )}
                 </>
               )}
 
-              {!editingId && ((creationPath === 'example' && wizardStep === 2) || isStructureWizardStep) && (
+              {((creationPath === 'example' && wizardStep === 2) || isStructureWizardStep) && (
                 <section className="mb-5" aria-live="polite">
                   {creationPath === 'example' && wizardStep === 2 ? (
                     <>
@@ -1279,6 +1234,50 @@ export default function FileDefinitions() {
                               </button>
                             </div>
                             <div className="border-t border-gray-200 bg-white p-3">
+                              <details className="mb-3 rounded-md border border-gray-200 p-3">
+                                <summary className="cursor-pointer text-xs font-medium text-gray-700">
+                                  Table settings
+                                </summary>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                                  <label className="text-xs text-gray-600">
+                                    Header row
+                                    <input
+                                      aria-label={`Header row for ${table.sheet}`}
+                                      type="number"
+                                      min="1"
+                                      value={table.headerRow ?? ''}
+                                      onChange={event => updateCleanSlateTable(tableIndex, {
+                                        headerRow: event.target.value === '' ? null : Number(event.target.value),
+                                      })}
+                                      className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
+                                    />
+                                  </label>
+                                  <label className="flex items-center gap-2 text-xs text-gray-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={table.allowExtraColumns ?? true}
+                                      onChange={event => updateCleanSlateTable(tableIndex, { allowExtraColumns: event.target.checked })}
+                                      className="rounded border-gray-300"
+                                    />
+                                    Allow extra columns
+                                  </label>
+                                  {(['minRows', 'maxRows'] as const).map(field => (
+                                    <label key={field} className="text-xs text-gray-600">
+                                      {field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
+                                      <input
+                                        aria-label={`${field === 'minRows' ? 'Minimum rows' : 'Maximum rows'} for ${table.sheet}`}
+                                        type="number"
+                                        min="0"
+                                        value={table[field] ?? ''}
+                                        onChange={event => updateCleanSlateTable(tableIndex, {
+                                          [field]: event.target.value === '' ? null : Number(event.target.value),
+                                        })}
+                                        className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </details>
                               <BasicColumnsEditor
                                 columns={table.columns}
                                 onChange={columns => updateCleanSlateTable(tableIndex, { columns })}
@@ -1293,7 +1292,7 @@ export default function FileDefinitions() {
                 </section>
               )}
 
-              {editingId && (
+              {editingId && wizardStep === 1 && (
                 <div className="mb-5 space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1308,159 +1307,10 @@ export default function FileDefinitions() {
                       <option value="Inactive">Inactive</option>
                     </select>
                   </div>
-                  <LayoutSelector layout={formData.layout} onChange={switchLayout} />
                 </div>
               )}
 
-              {editingId && (
-                <>
-              {formData.layout === 'single' ? (
-                <div className="mb-4">
-                  <fieldset className="mb-3 rounded-md border border-gray-200 p-3">
-                    <legend className="px-1 text-sm font-medium text-gray-700">Table settings</legend>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <label className="text-xs text-gray-600">
-                        Header row (blank = detect automatically)
-                        <input
-                          aria-label="Header row"
-                          type="number"
-                          min="1"
-                          value={formData.contract.tables[0]?.headerRow ?? ''}
-                          onChange={e => updateSingleTable({ headerRow: e.target.value === '' ? null : Number(e.target.value) })}
-                          className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-gray-700">
-                        <input
-                          type="checkbox"
-                          checked={formData.contract.tables[0]?.allowExtraColumns ?? true}
-                          onChange={e => updateSingleTable({ allowExtraColumns: e.target.checked })}
-                          className="rounded border-gray-300"
-                        />
-                        Allow extra columns
-                      </label>
-                      {(['minRows', 'maxRows'] as const).map(field => (
-                        <label key={field} className="text-xs text-gray-600">
-                          {field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
-                          <input
-                            aria-label={field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
-                            type="number"
-                            min="0"
-                            value={formData.contract.tables[0]?.[field] ?? ''}
-                            onChange={e => updateSingleTable({ [field]: e.target.value === '' ? null : Number(e.target.value) })}
-                            className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                  <ColumnsEditor
-                    columns={formData.columns}
-                    onChange={columns => setFormData(prev => ({ ...prev, columns }))}
-                    hints={exampleHints}
-                    sheet={null}
-                    showType={Boolean(editingId)}
-                    allowStructureChanges={Boolean(editingId)}
-                    showDescription={Boolean(editingId)}
-                  />
-                </div>
-              ) : (
-                <div className="mb-4 space-y-3">
-                  <p className="text-xs text-gray-500">
-                    Uploaded workbooks must contain each sheet below (matched by name, ignoring case). Other sheets are not validated, and CSV files are rejected.
-                  </p>
-                  {formData.tables.map((table, tableIndex) => (
-                    <section key={tableIndex} aria-label={`Sheet table ${tableIndex + 1}`} className="border border-gray-200 rounded-md p-3 bg-gray-50/50">
-                      <div className="flex items-center gap-2 mb-3">
-                        {editingId ? (
-                          <>
-                            <label className="text-sm font-medium text-gray-700 whitespace-nowrap" htmlFor={`sheet-name-${tableIndex}`}>Sheet name *</label>
-                            <input
-                              id={`sheet-name-${tableIndex}`}
-                              type="text"
-                              value={table.sheet}
-                              maxLength={31}
-                              onChange={(e) => updateTable(tableIndex, { sheet: e.target.value })}
-                              className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                              required
-                            />
-                          </>
-                        ) : (
-                          <h3 className="flex-1 text-sm font-semibold text-gray-900">{table.sheet}</h3>
-                        )}
-                        {editingId && formData.tables.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, tables: prev.tables.filter((_, i) => i !== tableIndex) }))}
-                            className="text-red-600 hover:text-red-700 text-sm flex items-center gap-1"
-                            aria-label={`Remove sheet table ${table.sheet || tableIndex + 1}`}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </div>
-                      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <label className="text-xs text-gray-600">
-                          Header row (blank = detect automatically)
-                          <input
-                            aria-label={`Header row for ${table.sheet}`}
-                            type="number"
-                            min="1"
-                            value={table.headerRow ?? ''}
-                            onChange={e => updateTable(tableIndex, { headerRow: e.target.value === '' ? null : Number(e.target.value) })}
-                            className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                          />
-                        </label>
-                        <label className="flex items-center gap-2 text-sm text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={table.allowExtraColumns ?? true}
-                            onChange={e => updateTable(tableIndex, { allowExtraColumns: e.target.checked })}
-                            className="rounded border-gray-300"
-                          />
-                          Allow extra columns
-                        </label>
-                        {(['minRows', 'maxRows'] as const).map(field => (
-                          <label key={field} className="text-xs text-gray-600">
-                            {field === 'minRows' ? 'Minimum rows' : 'Maximum rows'}
-                            <input
-                              aria-label={`${field === 'minRows' ? 'Minimum rows' : 'Maximum rows'} for ${table.sheet}`}
-                              type="number"
-                              min="0"
-                              value={table[field] ?? ''}
-                              onChange={e => updateTable(tableIndex, { [field]: e.target.value === '' ? null : Number(e.target.value) })}
-                              className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                            />
-                          </label>
-                        ))}
-                      </div>
-                      <ColumnsEditor
-                        columns={table.columns}
-                        onChange={columns => updateTable(tableIndex, { columns })}
-                        hints={exampleHints}
-                        sheet={table.sheet}
-                        showType={Boolean(editingId)}
-                        allowStructureChanges={Boolean(editingId)}
-                        showDescription={Boolean(editingId)}
-                      />
-                    </section>
-                  ))}
-                  {editingId && (
-                    <button
-                      type="button"
-                      onClick={() => setFormData(prev => ({
-                        ...prev,
-                        tables: [...prev.tables, { sheet: `Sheet${prev.tables.length + 1}`, columns: [{ ...EMPTY_COLUMN }] }],
-                      }))}
-                      className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                    >
-                      <Plus size={16} /> Add sheet table
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {editingId && (
+              {wizardStep === 2 && (
                 <details
                   open={showContractSettings}
                   onToggle={event => setShowContractSettings(event.currentTarget.open)}
@@ -1540,7 +1390,7 @@ export default function FileDefinitions() {
                 </div>
               )}
 
-              {editingId && (
+              {editingId && wizardStep === 1 && (
                 <details className="mb-4 rounded-md border border-gray-200 p-3">
                   <summary className="cursor-pointer font-medium text-gray-800">Delivery and reusable template</summary>
                   <p className="mt-1 text-xs text-gray-500">Optional settings for what happens after validation and for helping users prepare files.</p>
@@ -1568,9 +1418,27 @@ export default function FileDefinitions() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Template File (Excel/CSV - optional)
                   </label>
-                  {currentTemplateFilename && (
+                  {currentTemplateFilename && !removeTemplateRequested && (
                     <div className="mb-2 p-2 bg-gray-50 rounded-md text-sm text-gray-600">
-                      Current: {currentTemplateFilename}
+                      <span>Current: {currentTemplateFilename}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTemplateFile(null);
+                          setRemoveTemplateRequested(true);
+                        }}
+                        className="ml-3 font-semibold text-red-600 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                  {removeTemplateRequested && (
+                    <div className="mb-2 flex items-center justify-between rounded-md bg-amber-50 p-2 text-sm text-amber-900">
+                      <span>The current template will be removed when this version is published.</span>
+                      <button type="button" onClick={() => setRemoveTemplateRequested(false)} className="font-semibold underline">
+                        Undo
+                      </button>
                     </div>
                   )}
                   <input
@@ -1587,10 +1455,8 @@ export default function FileDefinitions() {
                 </div>
                 </details>
               )}
-                </>
-              )}
 
-              {!editingId && wizardStep === finalWizardStep && (
+              {isReviewStep && (
                 <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-4">
                   <h3 className="text-base font-semibold text-blue-950">Review and publish</h3>
                   <dl className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1599,8 +1465,10 @@ export default function FileDefinitions() {
                       <dd className="mt-1 text-sm font-semibold text-gray-900">{formData.name || 'Untitled definition'}</dd>
                     </div>
                     <div className="rounded bg-white p-3">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Starting point</dt>
-                      <dd className="mt-1 text-sm font-semibold text-gray-900">{creationPath === 'example' ? 'Example file' : 'Clean slate'}</dd>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">{editingId ? 'Publishing' : 'Starting point'}</dt>
+                      <dd className="mt-1 text-sm font-semibold text-gray-900">
+                        {editingId ? `Version ${nextPublishedVersionNumber}` : creationPath === 'example' ? 'Example file' : 'Clean slate'}
+                      </dd>
                     </div>
                     <div className="rounded bg-white p-3">
                       <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Layout</dt>
@@ -1619,6 +1487,24 @@ export default function FileDefinitions() {
                     <div className="mt-3 rounded bg-white p-3 text-sm text-gray-700">
                       <span className="font-medium text-gray-900">Description:</span> {formData.description}
                     </div>
+                  )}
+                  {editingId && (
+                    <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded bg-white p-3">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Status</dt>
+                        <dd className="mt-1 text-sm font-semibold text-gray-900">{formData.status}</dd>
+                      </div>
+                      <div className="rounded bg-white p-3">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Delivery folder</dt>
+                        <dd className="mt-1 text-sm font-semibold text-gray-900">{formData.deliveryFolder || 'None'}</dd>
+                      </div>
+                      <div className="rounded bg-white p-3">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Reusable template</dt>
+                        <dd className="mt-1 text-sm font-semibold text-gray-900">
+                          {templateFile?.name || (removeTemplateRequested ? 'Remove current template' : currentTemplateFilename || 'None')}
+                        </dd>
+                      </div>
+                    </dl>
                   )}
                   <div className="mt-3 space-y-3">
                     {summaryTables.map((table, tableIndex) => (
@@ -1640,7 +1526,6 @@ export default function FileDefinitions() {
                             <li key={column.name} className="grid gap-1 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_8rem_8rem]">
                               <div>
                                 <span className="font-medium text-gray-900">{column.name}</span>
-                                {column.description && <p className="text-xs text-gray-500">{column.description}</p>}
                               </div>
                               <span className="text-gray-600">{column.type}</span>
                               <span className="text-gray-600">
@@ -1665,35 +1550,33 @@ export default function FileDefinitions() {
                 </div>
               )}
 
-              <div className="sticky bottom-0 -mx-4 flex justify-between gap-3 border-t bg-white px-4 pt-4 pb-1 shadow-[0_-8px_16px_-16px_rgba(15,23,42,0.5)]">
-                {editingId ? (
-                  <button
-                    type="button"
-                    onClick={closeWorkspace}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                  >
-                    Back to definitions
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={closeWorkspace}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                )}
+              {editingId && isReviewStep && (
+                <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3">
+                  <label htmlFor="change-note" className="mb-2 block text-sm font-medium text-gray-700">
+                    Change note (optional)
+                  </label>
+                  <textarea
+                    id="change-note"
+                    value={changeNote}
+                    onChange={e => setChangeNote(e.target.value)}
+                    maxLength={500}
+                    rows={2}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Describe the changes included in this version"
+                  />
+                </div>
+              )}
 
-                {editingId ? (
-                  <button
-                    type="submit"
-                    disabled={uploading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Check size={18} />
-                    {uploading ? 'Saving...' : 'Save draft changes'}
-                  </button>
-                ) : wizardStep < finalWizardStep ? (
+              <div className="sticky bottom-0 -mx-4 flex justify-between gap-3 border-t bg-white px-4 pt-4 pb-1 shadow-[0_-8px_16px_-16px_rgba(15,23,42,0.5)]">
+                <button
+                  type="button"
+                  onClick={closeWorkspace}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  {editingId ? 'Back to definitions' : 'Cancel'}
+                </button>
+
+                {wizardStep < finalWizardStep ? (
                   <button
                     type="button"
                     onClick={(event) => {
@@ -1711,14 +1594,17 @@ export default function FileDefinitions() {
                 ) : (
                   <button
                     type="submit"
-                    disabled={uploading}
+                    disabled={uploading || !canMoveToNextStep()}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Check size={18} />
-                    {uploading ? 'Saving...' : 'Publish version 1'}
+                    {uploading
+                      ? 'Publishing...'
+                      : `Publish version ${editingId ? nextPublishedVersionNumber : 1}`}
                   </button>
                 )}
               </div>
+
             </form>
           </div>
           )}

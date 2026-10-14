@@ -37,7 +37,7 @@ export interface IFileDefinition {
     Status: 'Active' | 'Inactive';
     CreatedAt: Date;
     UpdatedAt: Date;
-    TemplateFilename?: string;
+    TemplateFilename?: string | null;
     /** Optional delivery folder relative to DELIVERY_ROOT_PATH */
     DeliveryFolder?: string | null;
     // User access (populated when fetching)
@@ -80,7 +80,7 @@ export interface IUpdateFileDefinitionDto {
     Columns?: IColumn[];
     Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
-    TemplateFilename?: string;
+    TemplateFilename?: string | null;
     DeliveryFolder?: string | null;
 }
 
@@ -103,11 +103,20 @@ export interface IFileDefinitionVersion {
     Columns: ContractSnapshot['columns'];
     Tables: ContractSnapshot['tables'];
     Rules: ContractSnapshot['rules'];
+    DefinitionMetadata: IDefinitionMetadataSnapshot | null;
     ChangeNote: string | null;
     CreatedBy: string | null;
     CreatedByName: string | null;
     ActivatedAt: Date;
     SupersededAt: Date | null;
+}
+
+export interface IDefinitionMetadataSnapshot {
+    name: string;
+    description: string;
+    status: 'Active' | 'Inactive';
+    deliveryFolder: string | null;
+    templateFilename: string | null;
 }
 
 /**

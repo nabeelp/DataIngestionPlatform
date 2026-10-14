@@ -16,7 +16,6 @@ const createForm = (overrides: Partial<DefinitionForm> = {}): DefinitionForm => 
     maxRows: 100,
     columns: [{
       name: 'Amount',
-      description: 'Transaction amount in the source currency',
       type: 'decimal',
       required: true,
       mustExist: true,
@@ -67,7 +66,6 @@ describe('definition contract editor mapping', () => {
         maxRows: 100,
         columns: [{
           name: 'Amount',
-          description: 'Transaction amount in the source currency',
           type: 'decimal',
           mustExist: true,
           nullable: false,

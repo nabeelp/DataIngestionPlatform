@@ -54,6 +54,38 @@ describe('definition contract persistence mapping', () => {
         expect(() => parseDefinitionContract({ schemaVersion: 2 })).toThrow('Stored definition contract does not match schema version 1.');
     });
 
+    it('drops unsupported properties from legacy stored columns', () => {
+        const contract = parseDefinitionContract({
+            schemaVersion: 1,
+            layout: 'single',
+            ignoredSheets: [],
+            encoding: 'auto',
+            tables: [{
+                sheet: null,
+                headerRow: null,
+                allowExtraColumns: true,
+                minRows: null,
+                maxRows: null,
+                columns: [{
+                    name: 'Amount',
+                    description: 'Legacy metadata',
+                    type: 'decimal',
+                    mustExist: true,
+                    nullable: false,
+                }],
+            }],
+            rules: [],
+            lookups: {},
+        });
+
+        expect(contract.tables[0].columns[0]).toEqual({
+            name: 'Amount',
+            type: 'decimal',
+            mustExist: true,
+            nullable: false,
+        });
+    });
+
     it('maps a stored full version contract to the model projection', () => {
         const contract = emptyDefinitionContract();
         contract.tables[0].columns = [{

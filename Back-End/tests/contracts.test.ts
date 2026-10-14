@@ -37,6 +37,14 @@ describe('contract examples', () => {
         expect(validate(example)).toBe(true);
     });
 
+    it('rejects descriptions on table columns', () => {
+        const schema = schemas.find(item => item.$id.endsWith('definition-contract.schema.json'))!;
+        const example = JSON.parse(fs.readFileSync(path.join(contractsDirectory, 'examples', 'definition-contract.json'), 'utf8'));
+        example.tables[0].columns[0].description = 'Removed column metadata';
+
+        expect(ajv.getSchema(schema.$id)!(example)).toBe(false);
+    });
+
     it('requires every rule variant to satisfy its params schema', () => {
         const rules = [
             ['columnsPresent', { columns: ['A'] }],

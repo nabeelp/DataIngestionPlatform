@@ -400,7 +400,15 @@ export class FileDefinitionService {
         return definition;
     }
 
-}
+    static async clearTemplateFilename(definitionId: string): Promise<IFileDefinition> {
+        const definition = await FileDefinition.update(definitionId, { TemplateFilename: null });
+        if (!definition) {
+            throw new Error('File definition not found');
+        }
+        logger.info(`[FILEDEF_SVC] Cleared template for definition ${definitionId}`);
+        return definition;
+    }
 
+}
 
 
