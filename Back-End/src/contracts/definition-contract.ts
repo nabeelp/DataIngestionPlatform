@@ -217,6 +217,7 @@ export interface Table {
 }
 export interface Column {
   name: string;
+  description?: string;
   type: 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
   mustExist: boolean;
   nullable: boolean;

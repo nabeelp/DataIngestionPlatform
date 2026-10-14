@@ -31,10 +31,10 @@ const api = async (page: Page, method: string, apiPath: string, body?: unknown) 
   return response.json();
 };
 
-const createFromModal = async (page: Page): Promise<string> => {
+const createFromWorkspace = async (page: Page): Promise<string> => {
   const [created] = await Promise.all([
     page.waitForResponse(r => r.url().endsWith('/admin/file-definitions') && r.request().method() === 'POST'),
-    page.locator('form').getByRole('button', { name: 'Create' }).click(),
+    page.locator('form').getByRole('button', { name: 'Publish version 1' }).click(),
   ]);
   const body = await created.json();
   expect(body.success).toBe(true);
@@ -47,7 +47,7 @@ const uploadFile = async (page: Page, definitionName: string, file: string | { n
   await page.locator('input[type="file"]').setInputFiles(file);
   const [response] = await Promise.all([
     page.waitForResponse(r => r.url().endsWith('/uploads') && r.request().method() === 'POST'),
-    page.getByRole('button', { name: 'Verify and Upload File' }).click(),
+    page.getByRole('button', { name: 'Upload and validate' }).click(),
   ]);
   return { status: response.status(), body: await response.json() };
 };
@@ -69,29 +69,44 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
   await login(page, ADMIN);
   try {
     await page.goto('/admin/file-definitions');
-    await page.getByRole('button', { name: 'Add Definition' }).click();
+    await page.getByRole('button', { name: 'New definition' }).click();
+    await expect(page).toHaveURL(/\/admin\/file-definitions\/new$/);
     const form = page.locator('form');
+    await form.getByLabel('Name *').fill(name);
+    await form.getByRole('button', { name: /Start from an example file/ }).click();
+    await expect(form.getByRole('list', { name: 'Definition setup steps' }).getByRole('listitem')).toHaveCount(4);
+    await form.getByRole('button', { name: 'Next' }).click();
     const assistant = form.getByRole('region', { name: 'Start from an example file' });
+    await expect(form.getByRole('button', { name: 'Next' })).toBeDisabled();
+    await expect(assistant.getByRole('button', { name: /Discard|Use .*sheet tables|Use these columns/ })).toHaveCount(0);
 
     await assistant.getByLabel('Example file').setInputFiles(XLSX_EXAMPLE);
 
-    // Each populated sheet becomes a table; the admin leaves out the ReadMe sheet.
-    const sheetsToInclude = assistant.getByRole('group', { name: 'Sheets to include (one table each)' });
-    await expect(sheetsToInclude.getByRole('checkbox')).toHaveCount(3);
-    await expect(sheetsToInclude).toContainText('Orders — 5 columns, 4 rows');
-    await expect(sheetsToInclude).toContainText('Refunds — 2 columns, 2 rows');
-    await sheetsToInclude.getByRole('checkbox', { name: /ReadMe/ }).uncheck();
+    // Every sheet is visible at once. Excluding a sheet collapses and greys it out; including it expands it again.
+    const orders = assistant.getByRole('region', { name: 'Detected table Orders' });
+    const refunds = assistant.getByRole('region', { name: 'Detected table Refunds' });
+    const readMe = assistant.getByRole('region', { name: 'Detected table ReadMe' });
+    await expect(orders).toBeVisible();
+    await expect(refunds).toBeVisible();
+    await expect(readMe).toBeVisible();
+    await readMe.getByRole('checkbox', { name: 'Include sheet ReadMe' }).uncheck();
+    await expect(readMe.getByRole('table')).toHaveCount(0);
+    await expect(readMe).toHaveClass(/bg-gray-100/);
+    await readMe.getByRole('checkbox', { name: 'Include sheet ReadMe' }).check();
+    await expect(readMe.getByRole('table')).toBeVisible();
+    await readMe.getByRole('checkbox', { name: 'Include sheet ReadMe' }).uncheck();
 
-    const proposed = assistant.getByRole('table', { name: 'Proposed columns' });
-    await expect(assistant.getByLabel('Preview sheet')).toHaveValue('0');
+    const proposed = orders.getByRole('table', { name: 'Proposed columns for Orders' });
     await expect(proposed.locator('tbody tr')).toHaveCount(5);
-    await expect(proposed.getByRole('row', { name: /OrderId/ })).toContainText('integer');
-    await expect(proposed.getByRole('row', { name: /Amount/ })).toContainText('decimal');
-    await expect(proposed.getByRole('row', { name: /OrderDate/ })).toContainText('datetime');
-    await expect(proposed.getByRole('row', { name: /Comment/ })).toContainText('No');
+    await expect(orders.getByLabel('Type for OrderId in Orders')).toHaveValue('integer');
+    await expect(orders.getByLabel('Type for Amount in Orders')).toHaveValue('decimal');
+    await expect(orders.getByLabel('Type for OrderDate in Orders')).toHaveValue('datetime');
+    await expect(orders.getByLabel('Required for Comment in Orders')).not.toBeChecked();
+    await orders.getByLabel('Type for Amount in Orders').selectOption('string');
+    await orders.getByLabel('Required for Status in Orders').uncheck();
 
     // Numeric columns get a rounded-out range suggestion; identifiers such as OrderId do not.
-    const suggestions = assistant.getByRole('group', { name: /Suggested rules for sheet "Orders"/ });
+    const suggestions = orders.getByRole('group', { name: /Suggested rules for Orders/ });
     await expect(suggestions.getByRole('checkbox')).toHaveCount(2);
     await expect(suggestions.getByRole('checkbox', { name: /Range Check Amount: 0\.\.20/ })).toBeVisible();
     await expect(suggestions.getByRole('checkbox', { name: /OrderId/ })).toHaveCount(0);
@@ -99,28 +114,25 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     await expect(suggestions.getByRole('checkbox', { checked: true })).toHaveCount(2);
     await suggestions.getByRole('button', { name: 'Clear' }).click();
     await expect(suggestions.getByRole('checkbox', { checked: true })).toHaveCount(0);
-    await assistant.getByRole('checkbox', { name: /Status: Closed, Open/ }).check();
+    await orders.getByRole('checkbox', { name: /Status: Closed, Open/ }).check();
+    await expect(refunds.getByRole('table', { name: 'Proposed columns for Refunds' }).locator('tbody tr')).toHaveCount(2);
 
-    await assistant.getByLabel('Preview sheet').selectOption({ label: 'Refunds — 2 columns, 2 rows' });
-    await expect(proposed.locator('tbody tr')).toHaveCount(2);
+    await expect(form.getByRole('button', { name: 'Next' })).toBeEnabled();
+    await form.getByRole('button', { name: 'Next' }).click();
 
-    await form.getByLabel('Text encoding').selectOption('utf-8');
-    await form.getByLabel('Ignored workbook sheets').fill('ReadMe');
-    await assistant.getByRole('button', { name: 'Use 2 sheet tables' }).click();
-    await expect(assistant).toContainText('Sheet tables from orders-example.xlsx (2 sheets) were applied');
-
-    // The proposal lands in the editor for review: one section per sheet, with the rule scoped to Orders.
-    await expect(form.getByRole('radio', { name: /One table per workbook sheet/ })).toBeChecked();
-    await expect(form.getByLabel('Sheet name *')).toHaveCount(2);
-    await expect(form.getByLabel('Sheet name *').first()).toHaveValue('Orders');
-    await expect(form.getByLabel('Sheet name *').nth(1)).toHaveValue('Refunds');
+    // Step 3 uses the same editable tables-and-columns layout as the clean-slate flow.
+    await expect(form.getByRole('region', { name: 'Table 1' })).toBeVisible();
+    await expect(form.getByRole('region', { name: 'Table 2' })).toBeVisible();
+    await expect(form.getByLabel('Table name *').first()).toHaveValue('Orders');
+    await expect(form.getByLabel('Table name *').nth(1)).toHaveValue('Refunds');
     await expect(form.getByPlaceholder('Column name')).toHaveCount(7);
-    await expect(form.locator('input[type="text"]').first()).toHaveValue('orders example');
-    await form.locator('input[type="text"]').first().fill(name);
-    await expect(form.getByText('Rules published with version 1')).toBeVisible();
-    await expect(form.getByRole('listitem').filter({ hasText: 'Status allowed values' })).toContainText('Orders ›');
+    await expect(form.getByRole('button', { name: 'Back' })).toHaveCount(0);
+    await expect(form.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await form.getByRole('button', { name: 'Next' }).click();
+    await expect(form.getByRole('heading', { name: 'Review and publish' })).toBeVisible();
+    await expect(form.getByText('Status allowed values')).toBeVisible();
 
-    definitionId = await createFromModal(page);
+    definitionId = await createFromWorkspace(page);
     await expect(page.getByRole('status')).toContainText(`"${name}" was created and published as version 1. It includes 1 rule.`);
     await expect(page.getByRole('row', { name: new RegExp(name) })).toContainText('2 sheets, 7 columns');
 
@@ -129,9 +141,12 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     const savedDefinition = definitions.definitions.find((definition: { id: string }) => definition.id === definitionId);
     expect(savedDefinition.contract).toMatchObject({
       layout: 'sheets',
-      encoding: 'utf-8',
-      ignoredSheets: ['ReadMe'],
-      tables: [{ sheet: 'Orders' }, { sheet: 'Refunds' }],
+      encoding: 'auto',
+      ignoredSheets: [],
+      tables: [
+        { sheet: 'Orders' },
+        { sheet: 'Refunds' },
+      ],
       rules: [],
     });
     expect(history.hasUnpublishedChanges).toBe(false);
@@ -141,9 +156,9 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
         sheet: 'Orders',
         columns: [
           { name: 'OrderId', type: 'integer', required: true },
-          { name: 'Amount', type: 'decimal', required: true },
+          { name: 'Amount', type: 'string', required: true },
           { name: 'OrderDate', type: 'datetime', required: true },
-          { name: 'Status', type: 'string', required: true },
+          { name: 'Status', type: 'string', required: false },
           { name: 'Comment', type: 'string', required: false },
         ],
       },
@@ -183,20 +198,21 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
 test('admins can keep one table for every sheet from a single-sheet workbook', async ({ page }) => {
   await login(page, ADMIN);
   await page.goto('/admin/file-definitions');
-  await page.getByRole('button', { name: 'Add Definition' }).click();
+  await page.getByRole('button', { name: 'New definition' }).click();
   const form = page.locator('form');
+  await form.getByLabel('Name *').fill(`E2E single example ${Date.now()}`);
+  await form.getByRole('button', { name: /Start from an example file/ }).click();
+  await form.getByRole('button', { name: 'Next' }).click();
   const assistant = form.getByRole('region', { name: 'Start from an example file' });
 
   await assistant.getByLabel('Example file').setInputFiles(path.join(FIXTURES, 'orders-upload-missing-refunds.xlsx'));
 
-  await expect(assistant.getByRole('group', { name: /Sheets to include/ })).toHaveCount(0);
-  await expect(assistant.getByLabel('Sheet', { exact: true })).toHaveValue('0');
-  await expect(assistant).toContainText('These columns will apply to every sheet of an uploaded workbook');
-  await assistant.getByRole('button', { name: 'Use these columns' }).click();
-
-  await expect(form.getByRole('radio', { name: /^One table/ }).first()).toBeChecked();
+  const detected = assistant.getByRole('region', { name: /Detected table/ });
+  await expect(detected).toHaveCount(1);
+  await expect(detected.getByRole('table')).toBeVisible();
+  await form.getByRole('button', { name: 'Next' }).click();
   await expect(form.getByPlaceholder('Column name')).toHaveCount(5);
-  await expect(form.getByLabel('Sheet name *')).toHaveCount(0);
+  await expect(form.getByRole('heading', { name: 'Orders' })).toHaveCount(0);
 });
 
 test('admins create a definition from a CSV example, which has no sheets', async ({ page }) => {
@@ -206,9 +222,11 @@ test('admins create a definition from a CSV example, which has no sheets', async
   await login(page, ADMIN);
   try {
     await page.goto('/admin/file-definitions');
-    await page.getByRole('button', { name: 'Add Definition' }).click();
+    await page.getByRole('button', { name: 'New definition' }).click();
     const form = page.locator('form');
-    await form.locator('input[type="text"]').first().fill(name);
+    await form.getByLabel('Name *').fill(name);
+    await form.getByRole('button', { name: /Start from an example file/ }).click();
+    await form.getByRole('button', { name: 'Next' }).click();
     const assistant = form.getByRole('region', { name: 'Start from an example file' });
 
     await assistant.getByLabel('Example file').setInputFiles({
@@ -219,15 +237,15 @@ test('admins create a definition from a CSV example, which has no sheets', async
 
     await expect(assistant).toContainText('CSV files have no sheets');
     await expect(assistant.getByLabel('Sheet')).toHaveCount(0);
-    await expect(assistant.getByRole('table', { name: 'Proposed columns' }).locator('tbody tr')).toHaveCount(3);
-    await assistant.getByRole('button', { name: 'Use these columns' }).click();
+    await expect(assistant.getByRole('table', { name: 'Proposed columns for CSV table' }).locator('tbody tr')).toHaveCount(3);
+    await form.getByRole('button', { name: 'Next' }).click();
 
-    // The name the admin typed is kept, and the editor shows what the example contained.
-    await expect(form.locator('input[type="text"]').first()).toHaveValue(name);
-    await expect(form.getByText('Example: 2/2 rows filled · e.g. a@x.com, b@x.com')).toBeVisible();
-    await expect(form.locator('select').nth(3)).toHaveValue('boolean');
+    // The name the admin typed is kept, and the shared editor contains the inferred columns.
+    await expect(form.getByRole('table', { name: 'Columns for Table 1' }).getByPlaceholder('Column name')).toHaveCount(3);
+    await form.getByRole('button', { name: 'Next' }).click();
+    await expect(form.getByRole('region', { name: 'Review table Single table' })).toContainText('boolean');
 
-    definitionId = await createFromModal(page);
+    definitionId = await createFromWorkspace(page);
     const history = await api(page, 'GET', `/admin/file-definitions/${definitionId}/versions`);
     expect(history.versions[0].columns).toEqual([
       { name: 'CustomerId', type: 'integer', required: true },
@@ -243,8 +261,11 @@ test('admins create a definition from a CSV example, which has no sheets', async
 test('unsupported example files are rejected without changing the form', async ({ page }) => {
   await login(page, ADMIN);
   await page.goto('/admin/file-definitions');
-  await page.getByRole('button', { name: 'Add Definition' }).click();
+  await page.getByRole('button', { name: 'New definition' }).click();
   const form = page.locator('form');
+  await form.getByLabel('Name *').fill(`E2E unsupported ${Date.now()}`);
+  await form.getByRole('button', { name: /Start from an example file/ }).click();
+  await form.getByRole('button', { name: 'Next' }).click();
   const assistant = form.getByRole('region', { name: 'Start from an example file' });
 
   await assistant.getByLabel('Example file').setInputFiles({
@@ -254,5 +275,5 @@ test('unsupported example files are rejected without changing the form', async (
   });
 
   await expect(assistant.getByRole('alert')).toHaveText('The example file could not be analyzed.');
-  await expect(form.getByPlaceholder('Column name')).toHaveValue('Column1');
+  await expect(form.getByPlaceholder('Column name')).toHaveCount(0);
 });

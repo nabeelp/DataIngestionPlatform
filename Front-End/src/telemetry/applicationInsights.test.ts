@@ -189,6 +189,9 @@ describe('Application Insights telemetry', () => {
     const { normalizeTelemetryRoute } = await import('./applicationInsights');
 
     expect(normalizeTelemetryRoute('/admin/history/private-id/')).toBe('/admin/history/:id');
+    expect(normalizeTelemetryRoute('/admin/file-definitions/new')).toBe('/admin/file-definitions/new');
+    expect(normalizeTelemetryRoute('/admin/file-definitions/private-id/edit')).toBe('/admin/file-definitions/:id/edit');
+    expect(normalizeTelemetryRoute('/admin/file-definitions/private-id/versions')).toBe('/admin/file-definitions/:id/versions');
     expect(normalizeTelemetryRoute('/users/alice@example.com')).toBe('/unknown');
     expect(normalizeTelemetryRoute('/auth/callback')).toBe('/auth/callback');
   });

@@ -16,6 +16,7 @@ const createForm = (overrides: Partial<DefinitionForm> = {}): DefinitionForm => 
     maxRows: 100,
     columns: [{
       name: 'Amount',
+      description: 'Transaction amount in the source currency',
       type: 'decimal',
       required: true,
       mustExist: true,
@@ -66,6 +67,7 @@ describe('definition contract editor mapping', () => {
         maxRows: 100,
         columns: [{
           name: 'Amount',
+          description: 'Transaction amount in the source currency',
           type: 'decimal',
           mustExist: true,
           nullable: false,
@@ -97,6 +99,21 @@ describe('definition contract editor mapping', () => {
       nullable: false,
     }]);
     expect(contract.tables[0].sheet).toBeNull();
+  });
+
+  it('derives nullable as the inverse of required', () => {
+    const contract = buildDefinitionContract(createForm({
+      layout: 'single',
+      columns: [{ name: 'Comment', type: 'string', required: false, mustExist: true, nullable: false }],
+      tables: [],
+    }));
+
+    expect(contract.tables[0].columns).toEqual([{
+      name: 'Comment',
+      type: 'string',
+      mustExist: false,
+      nullable: true,
+    }]);
   });
 
   it('preserves explicitly cleared nullable table bounds', () => {

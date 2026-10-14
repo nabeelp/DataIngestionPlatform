@@ -109,7 +109,7 @@ function App() {
         <Route path="upload" element={<Upload />} />
         <Route path="definitions" element={<Definitions />} />
         <Route path="users" element={<AdminUsers />} />
-        <Route path="file-definitions" element={<AdminFileDefinitions />} />
+        <Route path="file-definitions/*" element={<AdminFileDefinitions />} />
         <Route path="audit-logs" element={<AuditLogs />} />
         <Route path="monitoring" element={<Monitoring />} />
         <Route path="compliance" element={<Compliance />} />
@@ -135,4 +135,3 @@ function App() {
 }
 
 export default App;
-

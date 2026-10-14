@@ -51,6 +51,15 @@ export function normalizeTelemetryRoute(pathname: string): string {
     return normalizedPath.startsWith('/admin/') ? '/admin/history/:id' : '/history/:id';
   }
 
+  if (normalizedPath === '/admin/file-definitions/new') {
+    return normalizedPath;
+  }
+
+  const definitionWorkspaceRoute = normalizedPath.match(/^\/admin\/file-definitions\/[^/]+\/(edit|versions)$/);
+  if (definitionWorkspaceRoute) {
+    return `/admin/file-definitions/:id/${definitionWorkspaceRoute[1]}`;
+  }
+
   return '/unknown';
 }
 

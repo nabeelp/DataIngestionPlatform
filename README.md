@@ -40,7 +40,7 @@ Only admins can create, edit, enable/disable or delete rules. Standard users can
 
 ### Definition, rule, and upload workflow
 
-1. An admin creates a definition and its first published version. Later column and rule changes are saved to a draft; existing and new uploads continue to use the active published version until the admin selects **Review changes & publish**.
+1. An admin creates a definition in a dedicated full-page workspace and publishes version 1 only after reviewing its details, structure, and suggested rules. The same workspace links definition editing, rules, and full-page version review. Later column and rule changes are saved to a draft; existing and new uploads continue to use the active published version until the admin selects **Review changes & publish**.
 2. Definition links preserve the selected definition between **File Definitions**, **Rules**, and **Upload File**. Uploaders can review the published version, expected sheets/columns, and active rule counts before choosing a file.
 3. **Upload and validate** stores the file and adds it to upload history. History and result pages show the definition name and pinned version so validation outcomes remain explainable after a newer version is published.
 4. A failed result prioritizes failed checks, warnings, affected rows, and sample values. **Retry stored file** reprocesses the stored upload against its recorded version; use **Upload corrected file** to submit changed data with the same definition preselected.
@@ -86,9 +86,20 @@ A definition's **tables (columns) and enabled rules** form its versioned contrac
 - Standard users see the active version's columns (Definitions) and rules (Rules). Admins edit the draft.
 - Deleting a definition keeps the versions that uploads reference.
 
-## Starting a definition from an example file
+## Creating a file definition
 
-In Admin → File Definitions, **Start from an example file** proposes a definition from an example **CSV** or **XLSX** file (up to 10 MB). The example is read the same way uploads are validated, so the proposal matches what validation will see:
+New definitions use a path-specific wizard:
+
+1. **Details**: enter a name and optional description, then choose either **Start from an example file** or **Start from a clean slate**. Both choices remain the same size; selecting one highlights it. New definitions are always active.
+2. **Example file** (example path only): upload a representative **CSV** or **XLSX** file (up to 10 MB). Every detected sheet and its proposed columns and rules appear together. You can correct each proposed column's type and required state before continuing. Clear a sheet's include checkbox to collapse and grey it out; select it again to restore it.
+3. **Tables and columns** (step 2 for clean slate, step 3 for example files): add or remove tables and define each column's name, data type, and required state. Example-file proposals populate this same editor before review. The wizard infers a one-table layout from one table and a workbook-sheet layout from multiple tables, so there is no separate layout choice.
+4. **Review** (step 3 for clean slate, step 4 for example files): review the tables, columns, and selected suggested rules, then choose **Publish version 1**.
+
+Every creation step shows **Cancel** at the bottom left. Cancel returns to the file-definition list without saving; creation does not provide backward navigation.
+
+File contract settings and delivery/template settings are intentionally hidden during creation. They remain available when editing an existing definition.
+
+The example-file path reads the example the same way uploads are validated, so the proposal matches what validation will see:
 
 - **Header row**: the first non-empty row (the first record for CSV). Title rows above the headers become the header, so the panel warns when many header cells are blank.
 - **Sheets**: an XLSX workbook with **more than one populated sheet** is proposed as **one table per sheet**. Choose which sheets to include (all populated sheets are included by default) and preview each sheet's columns. A workbook with a single populated sheet, or a CSV file (which has no sheets), is proposed as one table.
@@ -99,7 +110,7 @@ In Admin → File Definitions, **Start from an example file** proposes a definit
 
   The reason for each suggestion is shown next to it. Pick suggestions individually or with **Select all suggested rules**. Selected suggestions from included sheets are created with the definition and published in version 1.
 
-**Use these columns** (or **Use N sheet tables**) replaces the form's layout and columns. You can then edit them, including switching layout, before saving; nothing is saved until you click **Create** or **Update**. When editing an existing definition, applied columns are saved as a draft like any other column edit. The example file is deleted as soon as it has been analyzed and is never stored.
+After reviewing the detected structure, **Next** applies the included columns, sheet tables, and selected rules and continues to metadata. Nothing is saved until the final review is published. The example-file assistant is available only while creating a definition; the example file is deleted as soon as it has been analyzed and is never stored.
 
 Rules are stored as versioned JSON configurations in `Rules.Config`; indexed listing fields are persisted computed columns. Database schema changes are applied in the fixed order by `Back-End/database/apply.ps1`.
 

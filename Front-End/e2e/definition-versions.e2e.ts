@@ -33,7 +33,7 @@ const uploadCsv = async (page: Page, definitionName: string, filename: string, c
   await page.locator('input[type="file"]').setInputFiles({ name: filename, mimeType: 'text/csv', buffer: Buffer.from(csv) });
   const [response] = await Promise.all([
     page.waitForResponse(r => r.url().endsWith('/uploads') && r.request().method() === 'POST'),
-    page.getByRole('button', { name: 'Verify and Upload File' }).click(),
+    page.getByRole('button', { name: 'Upload and validate' }).click(),
   ]);
   const body = await response.json();
   expect(body.success).toBe(true);
@@ -47,7 +47,42 @@ const expectUploadResult = async (page: Page, uploadId: string, status: string, 
   await expect(versionItem).toContainText(version);
 };
 
+test('clean-slate wizard infers layout from the number of tables', async ({ page }) => {
+  await login(page, ADMIN);
+  await page.goto('/admin/file-definitions');
+  await page.getByRole('button', { name: 'New definition' }).click();
+  const form = page.locator('form');
+  await form.getByLabel('Name *').fill(`E2E clean wizard ${Date.now()}`);
+  await form.getByRole('button', { name: /Start from a clean slate/ }).click();
+  await expect(page.getByRole('button', { name: 'Back to file definitions' })).toHaveCount(0);
+  await expect(form.getByRole('list', { name: 'Definition setup steps' }).getByRole('listitem')).toHaveCount(3);
+  await form.getByRole('button', { name: 'Next' }).click();
+
+  const firstTable = form.getByRole('region', { name: 'Table 1' });
+  await expect(firstTable).toBeVisible();
+  const columnsTable = firstTable.getByRole('table', { name: 'Columns for Table 1' });
+  await expect(columnsTable.getByRole('columnheader', { name: 'Column' })).toBeVisible();
+  await expect(columnsTable.getByRole('columnheader', { name: 'Type' })).toBeVisible();
+  await expect(columnsTable.getByRole('columnheader', { name: 'Required' })).toBeVisible();
+  await form.getByRole('button', { name: 'Add table' }).click();
+  await expect(form.getByRole('region', { name: /Table \d/ })).toHaveCount(2);
+  await form.getByLabel('Table name *').first().fill('Orders');
+  await form.getByLabel('Table name *').nth(1).fill('Refunds');
+  await form.getByRole('region', { name: 'Table 2' }).getByPlaceholder('Column name').fill('RefundId');
+  await form.getByRole('region', { name: 'Table 2' }).getByLabel('Data type for RefundId').selectOption('integer');
+  await form.getByRole('button', { name: 'Next' }).click();
+
+  await expect(form.getByRole('heading', { name: 'Review and publish' })).toBeVisible();
+  await expect(form.getByRole('heading', { name: 'Orders' })).toBeVisible();
+  await expect(form.getByRole('heading', { name: 'Refunds' })).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Back' })).toHaveCount(0);
+  await form.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(/\/admin\/file-definitions$/);
+  await expect(page.getByRole('row', { name: /E2E clean wizard/ })).toHaveCount(0);
+});
+
 test('admins publish definition versions and uploads keep the version they arrived with', async ({ page }) => {
+  test.setTimeout(300_000);
   const name = `E2E Versioning ${Date.now()}`;
   const uploads: string[] = [];
   let definitionId = '';
@@ -58,14 +93,18 @@ test('admins publish definition versions and uploads keep the version they arriv
   try {
     // Create: the definition is published as v1 immediately.
     await page.goto('/admin/file-definitions');
-    await page.getByRole('button', { name: 'Add Definition' }).click();
+    await page.getByRole('button', { name: 'New definition' }).click();
     const form = page.locator('form');
-    await form.locator('input[type="text"]').first().fill(name);
+    await form.getByLabel('Name *').fill(name);
+    await form.getByRole('button', { name: /Start from a clean slate/ }).click();
+    await form.getByRole('button', { name: 'Next' }).click();
     await form.getByPlaceholder('Column name').fill('Amount');
-    await form.locator('select').nth(1).selectOption('decimal');
+    await form.getByLabel('Data type for Amount').selectOption('decimal');
+    await form.getByRole('button', { name: 'Next' }).click();
+    await expect(form.getByRole('heading', { name: 'Review and publish' })).toBeVisible();
     const [created] = await Promise.all([
       page.waitForResponse(r => r.url().endsWith('/admin/file-definitions') && r.request().method() === 'POST'),
-      form.getByRole('button', { name: 'Create' }).click(),
+      form.getByRole('button', { name: 'Publish version 1' }).click(),
     ]);
     definitionId = (await created.json()).definition.id;
     await expect(page.getByRole('status')).toContainText(`"${name}" was created and published as version 1.`);
@@ -79,10 +118,11 @@ test('admins publish definition versions and uploads keep the version they arriv
 
     // Draft edits: make Amount an integer and add a range rule.
     await page.goto('/admin/file-definitions');
-    await row.getByTitle('Edit').click();
+    await row.getByRole('button', { name: 'Edit' }).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/file-definitions/${definitionId}/edit$`));
     await expect(page.getByText('Uploads keep using v1 until you publish a new version')).toBeVisible();
-    await form.locator('select').nth(1).selectOption('integer');
-    await form.getByRole('button', { name: 'Update' }).click();
+    await form.getByLabel('Type for Amount').selectOption('integer');
+    await form.getByRole('button', { name: 'Save draft changes' }).click();
     await expect(page.getByRole('status')).toContainText('has unpublished changes. Uploads keep using v1');
     await expect(row).toContainText('Unpublished');
     const rule = await api(page, 'POST', '/rules', {
@@ -105,24 +145,26 @@ test('admins publish definition versions and uploads keep the version they arriv
     uploads.push(await uploadCsv(page, name, 'amounts-draft.csv', 'Amount\n1.5\n'));
     await expectUploadResult(page, uploads[1], 'VALIDATED', 'v1');
 
-    // Review and publish v2 from the Versions dialog.
+    // Review and publish v2 from the Versions workspace.
     await page.goto('/admin/file-definitions');
-    await page.getByRole('button', { name: `Versions for ${name}` }).click();
-    const dialog = page.getByRole('dialog');
-    const changes = dialog.getByRole('region', { name: 'Unpublished changes' });
+    await row.getByRole('button', { name: 'Versions' }).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/file-definitions/${definitionId}/versions$`));
+    const versionsPanel = page.getByRole('region', { name: `Versions: ${name}` });
+    const changes = versionsPanel.getByRole('region', { name: 'Unpublished changes' });
     await expect(changes).toContainText('Uploads are still validated against v1');
     await expect(changes).toContainText('Changed: Amount');
     await expect(changes).toContainText('Added: Amount range');
-    await dialog.getByLabel('Change note (optional)').fill('Whole-number amounts up to 10');
-    await dialog.getByRole('button', { name: 'Publish version 2' }).click();
-    await expect(dialog).toContainText('No unpublished changes. New uploads are validated against v2.');
-    await expect(dialog.getByTestId('version-2')).toContainText('Active');
-    await expect(dialog.getByTestId('version-2')).toContainText('Whole-number amounts up to 10');
-    await expect(dialog.getByTestId('version-1')).toContainText('Superseded');
-    await dialog.getByTestId('version-1').getByRole('button').click();
-    await expect(dialog.getByTestId('version-1')).toContainText('decimal, required');
-    await expect(dialog.getByTestId('version-1')).toContainText('No rules');
-    await dialog.getByRole('button', { name: 'Close versions' }).click();
+    await versionsPanel.getByLabel('Change note (optional)').fill('Whole-number amounts up to 10');
+    await versionsPanel.getByRole('button', { name: 'Publish version 2' }).click();
+    await expect(versionsPanel).toContainText('No unpublished changes. New uploads are validated against v2.');
+    await expect(versionsPanel.getByTestId('version-2')).toContainText('Active');
+    await expect(versionsPanel.getByTestId('version-2')).toContainText('Whole-number amounts up to 10');
+    await expect(versionsPanel.getByTestId('version-1')).toContainText('Superseded');
+    await versionsPanel.getByTestId('version-1').getByRole('button').click();
+    await expect(versionsPanel.getByTestId('version-1')).toContainText('decimal, required');
+    await expect(versionsPanel.getByTestId('version-1')).toContainText('No rules');
+    await versionsPanel.getByRole('button', { name: 'Back to definition' }).click();
+    await page.getByRole('button', { name: 'Back to file definitions' }).click();
     await expect(page.getByRole('status')).toContainText('version 2 is now active');
     await expect(row).toContainText('v2');
     await expect(row).not.toContainText('Unpublished');
@@ -145,7 +187,7 @@ test('admins publish definition versions and uploads keep the version they arriv
     await expect(page.getByText('integer', { exact: true })).toBeVisible();
     await page.goto('/rules');
     await page.locator('select').first().selectOption({ label: name });
-    await expect(page.getByRole('note')).toContainText('Showing the rules of published version v2');
+    await expect(page.getByRole('note')).toContainText('published version v2');
     await expect(page.getByText('Amount range').first()).toBeVisible();
   } finally {
     await page.evaluate(() => localStorage.clear()).catch(() => undefined);

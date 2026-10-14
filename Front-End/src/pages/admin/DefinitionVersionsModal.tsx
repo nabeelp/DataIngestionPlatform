@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, History, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, History, UploadCloud, X } from 'lucide-react';
 import {
   getFileDefinitionVersions,
   publishFileDefinitionVersion,
@@ -13,6 +13,7 @@ interface Props {
   definitionName: string;
   onClose: () => void;
   onPublished: (version: DefinitionVersion) => void;
+  embedded?: boolean;
 }
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : '-');
@@ -86,7 +87,7 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
   );
 }
 
-export default function DefinitionVersionsModal({ definitionId, definitionName, onClose, onPublished }: Props) {
+export default function DefinitionVersionsModal({ definitionId, definitionName, onClose, onPublished, embedded = false }: Props) {
   const [history, setHistory] = useState<DefinitionVersionHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -128,14 +129,24 @@ export default function DefinitionVersionsModal({ definitionId, definitionName, 
   const nextVersion = (history?.versions[0]?.versionNumber ?? 0) + 1;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="versions-title" className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div className={embedded ? '' : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'}>
+      <div
+        {...(embedded ? { role: 'region' } : { role: 'dialog', 'aria-modal': true })}
+        aria-labelledby="versions-title"
+        className={embedded
+          ? 'w-full rounded-lg border border-gray-200 bg-white shadow-sm'
+          : 'bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto'}
+      >
         <div className="flex items-center justify-between p-4 border-b">
           <h2 id="versions-title" className="text-lg font-bold flex items-center gap-2">
             <History size={20} /> Versions: {definitionName}
           </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close versions">
-            <X size={24} />
+          <button
+            onClick={onClose}
+            className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            aria-label={embedded ? 'Back to definition' : 'Close versions'}
+          >
+            {embedded ? <><ArrowLeft size={18} /> Definition</> : <X size={24} />}
           </button>
         </div>
 
