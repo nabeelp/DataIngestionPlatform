@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import UserDashboard from './pages/UserDashboard';
@@ -6,7 +6,6 @@ import AdminDashboard from './pages/AdminDashboard';
 import Upload from './pages/Upload';
 import UploadHistory from './pages/UploadHistory';
 import UploadDetails from './pages/UploadDetails';
-import Rules from './pages/Rules';
 import Definitions from './pages/Definitions';
 import Lookups from './pages/Lookups';
 import AdminUsers from './pages/admin/Users';
@@ -44,6 +43,20 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode,
   }
 
   return <>{children}</>;
+}
+
+// Rules are maintained inside the file definition workspace; old links to the Rules page land there.
+function AdminRulesRedirect() {
+  const [searchParams] = useSearchParams();
+  const definitionId = searchParams.get('definitionId');
+  return (
+    <Navigate
+      to={definitionId
+        ? `/admin/file-definitions/${encodeURIComponent(definitionId)}/edit?step=rules`
+        : '/admin/file-definitions'}
+      replace
+    />
+  );
 }
 
 function App() {
@@ -89,7 +102,7 @@ function App() {
         <Route path="upload" element={<Upload />} />
         <Route path="history" element={<UploadHistory />} />
         <Route path="history/:id" element={<UploadDetails />} />
-        <Route path="rules" element={<Rules />} />
+        <Route path="rules" element={<Navigate to="/definitions" replace />} />
         <Route path="definitions" element={<Definitions />} />
         <Route path="lookups" element={<Lookups />} />
       </Route>
@@ -115,7 +128,7 @@ function App() {
         <Route path="compliance" element={<Compliance />} />
         <Route path="history" element={<UploadHistory />} />
         <Route path="history/:id" element={<UploadDetails />} />
-        <Route path="rules" element={<Rules />} />
+        <Route path="rules" element={<AdminRulesRedirect />} />
         <Route path="lookups" element={<Lookups />} />
       </Route>
 

@@ -56,7 +56,7 @@ describe('definition contract snapshots', () => {
                 { name: 'Amount', type: 'integer', required: true },
                 { name: 'Email', type: 'string', required: false },
             ],
-            [rule({ SqlQuery: 'Amount: 0..500' }), rule({ Id: 'r-new', Name: 'Email required', RuleType: 'Required Values', SqlQuery: 'Email' })],
+            [rule({ SqlQuery: 'Amount: 0..500' }), rule({ Id: 'r-new', Name: 'Email required', RuleType: 'Enum Check', SqlQuery: 'Email: a, b' })],
         );
 
         const diff = diffContracts(active, draft);

@@ -110,14 +110,14 @@ describe('Application Insights telemetry', () => {
     });
 
     telemetry.trackRoutePageView('/history/secret-upload-id');
-    telemetry.trackRoutePageView('/admin/rules');
+    telemetry.trackRoutePageView('/admin/lookups');
     expect(sdk.trackPageView).toHaveBeenNthCalledWith(1, {
       name: '/history/:id',
       uri: 'https://web.example/history/:id',
     });
     expect(sdk.trackPageView).toHaveBeenNthCalledWith(2, {
-      name: '/admin/rules',
-      uri: 'https://web.example/admin/rules',
+      name: '/admin/lookups',
+      uri: 'https://web.example/admin/lookups',
     });
     expect(JSON.stringify(sdk.trackPageView.mock.calls)).not.toContain('secret-upload-id');
     expect(JSON.stringify(sdk.trackPageView.mock.calls)).not.toContain('code=secret');

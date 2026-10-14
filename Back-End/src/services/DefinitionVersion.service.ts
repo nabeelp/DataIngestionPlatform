@@ -15,7 +15,8 @@ import {
 } from './validation/DefinitionContract';
 import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
+import type { RuleConfig } from '../contracts/rule-config';
+import { isRemovedRuleConfig, legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
 import { RulesService } from './RulesService.service';
 
 export class DefinitionVersionError extends Error {
@@ -95,6 +96,37 @@ const diffDefinition = (
     };
 };
 
+/** Loads the lookups that the given rules reference; clients never supply lookup values. */
+export async function hydrateLookups(
+    db: ConnectionPool | Transaction,
+    ruleConfigs: RuleConfig[],
+): Promise<DefinitionContract['lookups']> {
+    const lookupIds = new Set(ruleConfigs
+        .filter(rule => rule.type === 'lookup')
+        .map(rule => rule.params.lookupId)
+        .filter((id): id is string => typeof id === 'string'));
+    const lookups: DefinitionContract['lookups'] = {};
+    if (lookupIds.size === 0) return lookups;
+
+    const lookupResult = await db.request().query('SELECT Id, Name, [Values] FROM Lookups');
+    for (const row of lookupResult.recordset) {
+        if (!lookupIds.has(String(row.Id))) continue;
+        let values: unknown;
+        try {
+            values = typeof row.Values === 'string' ? JSON.parse(row.Values) as unknown : row.Values;
+        } catch {
+            throw new Error(`Lookup ${row.Id} contains invalid JSON values.`);
+        }
+        if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) {
+            throw new Error(`Lookup ${row.Id} must contain a JSON array of strings.`);
+        }
+        lookups[String(row.Id)] = { name: String(row.Name), values: values as string[] };
+    }
+    const missingLookup = [...lookupIds].find(id => !lookups[id]);
+    if (missingLookup) throw new Error(`Rule references missing lookup ${missingLookup}.`);
+    return lookups;
+}
+
 async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<DraftContract | null> {
     const definition = await db.request()
         .input('Id', fileDefinitionId)
@@ -110,31 +142,10 @@ async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: str
         .query(`SELECT Config, IsEnabled FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
     const ruleConfigs = rules.recordset
         .filter((row: { IsEnabled: boolean | number }) => Boolean(row.IsEnabled))
+        .filter((row: { Config: unknown }) => !isRemovedRuleConfig(row.Config))
         .map((row: { Config: unknown }) => parseRuleConfig(row.Config));
     const baseContract = parseDefinitionContract(definition.recordset[0].Contract);
-    const lookupIds = new Set(ruleConfigs
-        .filter(rule => rule.type === 'lookup')
-        .map(rule => rule.params.lookupId)
-        .filter((id): id is string => typeof id === 'string'));
-    const lookups: DefinitionContract['lookups'] = {};
-    if (lookupIds.size > 0) {
-        const lookupResult = await db.request().query('SELECT Id, Name, [Values] FROM Lookups');
-        for (const row of lookupResult.recordset) {
-            if (!lookupIds.has(String(row.Id))) continue;
-            let values: unknown;
-            try {
-                values = typeof row.Values === 'string' ? JSON.parse(row.Values) as unknown : row.Values;
-            } catch {
-                throw new Error(`Lookup ${row.Id} contains invalid JSON values.`);
-            }
-            if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) {
-                throw new Error(`Lookup ${row.Id} must contain a JSON array of strings.`);
-            }
-            lookups[String(row.Id)] = { name: String(row.Name), values: values as string[] };
-        }
-        const missingLookup = [...lookupIds].find(id => !lookups[id]);
-        if (missingLookup) throw new Error(`Rule references missing lookup ${missingLookup}.`);
-    }
+    const lookups = await hydrateLookups(db, ruleConfigs);
 
     const contract: DefinitionContract = {
         ...baseContract,
@@ -172,6 +183,15 @@ export class DefinitionVersionService {
         const draft = await readDraft(await getConnection(), fileDefinitionId);
         if (!draft) throw new DefinitionVersionError('File definition not found', 404);
         return draft.contract;
+    }
+
+    /**
+     * What publishing the given (not yet saved) contract would change relative to the active version.
+     */
+    static async previewDiff(fileDefinitionId: string, contract: DefinitionContract): Promise<ContractDiff> {
+        const pool = await getConnection();
+        const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
+        return diffContracts(contractOf(activeVersion), legacySnapshotFromContract(contract));
     }
 
     /**

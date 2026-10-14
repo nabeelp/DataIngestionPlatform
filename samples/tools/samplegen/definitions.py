@@ -55,26 +55,24 @@ PLANS = ['Basic', 'Premium', 'Standard']
 RELATIONSHIPS = ['Child', 'Friend', 'Other', 'Parent', 'Partner', 'Sibling', 'Spouse']
 
 # Rule names, used by scenarios to state which checks are expected to fail or warn.
-R_STATUS, R_COUNTRY, R_PHONE, R_KEY = ('Customer status allowed values', 'Country is a supported market',
-                                        'Phone number provided', 'Key customer columns present')
-P_PRICE, P_STOCK, P_WEIGHT, P_REORDER, P_CATEGORY, P_REORDER_TYPE = (
+R_STATUS, R_COUNTRY = 'Customer status allowed values', 'Country is a supported market'
+P_PRICE, P_STOCK, P_WEIGHT, P_REORDER, P_CATEGORY = (
     'Unit price range', 'Stock quantity range', 'Weight is not negative', 'Reorder level ceiling',
-    'Category allowed values', 'Reorder level is a whole number')
-O_CURRENCY, O_PAYMENT, O_TOTAL, O_DISCOUNT, O_IDS = (
-    'Currency allowed values', 'Payment status allowed values', 'Order total range', 'Discount is not negative',
-    'Order and customer identifiers present')
-I_STATUS, I_CURRENCY, I_AMOUNT, I_PO = ('Invoice status allowed values', 'Invoice currency allowed values',
-                                        'Invoice amount is positive', 'Invoice has a PO number')
+    'Category allowed values')
+O_CURRENCY, O_PAYMENT, O_TOTAL, O_DISCOUNT = (
+    'Currency allowed values', 'Payment status allowed values', 'Order total range', 'Discount is not negative')
+I_STATUS, I_CURRENCY, I_AMOUNT = ('Invoice status allowed values', 'Invoice currency allowed values',
+                                  'Invoice amount is positive')
 PAY_METHOD, PAY_AMOUNT = 'Payment method allowed values', 'Payment amount range'
-CN_AMOUNT, CN_REASON = 'Credit note amount range', 'Credit note reason provided'
-E_DEPT, E_SALARY, E_KEY = 'Department allowed values', 'Salary range', 'Employee key columns present'
+CN_AMOUNT = 'Credit note amount range'
+E_DEPT, E_SALARY = 'Department allowed values', 'Salary range'
 B_PLAN, B_DEPENDENTS, B_COST = 'Benefit plan allowed values', 'Dependents range', 'Monthly cost within budget'
-C_RELATIONSHIP, C_ALT_PHONE = 'Relationship allowed values', 'Alternate phone provided'
+C_RELATIONSHIP = 'Relationship allowed values'
 
 DEFINITIONS = {
     'customers': {
         'name': 'Sample - Customers',
-        'description': 'Sample single-table definition (same columns as "Customer Data") with enum, required-value and schema rules.',
+        'description': 'Sample single-table definition (same columns as "Customer Data") with enum rules.',
         'columns': [col('CustomerId'), col('FirstName'), col('LastName'), col('Email'), col('Phone', required=False),
                     col('DateOfBirth', 'datetime', False), col('Address', required=False), col('City', required=False),
                     col('State', required=False), col('ZipCode', required=False), col('Country'), col('CustomerStatus')],
@@ -82,13 +80,11 @@ DEFINITIONS = {
         'rules': [
             rule(R_STATUS, 'Enum Check', 'CustomerStatus: ' + ', '.join(CUSTOMER_STATUSES)),
             rule(R_COUNTRY, 'Enum Check', 'Country: ' + ', '.join(COUNTRIES), 'Warning'),
-            rule(R_PHONE, 'Required Values', 'Phone', 'Warning'),
-            rule(R_KEY, 'Schema Validation', 'CustomerId, Email'),
         ],
     },
     'products': {
         'name': 'Sample - Products',
-        'description': 'Sample single-table definition (same columns as "Product Catalog") with range, enum and type rules.',
+        'description': 'Sample single-table definition (same columns as "Product Catalog") with range and enum rules.',
         'columns': [col('SKU'), col('ProductName'), col('Category'), col('Description', required=False),
                     col('UnitPrice', 'decimal'), col('CostPrice', 'decimal'), col('StockQuantity', 'integer'),
                     col('ReorderLevel', 'integer', False), col('Supplier', required=False),
@@ -100,7 +96,6 @@ DEFINITIONS = {
             rule(P_WEIGHT, 'Range Check', 'WeightKg: 0..', 'Warning'),
             rule(P_REORDER, 'Range Check', 'ReorderLevel: ..500', 'Warning'),
             rule(P_CATEGORY, 'Enum Check', 'Category: ' + ', '.join(CATEGORIES)),
-            rule(P_REORDER_TYPE, 'Type Check', 'ReorderLevel: integer', 'Warning'),
         ],
     },
     'orders': {
@@ -116,7 +111,6 @@ DEFINITIONS = {
             rule(O_PAYMENT, 'Enum Check', 'PaymentStatus: ' + ', '.join(PAYMENT_STATUSES)),
             rule(O_TOTAL, 'Range Check', 'TotalAmount: 0..1000000'),
             rule(O_DISCOUNT, 'Range Check', 'DiscountAmount: 0..', 'Warning'),
-            rule(O_IDS, 'Required Values', 'OrderId, CustomerId'),
         ],
     },
     'finance': {
@@ -136,11 +130,9 @@ DEFINITIONS = {
             rule(I_STATUS, 'Enum Check', 'Status: ' + ', '.join(INVOICE_STATUSES), table=INVOICES),
             rule(I_CURRENCY, 'Enum Check', 'Currency: ' + ', '.join(CURRENCIES), table=INVOICES),
             rule(I_AMOUNT, 'Range Check', 'Amount: 0.01..', table=INVOICES),
-            rule(I_PO, 'Required Values', 'PONumber', 'Warning', table=INVOICES),
             rule(PAY_METHOD, 'Enum Check', 'Method: ' + ', '.join(PAYMENT_METHODS), table=PAYMENTS),
             rule(PAY_AMOUNT, 'Range Check', 'Amount: 0.01..250000', table=PAYMENTS),
             rule(CN_AMOUNT, 'Range Check', 'Amount: 0.01..50000', table=CREDIT_NOTES),
-            rule(CN_REASON, 'Required Values', 'Reason', 'Warning', table=CREDIT_NOTES),
         ],
     },
     'hr': {
@@ -160,12 +152,10 @@ DEFINITIONS = {
         'rules': [
             rule(E_DEPT, 'Enum Check', 'Department: ' + ', '.join(DEPARTMENTS), table=EMPLOYEES),
             rule(E_SALARY, 'Range Check', 'Salary: 10000..1000000', table=EMPLOYEES),
-            rule(E_KEY, 'Schema Validation', 'EmployeeId, Email', table=EMPLOYEES),
             rule(B_PLAN, 'Enum Check', 'Plan: ' + ', '.join(PLANS), table=BENEFITS),
             rule(B_DEPENDENTS, 'Range Check', 'Dependents: 0..10', table=BENEFITS),
             rule(B_COST, 'Range Check', 'MonthlyCost: 0..5000', 'Warning', table=BENEFITS),
             rule(C_RELATIONSHIP, 'Enum Check', 'Relationship: ' + ', '.join(RELATIONSHIPS), 'Warning', table=CONTACTS),
-            rule(C_ALT_PHONE, 'Required Values', 'AltPhone', 'Warning', table=CONTACTS),
         ],
     },
 }
@@ -179,7 +169,7 @@ def _contract_column(column):
     return {
         'name': column['name'],
         'type': column['type'],
-        'mustExist': True,
+        'mustExist': column['required'],
         'nullable': not column['required'],
         'format': None,
         'decimalSeparator': '.',
@@ -199,12 +189,6 @@ def _rule_config(definition_key, rule, order):
         column, values = expression.split(':', 1)
         config_type = 'enum'
         params = {'column': column.strip(), 'values': [value.strip() for value in values.split(',')]}
-    elif rule_type == 'Required Values':
-        config_type = 'required'
-        params = {'columns': [column.strip() for column in expression.split(',')]}
-    elif rule_type == 'Schema Validation':
-        config_type = 'columnsPresent'
-        params = {'columns': [column.strip() for column in expression.split(',')]}
     elif rule_type == 'Range Check':
         column, bounds = expression.split(':', 1)
         minimum, maximum = bounds.strip().split('..', 1)
@@ -214,10 +198,6 @@ def _rule_config(definition_key, rule, order):
         if maximum.strip():
             params['max'] = _number(maximum.strip())
         config_type = 'range'
-    elif rule_type == 'Type Check':
-        column, data_type = expression.split(':', 1)
-        config_type = 'type'
-        params = {'column': column.strip(), 'dataType': data_type.strip()}
     else:
         raise ValueError(f'Unsupported sample rule type: {rule_type}')
 

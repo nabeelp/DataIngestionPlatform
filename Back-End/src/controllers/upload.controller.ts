@@ -8,6 +8,7 @@ import { Upload } from '../models/Upload.model';
 import { DeliveryRecord } from '../models/DeliveryRecord.model';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
+import { AuthoringInputError, buildAuthoringContract } from '../services/RuleAuthoring.service';
 import { sanitizeFilename } from '../services/TemplateStorage.service';
 import { azureStorage } from '../services/AzureStorage.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -151,11 +152,23 @@ export class UploadController {
                 res.status(404).json({ success: false, message: 'Upload not found' });
                 return;
             }
-            const draftContract = await DefinitionVersionService.getDraftContract(upload.FileDefinitionId);
+            // The definition workspace previews its unsaved structure and rules (admins only).
+            const draftBody = req.body?.Contract;
+            if (draftBody && (req as any).user?.role !== 'admin') {
+                res.status(403).json({ success: false, message: 'Admin access required' });
+                return;
+            }
+            const draftContract = draftBody
+                ? await buildAuthoringContract(draftBody, req.body?.Rules)
+                : await DefinitionVersionService.getDraftContract(upload.FileDefinitionId);
             const result = await RulesService.dryRun(draftContract, upload.Id);
             res.json({ success: true, ...result });
         } catch (error) {
             logger.error(`[UPLOAD-DRY-RUN] Failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+            if (error instanceof AuthoringInputError) {
+                res.status(400).json({ success: false, message: error.message });
+                return;
+            }
             if (error instanceof RulesServiceError && error.statusCode === 400) {
                 res.status(422).json({ success: false, message: 'The uploaded file could not be previewed.' });
                 return;

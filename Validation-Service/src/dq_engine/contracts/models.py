@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ContractModel(BaseModel):
@@ -43,50 +43,6 @@ class RuleParams(ContractModel):
 
 class ColumnsParams(RuleParams):
     columns: list[str] = Field(min_length=1)
-
-
-class ColumnsPresentRule(ContractModel):
-    id: str
-    name: str
-    description: str
-    severity: Literal["Error", "Warning"]
-    executionOrder: int = Field(ge=0)
-    enabled: bool
-    table: str | None
-    type: Literal["columnsPresent"]
-    params: ColumnsParams
-
-
-class RequiredRule(ContractModel):
-    id: str
-    name: str
-    description: str
-    severity: Literal["Error", "Warning"]
-    executionOrder: int = Field(ge=0)
-    enabled: bool
-    table: str | None
-    type: Literal["required"]
-    params: ColumnsParams
-
-
-class TypeParams(RuleParams):
-    column: str
-    dataType: Literal["string", "integer", "decimal", "date", "datetime", "boolean"]
-    format: str | list[str] | None = None
-    decimalSeparator: str | None = Field(default=None, min_length=1, max_length=1)
-    thousandsSeparator: str | None = Field(default=None, max_length=1)
-
-
-class TypeRule(ContractModel):
-    id: str
-    name: str
-    description: str
-    severity: Literal["Error", "Warning"]
-    executionOrder: int = Field(ge=0)
-    enabled: bool
-    table: str | None
-    type: Literal["type"]
-    params: TypeParams
 
 
 class EnumParams(RuleParams):
@@ -377,10 +333,7 @@ class NaturalLanguageRule(ContractModel):
 
 
 type RuleConfig = Annotated[
-    ColumnsPresentRule
-    | RequiredRule
-    | TypeRule
-    | EnumRule
+    EnumRule
     | RangeRule
     | PatternRule
     | LengthRule
@@ -397,6 +350,11 @@ type RuleConfig = Annotated[
 ]
 
 
+# Required columns, required values and data types are enforced by the column definitions. Contracts published before
+# these rule types were removed may still carry them; they are ignored.
+REMOVED_RULE_TYPES = frozenset({"columnsPresent", "required", "type"})
+
+
 class DefinitionContract(ContractModel):
     schemaVersion: Literal[1]
     layout: Literal["single", "sheets"]
@@ -405,6 +363,17 @@ class DefinitionContract(ContractModel):
     tables: list[TableDefinition] = Field(min_length=1)
     rules: list[RuleConfig]
     lookups: dict[str, LookupDefinition]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_removed_rule_types(cls, data: object) -> object:
+        if isinstance(data, dict) and isinstance(data.get("rules"), list):
+            kept = [
+                rule for rule in data["rules"]
+                if not (isinstance(rule, dict) and rule.get("type") in REMOVED_RULE_TYPES)
+            ]
+            return {**data, "rules": kept}
+        return data
 
 
 class BlobReference(ContractModel):

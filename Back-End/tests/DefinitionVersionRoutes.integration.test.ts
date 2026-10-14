@@ -22,6 +22,7 @@ describeDb('definition version routes', () => {
     let server: Server;
     let baseUrl: string;
     let db: typeof import('../src/config/database');
+    let ruleModel: typeof import('../src/models/Rule.model');
     const users: Record<'admin' | 'user', string> = { admin: '', user: '' };
     const createdDefinitions: string[] = [];
 
@@ -37,6 +38,7 @@ describeDb('definition version routes', () => {
 
     beforeAll(async () => {
         db = require('../src/config/database');
+        ruleModel = require('../src/models/Rule.model');
         const app = express();
         app.use(express.json());
         app.use('/api/admin', require('../src/routes/admin.routes').default);
@@ -83,10 +85,10 @@ describeDb('definition version routes', () => {
 
         // Draft edits: a column type change and a new rule.
         await call('admin', 'PUT', `/admin/file-definitions/${id}`, { columns: [{ name: 'Amount', type: 'integer', required: true }] });
-        const rule = await call('admin', 'POST', '/rules', {
+        const rule = await ruleModel.Rule.create({
             FileDefinitionId: id, Name: 'Amount range', RuleType: 'Range Check', SqlQuery: 'Amount: 0..10',
-        });
-        expect(rule.status).toBe(201);
+        }, users.admin);
+        expect(rule.Name).toBe('Amount range');
 
         const draft = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
         expect(draft.status).toBe(200);

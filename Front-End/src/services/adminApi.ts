@@ -4,6 +4,7 @@
 
 import { apiConfig } from '../config/api';
 import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../contracts/definition-contract';
+import type { RuleConfig } from '../contracts/rule-config';
 import { apiRequest } from './http';
 
 const getBaseUrl = () => apiConfig.getBaseUrl();
@@ -457,7 +458,7 @@ export const createFileDefinitionAdmin = async (defData: {
   contract?: DefinitionContract;
   status?: string;
   deliveryFolder?: string | null;
-  rules?: InitialRule[];
+  rules?: Array<InitialRule | RuleConfig>;
 }): Promise<FileDefinitionAdmin> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions`,
@@ -478,10 +479,14 @@ export const updateFileDefinitionAdmin = async (
     columns?: FileDefinitionColumn[];
     tables?: FileDefinitionTable[];
     contract?: DefinitionContract;
+    /** The complete rule set; rules missing from it are deleted. Requires `contract`. */
+    rules?: RuleConfig[];
+    /** The revision the editor loaded; the save fails with a conflict when the draft has changed since. */
+    revision?: string | null;
     status?: string;
     deliveryFolder?: string | null;
   }
-): Promise<FileDefinitionAdmin> => {
+): Promise<FileDefinitionAdmin & { revision?: string | null }> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions/${id}`,
     getFetchOptions('PUT', updates)
@@ -490,7 +495,7 @@ export const updateFileDefinitionAdmin = async (
   if (!data.success) {
     throw new Error(data.message || 'Failed to update file definition');
   }
-  return data.definition;
+  return { ...data.definition, revision: data.revision ?? null };
 };
 
 export const deleteFileDefinitionAdmin = async (id: string): Promise<void> => {

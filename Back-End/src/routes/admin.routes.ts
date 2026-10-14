@@ -235,10 +235,27 @@ router.put(
         body('columns.*.required').optional().isBoolean(),
         ...sheetTableValidators,
         body('contract').optional().isObject(),
+        body('rules').optional().isArray({ max: 50 }),
+        body('revision').optional({ values: 'null' }).isString().isLength({ max: 64 }),
         body('status').optional().isIn(['Active', 'Inactive']),
     ],
     validateRequest,
     AdminController.updateFileDefinition
+);
+
+/**
+ * POST /api/admin/file-definitions/preflight
+ * Validate an unsaved definition draft (structure and rules) and preview what publishing would change
+ */
+router.post(
+    '/file-definitions/preflight',
+    [
+        body('contract').isObject(),
+        body('rules').optional({ values: 'null' }).isArray({ max: 50 }),
+        body('definitionId').optional({ values: 'null' }).isUUID(),
+    ],
+    validateRequest,
+    AdminController.preflightFileDefinition
 );
 
 /**

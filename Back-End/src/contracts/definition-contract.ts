@@ -32,9 +32,6 @@ export type RuleConfig = {
   enabled: boolean;
   table: string | null;
   type:
-    | 'columnsPresent'
-    | 'required'
-    | 'type'
     | 'enum'
     | 'range'
     | 'pattern'
@@ -52,31 +49,6 @@ export type RuleConfig = {
     [k: string]: unknown;
   };
 } & (
-  | {
-      type?: 'columnsPresent';
-      params?: {
-        columns: Columns;
-      };
-      [k: string]: unknown;
-    }
-  | {
-      type?: 'required';
-      params?: {
-        columns: Columns;
-      };
-      [k: string]: unknown;
-    }
-  | {
-      type?: 'type';
-      params?: {
-        column: string;
-        dataType: 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
-        format?: string | [string, ...string[]];
-        decimalSeparator?: string;
-        thousandsSeparator?: string | null;
-      };
-      [k: string]: unknown;
-    }
   | {
       type?: 'enum';
       params?: {

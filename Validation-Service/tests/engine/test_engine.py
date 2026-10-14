@@ -117,14 +117,19 @@ def test_A1_missing_required_sheet_is_reported() -> None:
 def test_A4_ragged_row_does_not_prevent_valid_rows_from_being_checked(tmp_path: Path) -> None:
     path = tmp_path / "mixed.csv"
     path.write_text("A,B\n1,2\n3\n,4\n", encoding="utf-8")
-    contract = _contract(rules=[_rule("required", {"columns": ["A"]})])
+    contract = _contract(columns=[{
+        "name": "A",
+        "type": "string",
+        "mustExist": True,
+        "nullable": False,
+    }])
 
     result = _validate(path, contract)
 
     assert result.status == "FAILED"
     assert result.row_counts[""] == 2
     assert result.structural_issues[0].code == "ragged_row"
-    check = next(check for check in result.checks if check.id == "rule-required")
+    check = next(check for check in result.checks if check.id == "columns:")
     assert check.issue_count == 1
     assert check.issues[0].row == 4
 
@@ -204,22 +209,69 @@ def test_A6_decimal_rejects_nonfinite_and_precision_overflow(tmp_path: Path) -> 
     )
 
 
-def test_A7_missing_rule_column_is_error_not_skipped(tmp_path: Path) -> None:
+def test_A7_missing_declared_column_is_failure_not_skipped(tmp_path: Path) -> None:
     path = tmp_path / "records.csv"
     path.write_text("Id\n1\n", encoding="utf-8")
-    contract = _contract(rules=[_rule("required", {"columns": ["Missing"]})])
+    contract = _contract(columns=[{
+        "name": "Missing",
+        "type": "string",
+        "mustExist": True,
+        "nullable": True,
+    }])
 
     result = _validate(path, contract)
 
-    check = next(check for check in result.checks if check.id == "rule-required")
-    assert check.status == "ERROR"
+    check = next(check for check in result.checks if check.id == "columns:")
+    assert check.status == "FAILED"
+    assert check.issues[0].message == 'Required column "Missing" not found'
     assert result.status == "FAILED"
+
+
+def test_column_type_mismatch_is_reported_for_the_offending_row(tmp_path: Path) -> None:
+    path = tmp_path / "types.csv"
+    path.write_text("A\n1\nnot-a-number\n", encoding="utf-8")
+    contract = _contract(columns=[{
+        "name": "A",
+        "type": "integer",
+        "mustExist": True,
+        "nullable": True,
+    }])
+
+    result = _validate(path, contract)
+
+    check = next(check for check in result.checks if check.id == "columns:")
+    assert check.status == "FAILED"
+    assert check.issue_count == 1
+    assert check.issues[0].row == 3
+    assert check.issues[0].value == "not-a-number"
+    assert check.issues[0].message == "Value is not a valid integer"
+
+
+def test_removed_rule_types_are_ignored_and_covered_by_column_definitions(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.csv"
+    path.write_text("Id,Amount\n1,10\n,abc\n", encoding="utf-8")
+    columns: list[dict[str, object]] = [
+        {"name": "Id", "type": "integer", "mustExist": True, "nullable": False},
+        {"name": "Amount", "type": "integer", "mustExist": True, "nullable": True},
+    ]
+    removed_rules = [
+        _rule("columnsPresent", {"columns": ["Id", "Missing"]}),
+        {**_rule("required", {"columns": ["Missing"]}), "id": "rule-required-2"},
+        _rule("type", {"column": "Id", "dataType": "date"}),
+    ]
+
+    with_removed = _validate(path, _contract(columns=columns, rules=removed_rules))
+    without = _validate(path, _contract(columns=columns))
+
+    assert _contract(columns=columns, rules=removed_rules).rules == []
+    assert [check.id for check in with_removed.checks] == [check.id for check in without.checks] == ["columns:"]
+    assert with_removed.status == without.status == "FAILED"
+    assert with_removed.checks[0].issue_count == without.checks[0].issue_count == 2
 
 
 @pytest.mark.parametrize(
     ("rule_type", "headers", "row", "params", "lookups"),
     [
-        ("type", "A", "not-a-number", {"column": "A", "dataType": "integer"}, {}),
         ("enum", "A", "outside", {"column": "A", "values": ["inside"]}, {}),
         ("range", "A", "-1", {"column": "A", "min": 0}, {}),
         ("pattern", "A", "lowercase", {"column": "A", "pattern": "[A-Z]+"}, {}),
@@ -347,10 +399,15 @@ def test_A10_stores_first_100_issues_and_exports_all(tmp_path: Path) -> None:
         "Id,Description\n" + "\n".join(",present" for _ in range(120)) + "\n",
         encoding="utf-8",
     )
-    contract = _contract(rules=[_rule("required", {"columns": ["Id"]})])
+    contract = _contract(columns=[{
+        "name": "Id",
+        "type": "string",
+        "mustExist": True,
+        "nullable": False,
+    }])
 
     result = _validate(path, contract)
-    check = next(check for check in result.checks if check.id == "rule-required")
+    check = next(check for check in result.checks if check.id == "columns:")
 
     assert check.issue_count == 120
     assert len(check.issues) == 100
@@ -361,16 +418,20 @@ def test_A10_stores_first_100_issues_and_exports_all(tmp_path: Path) -> None:
     assert len((output / "issues.csv").read_text(encoding="utf-8-sig").splitlines()) == 121
 
 
-def test_benchmark_contract_contains_the_required_18_rules() -> None:
+def test_benchmark_contract_contains_the_required_13_rules() -> None:
     contract = benchmark_contract()
 
-    assert len(contract.rules) == 18
+    assert len(contract.rules) == 13
+    assert {rule.type for rule in contract.rules}.isdisjoint({"columnsPresent", "required", "type"})
+    assert [column.name for column in contract.tables[0].columns] == [
+        "Id", "CustomerId", "OrderDate", "Amount", "Email",
+    ]
 
 
 def test_natural_language_benchmark_contract_adds_one_guarded_row_rule() -> None:
     contract = natural_language_benchmark_contract(benchmark_contract())
 
-    assert len(contract.rules) == 19
+    assert len(contract.rules) == 14
     rule = contract.rules[-1]
     assert rule.type == "naturalLanguage"
     assert rule.params.mode == "row"

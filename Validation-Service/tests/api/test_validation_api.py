@@ -13,6 +13,7 @@ from dq_engine.api.validation import (
     validate_contract_payload,
     validate_rule_payload,
 )
+from dq_engine.contracts.models import DefinitionContract
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -70,14 +71,14 @@ def _table(sheet: str | None, *columns: str) -> dict[str, object]:
 
 def test_rule_validation_checks_declared_columns_and_compiles_builtin_rules() -> None:
     contract = _contract([_table(None, "Amount")], [])
-    valid = _rule("required", {"columns": ["Amount"]})
-    invalid = _rule("required", {"columns": ["Missing"]})
+    valid = _rule("unique", {"columns": ["Amount"]})
+    invalid = _rule("unique", {"columns": ["Missing"]})
 
     accepted = validate_rule_payload(contract, valid)
     rejected = validate_rule_payload(contract, invalid)
 
     assert accepted["ok"] is True
-    assert accepted["normalizedRule"]["id"] == "rule-required"
+    assert accepted["normalizedRule"]["id"] == "rule-unique"
     assert rejected["ok"] is False
     assert any("undeclared column" in error["message"] for error in rejected["errors"])
 
@@ -85,7 +86,7 @@ def test_rule_validation_checks_declared_columns_and_compiles_builtin_rules() ->
 def test_contract_publish_validation_checks_both_sheet_table_and_column_names() -> None:
     contract = _contract(
         [_table("Orders", "Amount"), _table("Payments", "Amount")],
-        [_rule("required", {"columns": ["Amount"]}, table="Payments")],
+        [_rule("unique", {"columns": ["Amount"]}, table="Payments")],
         layout="sheets",
     )
 
@@ -97,7 +98,7 @@ def test_contract_publish_validation_checks_both_sheet_table_and_column_names() 
 def test_contract_publish_validation_rejects_undeclared_sheet_target() -> None:
     contract = _contract(
         [_table("Orders", "Amount")],
-        [_rule("required", {"columns": ["Amount"]}, table="Missing")],
+        [_rule("unique", {"columns": ["Amount"]}, table="Missing")],
         layout="sheets",
     )
 
@@ -172,8 +173,8 @@ def _invalid_employee_draft() -> dict[str, object]:
         _table("Payments", "Amount"),
         _table("Departments", "Name"),
     ]
-    rules = [_rule("required", {"columns": ["Email"]}, table="Employees") for _ in range(3)]
-    rules.append(_rule("required", {"columns": []}, table="Employees"))
+    rules = [_rule("unique", {"columns": ["Email"]}, table="Employees") for _ in range(3)]
+    rules.append(_rule("unique", {"columns": []}, table="Employees"))
     return _contract(tables, rules, layout="sheets")
 
 
@@ -200,8 +201,8 @@ def test_candidate_validation_and_examples_ignore_invalid_existing_rules_without
 
 
 @pytest.mark.parametrize("candidate", [
-    _rule("required", {"columns": ["Missing"]}, table="Employees"),
-    _rule("required", {"columns": []}, table="Employees"),
+    _rule("unique", {"columns": ["Missing"]}, table="Employees"),
+    _rule("unique", {"columns": []}, table="Employees"),
 ])
 def test_candidate_isolation_still_rejects_invalid_candidate(candidate: dict[str, object]) -> None:
     result = validate_rule_payload(_invalid_employee_draft(), candidate)
@@ -289,7 +290,36 @@ def test_query_candidate_isolation_preserves_table_alias_order() -> None:
 def test_single_layout_candidate_ignores_unparseable_existing_rule() -> None:
     contract = _contract([_table(None, "Email")], [{"type": "unknown"}])
 
-    result = validate_rule_payload(contract, _rule("required", {"columns": ["Email"]}))
+    result = validate_rule_payload(contract, _rule("unique", {"columns": ["Email"]}))
 
     assert result["ok"] is True, result["errors"]
     assert validate_contract_payload(contract)["ok"] is False
+
+
+REMOVED_RULES = [
+    _rule("columnsPresent", {"columns": ["Amount"]}),
+    _rule("required", {"columns": ["Amount"]}),
+    _rule("type", {"column": "Amount", "dataType": "integer"}),
+]
+
+
+@pytest.mark.parametrize("rule", REMOVED_RULES, ids=lambda rule: str(rule["type"]))
+def test_removed_rule_types_are_rejected_by_rule_validation(rule: dict[str, object]) -> None:
+    contract = _contract([_table(None, "Amount")], [])
+
+    validation = validate_rule_payload(contract, rule)
+    examples = execute_rule_examples(contract, rule, None)
+
+    assert validation["ok"] is False
+    assert validation["normalizedRule"] is None
+    assert validation["errors"]
+    assert examples["ok"] is False
+    assert examples["results"] == []
+
+
+def test_contract_publish_validation_rejects_removed_rule_types_but_runtime_loading_drops_them() -> None:
+    contract = _contract([_table(None, "Amount")], deepcopy(REMOVED_RULES))
+
+    # Publishing is held to the current rule schema; contracts published earlier still load and run.
+    assert validate_contract_payload(contract)["ok"] is False
+    assert DefinitionContract.model_validate(contract).rules == []

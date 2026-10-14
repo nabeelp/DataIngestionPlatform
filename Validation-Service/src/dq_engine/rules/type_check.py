@@ -33,7 +33,3 @@ def row_failure_expr(ctx: RuleContext, params: dict[str, Any]) -> pl.Expr:
     else:
         raise RuleConfigurationError(f"Unsupported data type: {data_type}.")
     return (~empty) & failure
-
-
-def describe(params: dict[str, Any]) -> str:
-    return f'{params["column"]} contains values of type {params["dataType"]}.'

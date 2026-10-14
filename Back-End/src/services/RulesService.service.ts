@@ -100,9 +100,13 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     }
 }
 
+// The rules service only executes enabled rules, so a disabled rule is checked as if it were enabled and a
+// contract is checked with its enabled rules (disabled rules take no part in validation).
+const asEnabled = (rule: RuleConfig): RuleConfig => (rule.enabled ? rule : { ...rule, enabled: true });
+
 export const RulesService = {
     validateRule(contract: DefinitionContract, rule: RuleConfig): Promise<RuleValidationResponse> {
-        return post('/v1/rules/validate', { contract, rule });
+        return post('/v1/rules/validate', { contract, rule: asEnabled(rule) });
     },
 
     testRule(
@@ -110,11 +114,11 @@ export const RulesService = {
         rule: RuleConfig,
         examples?: unknown[],
     ): Promise<RuleTestResponse> {
-        return post('/v1/rules/test', { contract, rule, examples });
+        return post('/v1/rules/test', { contract, rule: asEnabled(rule), examples });
     },
 
     validateContract(contract: DefinitionContract): Promise<ContractValidationResponse> {
-        return post('/v1/contracts/validate', { contract });
+        return post('/v1/contracts/validate', { contract: { ...contract, rules: contract.rules.filter(rule => rule.enabled) } });
     },
 
     dryRun(contract: DefinitionContract, uploadId: string): Promise<DryRunResponse> {

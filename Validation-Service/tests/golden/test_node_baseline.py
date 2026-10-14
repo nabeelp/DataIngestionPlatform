@@ -21,6 +21,19 @@ DEFINITIONS = json.loads(
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".tsv", ".txt", ".xlsx", ".xls"}
 WORKBOOK_EXTENSIONS = {".xls", ".xlsx"}
 VALIDATION_DATE = date(2026, 1, 1)
+# These rule types no longer exist; column definitions (mustExist, nullable, type) perform the same checks.
+# Names of the Node baseline checks produced by the removed rule types. The baseline JSON files are frozen
+# and carry no rule type, so they are identified by name.
+REMOVED_RULE_CHECK_NAMES = frozenset({
+    "Key customer columns present",
+    "Phone number provided",
+    "Employee key columns present",
+    "Alternate phone provided",
+    "Order and customer identifiers present",
+    "Reorder level is a whole number",
+    "Invoice has a PO number",
+    "Credit note reason provided",
+})
 
 
 def _column_definition(column: dict[str, Any]) -> dict[str, Any]:
@@ -44,19 +57,7 @@ def _legacy_rule(rule: dict[str, Any], definition_id: str, index: int) -> dict[s
     expression = rule["expression"]
     params: dict[str, Any]
 
-    if legacy_type == "Schema Validation":
-        columns = [column.strip() for column in expression.split(",") if column.strip()]
-        rule_type = "columnsPresent"
-        params = {"columns": columns}
-    elif legacy_type == "Required Values":
-        columns = [column.strip() for column in expression.split(",") if column.strip()]
-        rule_type = "required"
-        params = {"columns": columns}
-    elif legacy_type == "Type Check":
-        column, value = _expression_parts(expression)
-        rule_type = "type"
-        params = {"column": column, "dataType": value.casefold()}
-    elif legacy_type == "Enum Check":
+    if legacy_type == "Enum Check":
         column, value = _expression_parts(expression)
         rule_type = "enum"
         params = {
@@ -248,12 +249,10 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
     ),
     "01-single-table/customers/customers_warning_optional_columns_missing.csv": (
         "uploadStatus differs",
-        "Phone number provided:",
     ),
     "01-single-table/customers/customers_invalid_header_case_mismatch.csv": (
         "Country is a supported market:",
         "Customer status allowed values:",
-        "Phone number provided:",
     ),
     "01-single-table/customers/customers_invalid_duplicate_headers.csv": (
         "unexpected checks: Structural validation",
@@ -267,18 +266,15 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
     "01-single-table/customers/customers_empty_file.csv": (
         "Country is a supported market:",
         "Customer status allowed values:",
-        "Phone number provided:",
     ),
     "01-single-table/customers/customers_xlsx_title_row_above_header.xlsx": (
         "unexpected checks: Structural validation",
         "Country is a supported market:",
         "Customer status allowed values:",
-        "Phone number provided:",
     ),
     "01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx": (
         "Country is a supported market:",
         "Customer status allowed values:",
-        "Phone number provided:",
     ),
     "01-single-table/sales-orders/orders_valid_date_format_variants.csv": (
         "uploadStatus differs",
@@ -322,6 +318,7 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
         'Sheet "Invoices" columns:',
         'Sheet "Payments" columns:',
     ),
+    "02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx": ("uploadStatus differs",),
     "02-sheet-tables/hr/hr_valid.xlsx": ("rowCount differs",),
     "02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx": (
         "rowCount differs",
@@ -331,7 +328,6 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
     "02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx": (
         "rowCount differs",
         "unexpected checks: Structural validation",
-        "Employee key columns present:",
         'Sheet "Benefits (2026)" columns:',
         'Sheet "Employees" columns:',
     ),
@@ -340,16 +336,12 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
         "File definition columns:",
         "Customer status allowed values:",
         "Country is a supported market:",
-        "Phone number provided:",
-        "Key customer columns present:",
     ),
     "04-file-handling/finance_zero_bytes.xlsx": (
         "unexpected checks: Structural validation",
         "Credit note amount range:",
-        "Credit note reason provided:",
         "Invoice amount is positive:",
         "Invoice currency allowed values:",
-        "Invoice has a PO number:",
         "Invoice status allowed values:",
         "Payment amount range:",
         "Payment method allowed values:",
@@ -375,13 +367,10 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
         "File definition columns:",
         "Customer status allowed values:",
         "Country is a supported market:",
-        "Phone number provided:",
-        "Key customer columns present:",
     ),
     "04-file-handling/customers_single_column_no_delimiter.txt": (
         "Country is a supported market:",
         "Customer status allowed values:",
-        "Phone number provided:",
     ),
     "05-large/orders_xlsx_excel_max_rows.xlsx": (
         "outcome differs",
@@ -397,6 +386,9 @@ INTENTIONAL_DIFFERENCES: dict[str, tuple[str, ...]] = {
 def test_node_baseline_equivalence(entry: dict[str, Any]) -> None:
     baseline_path = BASELINE / f"{entry['file']}.json"
     expected = json.loads(baseline_path.read_text(encoding="utf-8"))
+    expected["checks"] = [
+        check for check in expected.get("checks", []) if check["name"] not in REMOVED_RULE_CHECK_NAMES
+    ]
     actual = _python_result(entry)
 
     differences = _difference(expected, actual)
@@ -424,11 +416,5 @@ def test_sample_definition_translation_covers_all_legacy_rule_types() -> None:
         for rule in definition["rules"]
     }
 
-    assert legacy_types == {
-        "Enum Check",
-        "Range Check",
-        "Required Values",
-        "Schema Validation",
-        "Type Check",
-    }
+    assert legacy_types == {"Enum Check", "Range Check"}
     assert all(_contract(definition_id).rules for definition_id in DEFINITIONS)

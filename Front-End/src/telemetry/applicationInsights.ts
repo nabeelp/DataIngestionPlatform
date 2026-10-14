@@ -11,7 +11,6 @@ const staticRoutes = new Set([
   '/auth/callback',
   '/upload',
   '/history',
-  '/rules',
   '/definitions',
   '/lookups',
   '/admin',
@@ -24,7 +23,6 @@ const staticRoutes = new Set([
   '/admin/monitoring',
   '/admin/compliance',
   '/admin/history',
-  '/admin/rules',
   '/admin/lookups',
 ]);
 
@@ -55,7 +53,7 @@ export function normalizeTelemetryRoute(pathname: string): string {
     return normalizedPath;
   }
 
-  const definitionWorkspaceRoute = normalizedPath.match(/^\/admin\/file-definitions\/[^/]+\/(edit|versions)$/);
+  const definitionWorkspaceRoute = normalizedPath.match(/^\/admin\/file-definitions\/[^/]+\/(edit|rules|versions)$/);
   if (definitionWorkspaceRoute) {
     return `/admin/file-definitions/:id/${definitionWorkspaceRoute[1]}`;
   }

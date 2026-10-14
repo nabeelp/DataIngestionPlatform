@@ -1,9 +1,9 @@
 """One-table-per-sheet definitions: Sample - Finance Workbook and Sample - HR Onboarding Workbook."""
 from .data import customers, finance, hr, rng, texts, with_changes
-from .definitions import (BENEFIT_HEADERS, BENEFITS, B_COST, B_DEPENDENTS, B_PLAN, CN_AMOUNT, CN_REASON, CONTACT_HEADERS,
-                          CONTACTS, CREDIT_HEADERS, CREDIT_NOTES, CURRENCIES, CUSTOMER_HEADERS, C_ALT_PHONE,
+from .definitions import (BENEFIT_HEADERS, BENEFITS, B_COST, B_DEPENDENTS, B_PLAN, CN_AMOUNT, CONTACT_HEADERS,
+                          CONTACTS, CREDIT_HEADERS, CREDIT_NOTES, CURRENCIES, CUSTOMER_HEADERS,
                           C_RELATIONSHIP, EMPLOYEE_HEADERS, EMPLOYEES, E_DEPT, E_SALARY, INVOICE_HEADERS, INVOICES,
-                          I_AMOUNT, I_CURRENCY, I_PO, I_STATUS, PAYMENT_HEADERS, PAYMENTS, PAY_AMOUNT, PAY_METHOD,
+                          I_AMOUNT, I_CURRENCY, I_STATUS, PAYMENT_HEADERS, PAYMENTS, PAY_AMOUNT, PAY_METHOD,
                           sheet_check)
 from .writers import F, sheet, upload_case, write_delimited, write_xls, write_xlsx
 
@@ -101,9 +101,8 @@ def build_finance():
     warn_inv = with_changes(inv, {3: {'PONumber': None}, 17: {'PONumber': ''}})
     warn_cn = with_changes(cn, {0: {'Reason': None}})
     write_xlsx(FIN + 'finance_warning_missing_po_and_reason.xlsx', fin_sheets(warn_inv, pay, warn_cn))
-    upload_case(FIN + 'finance_warning_missing_po_and_reason.xlsx', 'finance', 'WARNING',
-                'Optional PONumber/Reason missing: only the Warning rules for those sheets fail.',
-                warnings=[I_PO, CN_REASON], error_counts={I_PO: 2, CN_REASON: 1})
+    upload_case(FIN + 'finance_warning_missing_po_and_reason.xlsx', 'finance', 'PASSED',
+                'Blank values in the optional (nullable) PONumber and Reason columns do not fail any check.')
 
     write_xlsx(FIN + 'finance_invalid_missing_credit_notes_sheet.xlsx', [sheet('Instructions', rows=INSTRUCTIONS), *fin_sheets(inv, pay, cn)[:2]])
     upload_case(FIN + 'finance_invalid_missing_credit_notes_sheet.xlsx', 'finance', 'FAILED',
@@ -176,8 +175,9 @@ def build_hr():
     warn_ben = with_changes(ben, {4: {'MonthlyCost': 6200.0}})
     warn_con = with_changes(con, {0: {'Relationship': 'Cousin'}, 1: {'AltPhone': None}, 2: {'AltPhone': None}})
     write_xlsx(HR + 'hr_warning_cost_relationship_alt_phone.xlsx', base(emp, warn_ben, warn_con))
-    upload_case(HR + 'hr_warning_cost_relationship_alt_phone.xlsx', 'hr', 'WARNING', 'Only Warning rules in two sheets fail.',
-                warnings=[B_COST, C_RELATIONSHIP, C_ALT_PHONE], error_counts={C_ALT_PHONE: 2})
+    upload_case(HR + 'hr_warning_cost_relationship_alt_phone.xlsx', 'hr', 'WARNING',
+                'Only Warning rules in two sheets fail (monthly cost, relationship); blank optional AltPhone values pass.',
+                warnings=[B_COST, C_RELATIONSHIP])
 
     type_emp = with_changes(emp, {0: {'FullTime': 'Part-time'}, 1: {'HireDate': 'N/A'}, 2: {'FullTime': 2}})
     type_ben = with_changes(ben, {0: {'Dependents': 2.5}, 1: {'Dependents': 'two'}, 2: {'EffectiveDate': None}})

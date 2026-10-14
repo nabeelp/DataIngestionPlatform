@@ -5,10 +5,8 @@ import type { Response as ModelResponse, ResponseStreamEvent } from 'openai/reso
 import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
 import { appConfig } from '../config/appConfig';
-import { Rule } from '../models/Rule.model';
-import type { IRule, RuleSeverity, RuleType } from '../interfaces/rule.interface';
+import type { RuleSeverity } from '../interfaces/rule.interface';
 import { logger } from '../utils/logger';
-import { DefinitionVersionService } from './DefinitionVersion.service';
 import { RulesService, RulesServiceError } from './RulesService.service';
 
 type Decision = 'mapped' | 'natural_language' | 'rejected';
@@ -38,7 +36,7 @@ interface ModelProposal {
 
 export type NaturalLanguageRuleResult =
     | { outcome: 'rejected'; reason: string }
-    | { outcome: 'mapped' | 'natural_language'; reason: string; rule: IRule; config: RuleConfig };
+    | { outcome: 'mapped' | 'natural_language'; reason: string; config: RuleConfig };
 
 export class RuleGenerationError extends Error {
     constructor(message: string, readonly statusCode: 400 | 403 | 404 | 502 | 503 | 504 = 502) {
@@ -89,7 +87,7 @@ infer a column, table, sheet, value, or external source.
 The supplied schema is authoritative; "declared schema" means only the tables and columns included in untrustedData.
 
 Prefer a built-in declarative RuleConfig type whenever it exactly enforces the request. Available types:
-columnsPresent, required, type, enum, range, pattern, length, unique, lookup, dateRange,
+enum, range, pattern, length, unique, lookup, dateRange,
 conditionalRequired, compare, rowCount, aggregate, reconcile. For a deterministic row or query rule that none of
 those types can express exactly, use naturalLanguage and SQL. Reject ambiguous requests, requests needing external
 data, and rules not expressible by these mechanisms.
@@ -183,13 +181,6 @@ const paramsSchema: JsonSchema = {
         closedObject({ columns: stringArraySchema }),
         closedObject({
             column: stringSchema,
-            dataType: { type: 'string', enum: ['string', 'integer', 'decimal', 'date', 'datetime', 'boolean'] },
-            format: nullable({ anyOf: [stringSchema, stringArraySchema] }),
-            decimalSeparator: nullable(stringSchema),
-            thousandsSeparator: nullable(stringSchema),
-        }),
-        closedObject({
-            column: stringSchema,
             values: stringArraySchema,
             caseSensitive: { type: 'boolean' },
             trim: { type: 'boolean' },
@@ -268,7 +259,7 @@ const proposalSchema = {
         type: {
             type: 'string',
             enum: [
-                'columnsPresent', 'required', 'type', 'enum', 'range', 'pattern', 'length', 'unique',
+                'enum', 'range', 'pattern', 'length', 'unique',
                 'lookup', 'dateRange', 'conditionalRequired', 'compare', 'rowCount', 'aggregate',
                 'reconcile', 'naturalLanguage',
             ],
@@ -881,72 +872,33 @@ async function validateProposal(
 
 const rejected = (reason: string): NaturalLanguageRuleResult => ({ outcome: 'rejected', reason });
 
-function legacyRuleType(type: RuleConfig['type']): RuleType {
-    switch (type) {
-        case 'columnsPresent': return 'Schema Validation';
-        case 'required': return 'Required Values';
-        case 'type': return 'Type Check';
-        case 'enum': return 'Enum Check';
-        case 'range': return 'Range Check';
-        default: return 'Natural Language';
-    }
-}
-
-export async function createNaturalLanguageRule(
-    fileDefinitionId: string,
+/**
+ * Review a plain-language rule against a draft held by the client. Nothing is saved: the proposed RuleConfig is
+ * returned for the workspace to add to its draft.
+ */
+export async function proposeNaturalLanguageRule(
+    contract: DefinitionContract,
     request: string,
-    userId: string,
     options: NaturalLanguageRuleOptions = {},
+    existing?: Pick<RuleConfig, 'id' | 'enabled' | 'executionOrder'>,
 ): Promise<NaturalLanguageRuleResult> {
-    if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
-        throw new RuleGenerationError('Access denied to this file definition', 403);
-    }
-    return reviewAndSaveNaturalLanguageRule(fileDefinitionId, request, options, async config =>
-        Rule.create({
-            FileDefinitionId: fileDefinitionId,
-            Config: config,
-            Name: config.name,
-            RuleType: legacyRuleType(config.type),
-            SqlQuery: '',
-        }, userId), {
-        id: randomUUID(),
-        enabled: true,
-    }, 'Saved');
+    const executionOrder = existing?.executionOrder;
+    const enabled = existing?.enabled ?? true;
+    const result = await reviewNaturalLanguageRule(contract, request, options, {
+        id: existing?.id ?? randomUUID(),
+        enabled,
+        ...(executionOrder !== undefined ? { executionOrder } : {}),
+    }, existing ? 'Regenerated' : 'Proposed');
+    // The rules service reviews every rule as enabled; the rule keeps the state it had.
+    return result.outcome === 'rejected' ? result : { ...result, config: { ...result.config, enabled } };
 }
 
-export async function regenerateNaturalLanguageRule(
-    ruleId: string,
-    request: string,
-    userId: string,
-    options: NaturalLanguageRuleOptions = {},
-): Promise<NaturalLanguageRuleResult> {
-    if (!await Rule.hasAccessToRule(ruleId, userId)) {
-        throw new RuleGenerationError('Access denied to this rule', 403);
-    }
-    const existing = await Rule.findById(ruleId);
-    if (!existing) throw new RuleGenerationError('Rule not found', 404);
-    if (existing.RuleType !== 'Natural Language') {
-        throw new RuleGenerationError('Only Natural Language rules can be regenerated', 400);
-    }
-
-    return reviewAndSaveNaturalLanguageRule(existing.FileDefinitionId, request, options, async config => {
-        const updated = await Rule.update(ruleId, { Config: config });
-        if (!updated) throw new RuleGenerationError('Rule not found', 404);
-        return updated;
-    }, {
-        id: existing.Id,
-        enabled: existing.Config.enabled,
-        executionOrder: existing.Config.executionOrder,
-    }, 'Regenerated');
-}
-
-async function reviewAndSaveNaturalLanguageRule(
-    fileDefinitionId: string,
+async function reviewNaturalLanguageRule(
+    contract: DefinitionContract,
     request: string,
     options: NaturalLanguageRuleOptions,
-    save: (config: RuleConfig) => Promise<IRule>,
     identity: { id: string; enabled: boolean; executionOrder?: number },
-    savedVerb: 'Saved' | 'Regenerated',
+    verb: 'Regenerated' | 'Proposed',
 ): Promise<NaturalLanguageRuleResult> {
     const started = Date.now();
     const report: Report = (level, message) => {
@@ -961,7 +913,6 @@ async function reviewAndSaveNaturalLanguageRule(
     };
     if (!request.trim()) throw new RuleGenerationError('A Natural Language rule request is required', 400);
 
-    const contract = await DefinitionVersionService.getDraftContract(fileDefinitionId);
     const tableCount = contract.tables.length;
     const columnCount = contract.tables.reduce((count, table) => count + table.columns.length, 0);
     report('info', `Read the draft schema: ${tableCount} table(s), ${columnCount} column(s)`);
@@ -1056,9 +1007,8 @@ async function reviewAndSaveNaturalLanguageRule(
         }
 
         assertNotCancelled();
-        const rule = await save(checked.config);
-        report('success', `${savedVerb} draft rule "${rule.Name}"`);
-        return { outcome: checked.outcome, reason: proposal.reason, rule, config: checked.config };
+        report('success', `${verb} rule "${checked.config.name}"`);
+        return { outcome: checked.outcome, reason: proposal.reason, config: checked.config };
     }
 
     throw new RuleGenerationError('The model could not produce a valid RuleConfig after retrying');

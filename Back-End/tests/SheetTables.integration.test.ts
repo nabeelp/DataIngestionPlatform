@@ -19,6 +19,7 @@ if (TEST_DB) {
 const load = () => ({
     db: require('../src/config/database') as typeof import('../src/config/database'),
     versions: require('../src/services/DefinitionVersion.service') as typeof import('../src/services/DefinitionVersion.service'),
+    rules: require('../src/models/Rule.model') as typeof import('../src/models/Rule.model'),
 });
 
 describeDb('sheet table definitions (SQL Server)', () => {
@@ -131,17 +132,13 @@ describeDb('sheet table definitions (SQL Server)', () => {
     it('requires rules added later to name an existing sheet table before publishing', async () => {
         const created = await createDefinition({ columns: [], tables: ordersTables });
         const id = created.body.definition.id;
-        const rule = { FileDefinitionId: id, Name: 'Reason required', RuleType: 'Required Values', SqlQuery: 'Reason' };
-
-        const unscoped = await call('POST', '/rules', rule);
-        expect(unscoped.status).toBe(201);
+        const unscoped = await m.rules.Rule.create({ FileDefinitionId: id, Name: 'Reason required', RuleType: 'Enum Check', SqlQuery: 'Reason: a, b' }, adminId);
         const refused = await call('POST', `/admin/file-definitions/${id}/versions`, {});
         expect(refused.status).toBe(400);
         expect(refused.body.message).toContain('must name the sheet table');
 
-        const scoped = await call('PUT', `/rules/${unscoped.body.rule.Id}`, { TableName: ' refunds ' });
-        expect(scoped.status).toBe(200);
-        expect(scoped.body.rule.TableName).toBe('refunds');
+        const scoped = await m.rules.Rule.update(unscoped.Id, { TableName: ' refunds ' });
+        expect(scoped?.TableName).toBe('refunds');
         const published = await call('POST', `/admin/file-definitions/${id}/versions`, {});
         expect(published.status).toBe(201);
         expect(published.body.version.rules).toEqual([expect.objectContaining({ name: 'Reason required', table: 'refunds' })]);

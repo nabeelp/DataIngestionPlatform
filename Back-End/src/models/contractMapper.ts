@@ -23,6 +23,23 @@ export const emptyDefinitionContract = (): DefinitionContract => ({
 });
 
 const ruleTypes = new Set<string>(RULE_CONFIG_TYPES);
+
+// Required columns, required values and data types are enforced by the column definitions. Rules of these removed types
+// that were saved earlier are ignored when read, and are dropped the next time the definition is saved.
+const REMOVED_RULE_TYPES = new Set(['columnsPresent', 'required', 'type']);
+
+export function isRemovedRuleConfig(value: unknown): boolean {
+    let parsed = value;
+    if (typeof value === 'string') {
+        try {
+            parsed = JSON.parse(value) as unknown;
+        } catch {
+            return false;
+        }
+    }
+    return Boolean(parsed) && typeof parsed === 'object' && 'type' in (parsed as object)
+        && REMOVED_RULE_TYPES.has(String((parsed as { type: unknown }).type));
+}
 type ContractColumn = DefinitionContract['tables'][number]['columns'][number];
 
 const canonicalColumn = (column: ContractColumn): ContractColumn => ({
@@ -96,7 +113,7 @@ export function parseDefinitionContract(value: unknown): DefinitionContract {
             ...table,
             columns: table.columns.map(canonicalColumn),
         })) as DefinitionContract['tables'],
-        rules: contract.rules.map(parseRuleConfig),
+        rules: contract.rules.filter(rule => !isRemovedRuleConfig(rule)).map(parseRuleConfig),
     };
 }
 
@@ -188,9 +205,6 @@ const stringArrayParam = (params: Record<string, unknown>, key: string): string[
 
 const legacyRuleType = (rule: RuleConfig): string => {
     switch (rule.type) {
-        case 'columnsPresent': return 'Schema Validation';
-        case 'required': return 'Required Values';
-        case 'type': return 'Type Check';
         case 'enum': return 'Enum Check';
         case 'range': return 'Range Check';
         case 'naturalLanguage': return 'Natural Language';
@@ -201,11 +215,6 @@ const legacyRuleType = (rule: RuleConfig): string => {
 const legacyRuleExpression = (rule: RuleConfig): string => {
     const params = paramsOf(rule);
     switch (rule.type) {
-        case 'columnsPresent':
-        case 'required':
-            return stringArrayParam(params, 'columns').join(', ');
-        case 'type':
-            return `${stringParam(params, 'column')}: ${stringParam(params, 'dataType')}`;
         case 'enum':
             return `${stringParam(params, 'column')}: ${stringArrayParam(params, 'values').join(', ')}`;
         case 'range': {

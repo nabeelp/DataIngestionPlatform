@@ -5,13 +5,13 @@ import zipfile
 
 from .data import customers, finance, hr, rng, texts
 from .definitions import (COLUMNS_CHECK as COLS, CREDIT_HEADERS, CUSTOMER_HEADERS, INVOICE_HEADERS, PAYMENT_HEADERS,
-                          R_COUNTRY, R_KEY, R_PHONE, R_STATUS, BENEFIT_HEADERS, CONTACT_HEADERS, EMPLOYEE_HEADERS,
+                          R_COUNTRY, R_STATUS, BENEFIT_HEADERS, CONTACT_HEADERS, EMPLOYEE_HEADERS,
                           BENEFITS, CONTACTS, CREDIT_NOTES, EMPLOYEES, INVOICES, PAYMENTS, sheet_check)
 from .writers import ROOT, example_case, out, sheet, upload_case, write_bytes, write_delimited, write_text, write_xls, write_xlsx
 
 EX = '03-example-files/'
 FH = '04-file-handling/'
-NO_CUSTOMER_COLUMNS = dict(failed=[COLS, R_KEY, R_STATUS], warnings=[R_COUNTRY, R_PHONE])
+NO_CUSTOMER_COLUMNS = dict(failed=[COLS, R_STATUS], warnings=[R_COUNTRY])
 
 
 def build_examples():
@@ -203,7 +203,7 @@ def build_file_handling():
 
     write_text(FH + 'customers_single_column_no_delimiter.txt', 'CustomerId\n' + '\n'.join(r['CustomerId'] for r in rows) + '\n')
     upload_case(FH + 'customers_single_column_no_delimiter.txt', 'customers', 'FAILED',
-                'A single-column text file: only CustomerId is present.', failed=[COLS, R_KEY, R_STATUS], warnings=[R_COUNTRY, R_PHONE])
+                'A single-column text file: only CustomerId is present.', failed=[COLS, R_STATUS], warnings=[R_COUNTRY])
 
 
 def build():

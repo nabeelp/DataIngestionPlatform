@@ -16,7 +16,7 @@ const load = () => ({
     db: require('../src/config/database') as typeof import('../src/config/database'),
     versions: require('../src/services/DefinitionVersion.service') as typeof import('../src/services/DefinitionVersion.service'),
     definitions: require('../src/services/FileDefinition.service') as typeof import('../src/services/FileDefinition.service'),
-    rules: require('../src/services/Rule.service') as typeof import('../src/services/Rule.service'),
+    rules: require('../src/models/Rule.model') as typeof import('../src/models/Rule.model'),
 });
 
 describeDb('definition versioning (SQL Server)', () => {
@@ -36,7 +36,7 @@ describeDb('definition versioning (SQL Server)', () => {
     };
 
     const addRule = (definitionId: string, name: string, expression: string, order = 1) =>
-        m.rules.createRule(
+        m.rules.Rule.create(
             { FileDefinitionId: definitionId, Name: name, RuleType: 'Range Check', SqlQuery: expression, ExecutionOrder: order },
             adminId,
         );

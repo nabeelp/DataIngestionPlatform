@@ -9,26 +9,27 @@ passed with no unexplained differences.
 
 | Finding | Sample file | Affected result | Verified Python-vs-Node difference |
 |---|---|---|---|
-| A1 | `samples/04-file-handling/customers_zero_bytes.xlsx` | `File definition columns`, `Key customer columns present`, and row rules | The Node engine passes an empty workbook. Python reports all required headers missing; row rules referencing absent columns are `ERROR` under A7. |
+| A1 | `samples/04-file-handling/customers_zero_bytes.xlsx` | `File definition columns` and row rules | The Node engine passes an empty workbook. Python reports all required headers missing; row rules referencing absent columns are `ERROR` under A7. |
 | A1, A7 | `samples/04-file-handling/finance_zero_bytes.xlsx` | Structural, column, and row-rule checks | Python reports missing required sheets/columns and `ERROR` for row rules referencing absent columns. The Node baseline passes the empty workbook. |
 | A1 | `samples/02-sheet-tables/finance/finance_invalid_missing_credit_notes_sheet.xlsx` | `Credit Notes` column and structural checks | Python reports the missing sheet structurally and each required column as missing. Node reports a single missing-sheet issue. |
 | A1 | `samples/02-sheet-tables/finance/finance_invalid_similar_sheet_names_only.xlsx` | All three sheet-column checks and structural check | Python reports all declared sheets and their required columns missing. Node reports one missing-sheet issue per table. Node's `rowCount` also includes rows from the unrelated sheets; Python counts only rows from declared table sheets (225 vs. 0). |
 | A1, A7 | `samples/02-sheet-tables/finance/finance_invalid_empty_payments_sheet.xlsx` | `Payments` column and row-rule checks | Python reports every required column missing and marks row rules with missing columns `ERROR`; Node reports one missing-sheet issue and leaves those rules passed. |
 | A1 | `samples/02-sheet-tables/finance/finance_invalid_unrelated_workbook.xlsx` | All sheet-column checks and structural check | Python reports the three required sheets/columns missing. Node reports one missing-sheet issue per table. Node counts unrelated rows (20); Python's count is 0. |
 | A1 | `samples/02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx` | Emergency-contact column and structural checks | Python reports the missing declared sheet and each required column; Node reports a single missing-sheet issue. Node counts rows from the other sheets (120 vs. 80). |
-| A1, A7 | `samples/02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx` | Employee/benefits columns and `Employee key columns present` | Python reports missing sheets/required columns; the file-level required-column rule fails. Node does not invoke that rule for the absent sheets. Node counts rows from the remaining sheet (80 vs. 40). |
+| A1 | `samples/02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx` | Employee/benefits columns | Python reports missing sheets/required columns. Node counts rows from the remaining sheet (80 vs. 40). |
 | A3 | `samples/01-single-table/customers/customers_invalid_duplicate_headers.csv` | `File definition columns` and structural check | Python emits the duplicate-header structural error with header positions. The Python schema check passes; Node merges duplicate names and reports cell-level errors. |
 | A4 | `samples/01-single-table/customers/customers_invalid_ragged_rows.csv` | Structural, column, and row-count results | Python reports malformed records with physical line numbers and evaluates only valid records (row count 6). Node reports cell errors and counts all 12 records. |
 | A5 | `samples/01-single-table/customers/customers_valid_mixed_date_formats.csv` | Date column and upload status | With no declared date format, Python rejects the 21 non-ISO text dates; Node accepts them. |
 | A5 | `samples/01-single-table/sales-orders/orders_valid_date_format_variants.csv` | Date columns and upload status | With no declared date formats, Python rejects 56 non-ISO text dates; Node accepts them. |
 | A5 | `samples/01-single-table/sales-orders/orders_quirk_impossible_dates_accepted.csv` | `OrderDate` and upload status | Python rejects 5 impossible calendar dates that Node rolls over and accepts. |
-| A7 | `samples/01-single-table/customers/customers_warning_optional_columns_missing.csv` | `Phone number provided` and upload status | The optional `Phone` header is absent but referenced by a rule. Python reports `ERROR` for that missing rule column; Node reports a warning. |
-| A7 | `samples/01-single-table/customers/customers_invalid_header_case_mismatch.csv` | Country, customer-status, and phone rules | Python treats rule references to case-mismatched headers as missing-column configuration errors. Node reports failed/warning rule results instead. |
-| A7 | `samples/01-single-table/customers/customers_empty_file.csv` | Country, customer-status, and phone rules | Python reports `ERROR` for rule columns absent from the headerless file; Node reports failed/warning checks. |
+| Removed rule types | `samples/01-single-table/customers/customers_warning_optional_columns_missing.csv` | Upload status | The frozen Node baseline is `WARNING` only because of the removed `Phone number provided` rule. With the rule gone and `Phone` an optional column that may be absent, Python (and the regenerated manifest) reports `PASSED`. |
+| A7 | `samples/01-single-table/customers/customers_invalid_header_case_mismatch.csv` | Country and customer-status rules | Python treats rule references to case-mismatched headers as missing-column configuration errors. Node reports failed/warning rule results instead. |
+| A7 | `samples/01-single-table/customers/customers_empty_file.csv` | Country and customer-status rules | Python reports `ERROR` for rule columns absent from the headerless file; Node reports failed/warning checks. |
 | A3, A7 | `samples/01-single-table/customers/customers_xlsx_title_row_above_header.xlsx` | Structural and row-rule checks | Python reports the structural header issue and `ERROR` for rules whose columns are absent from the selected header. Node reports failed/warning rule results. |
-| A7 | `samples/01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx` | Country, customer-status, and phone rules on the Notes sheet | The one-table definition is evaluated against every non-empty visible sheet. Python marks rules with absent Notes-sheet columns `ERROR`; Node reports failed/warning checks. |
+| A7 | `samples/01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx` | Country and customer-status rules on the Notes sheet | The one-table definition is evaluated against every non-empty visible sheet. Python marks rules with absent Notes-sheet columns `ERROR`; Node reports failed/warning checks. |
 | A7 | `samples/02-sheet-tables/finance/finance_invalid_missing_required_column.xlsx` | `Payment method allowed values` | Python marks the rule `ERROR` because its referenced column is missing; Node reports a failed rule result. |
-| A7 | `samples/04-file-handling/customers_single_column_no_delimiter.txt` | Country, customer-status, and phone rules | Python reports `ERROR` for rule columns absent from the parsed single-column header; Node reports failed/warning checks. |
+| A7 | `samples/04-file-handling/customers_single_column_no_delimiter.txt` | Country and customer-status rules | Python reports `ERROR` for rule columns absent from the parsed single-column header; Node reports failed/warning checks. |
+| Removed rule types | `samples/02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx` | Upload status | The frozen Node baseline is `WARNING` only because of the removed `Invoice has a PO number` and `Credit note reason provided` rules. Python (and the regenerated manifest) reports `PASSED`: the columns are optional and column definitions carry no severity. |
 | Signature validation | `samples/04-file-handling/customers_csv_renamed_to_xlsx.xlsx` | File outcome | Python rejects the CSV content with an `.xlsx` extension as an unrecoverable signature mismatch; Node accepts and validates it. |
 | Signature validation | `samples/04-file-handling/customers_random_binary.csv` | File outcome | Python classifies the binary content as an unrecoverable signature/format error. Node attempts validation and reports missing columns. |
 | Encoding detection | `samples/04-file-handling/customers_utf16le_no_bom.csv` | Upload status and row/check counts | Python detects UTF-16LE without a BOM and validates it successfully. Node reports failed checks; its row count is 26 versus Python's 25. |
@@ -47,6 +48,25 @@ passed with no unexplained differences.
 | Unconfigured-sheet row count | `samples/02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx` | `rowCount` | Python counts 80 rows in declared table sheets; Node counts 120 rows across the workbook. |
 | Unconfigured-sheet row count | `samples/02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx` | `rowCount` | Python counts 40 rows in the remaining declared table; Node counts 80 rows across the workbook. |
 | Unconfigured-sheet row count | `samples/05-large/finance_large_used_and_ignored_sheets.xlsx` | `rowCount` | Python counts 290,000 rows in declared table sheets; Node counts 540,000 rows including extra sheets. |
+
+## Removed rule types
+
+The `Schema Validation` (`columnsPresent`), `Required Values` (`required`) and
+`Type Check` (`type`) rule types no longer exist and the regenerated samples no
+longer define them; column definitions (`mustExist`, `nullable`, `type`)
+perform the same checks and report them under the `File definition columns` /
+`Sheet "…" columns` check. The frozen Node baseline JSON still contains the
+checks those rules produced, so `test_node_baseline.py` drops them by name
+before comparing (`REMOVED_RULE_CHECK_NAMES`: `Key customer columns present`,
+`Phone number provided`, `Employee key columns present`,
+`Alternate phone provided`, `Order and customer identifiers present`,
+`Reorder level is a whole number`, `Invoice has a PO number`,
+`Credit note reason provided`). The only observable consequence is the
+upload status of the two files above, whose Node `WARNING` came solely from
+removed rules. Other warning samples (for example
+`customers_warning_unsupported_country_and_missing_phone.csv` and
+`hr_warning_cost_relationship_alt_phone.xlsx`) still match the Node status
+because other warning checks remain.
 
 The header-only sample
 (`samples/01-single-table/customers/customers_header_only.csv`) is not a

@@ -68,7 +68,7 @@ def render_readme(manifest, definitions):
         '# Sample files',
         '',
         'Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, '
-        'one-table and one-table-per-sheet definitions, every rule type and severity, example-file proposals, rejected '
+        'one-table and one-table-per-sheet definitions, enum and range rules at both severities, example-file proposals, rejected '
         'and corrupt files, and very large files. The manifest records the expected sample outcomes. The Python golden '
         'suite compares upload fixtures against the captured WP0 Node baselines.',
         '',

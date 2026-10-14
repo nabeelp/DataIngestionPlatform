@@ -13,8 +13,8 @@ const rule: RuleConfig = {
     executionOrder: 1,
     enabled: true,
     table: null,
-    type: 'required',
-    params: { columns: ['Email'] },
+    type: 'enum',
+    params: { column: 'Email', values: ['a@x.com'] },
 };
 
 describe('RulesService HTTP client', () => {
@@ -59,6 +59,29 @@ describe('RulesService HTTP client', () => {
             'x-rules-service-key': 'unit-test-key',
         });
         expect(JSON.parse(String(init?.body))).toEqual({ contract, rule });
+    });
+
+    it('checks a disabled rule as if it were enabled, because the rules service only runs enabled rules', async () => {
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true, errors: [] }) } as Response);
+        const disabled = { ...rule, enabled: false };
+
+        await RulesService.validateRule(contract, disabled);
+        await RulesService.testRule(contract, disabled, []);
+
+        for (const [, init] of fetchMock.mock.calls) {
+            expect(JSON.parse(String(init?.body)).rule).toEqual({ ...rule, enabled: true });
+        }
+        expect(disabled.enabled).toBe(false);
+    });
+
+    it('validates a contract without its disabled rules', async () => {
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true, errors: [] }) } as Response);
+        const withRules = { schemaVersion: 1, rules: [rule, { ...rule, id: 'rule-2', enabled: false }] } as DefinitionContract;
+
+        await RulesService.validateContract(withRules);
+
+        const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+        expect(body.contract.rules.map((item: RuleConfig) => item.id)).toEqual(['rule-1']);
     });
 
     it('sends a managed-identity bearer token when an Entra audience is configured', async () => {

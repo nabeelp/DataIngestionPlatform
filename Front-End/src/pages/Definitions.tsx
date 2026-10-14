@@ -4,6 +4,7 @@ import { FileText, Plus, Download } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { downloadTemplate } from '../services/definitionApi';
+import PublishedRulesSection from '../features/definition-rules/PublishedRulesSection';
 
 //#region INTERFACES
 interface Column {
@@ -329,6 +330,11 @@ export default function Definitions() {
                       Upload an Excel workbook containing each sheet above. Sheet names are matched ignoring case; other sheets are not validated.
                     </p>
                   )}
+                  <PublishedRulesSection
+                    definitionId={selectedDef.id}
+                    layout={selectedDef.tables.some(table => table.sheet !== null) ? 'sheets' : 'single'}
+                    editHref={isAdmin ? `/admin/file-definitions/${encodeURIComponent(selectedDef.id)}/edit?step=rules` : undefined}
+                  />
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     {selectedDef.versionNumber && (
                       <p className="text-xs text-gray-500 mb-1">

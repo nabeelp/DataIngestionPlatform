@@ -74,7 +74,7 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     const form = page.locator('form');
     await form.getByLabel('Name *').fill(name);
     await form.getByRole('button', { name: /Start from an example file/ }).click();
-    await expect(form.getByRole('list', { name: 'Definition setup steps' }).getByRole('listitem')).toHaveCount(4);
+    await expect(form.getByRole('list', { name: 'Definition setup steps' }).getByRole('listitem')).toHaveCount(5);
     await form.getByRole('button', { name: 'Next' }).click();
     const assistant = form.getByRole('region', { name: 'Start from an example file' });
     await expect(form.getByRole('button', { name: 'Next' })).toBeDisabled();
@@ -128,6 +128,12 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     await expect(form.getByPlaceholder('Column name')).toHaveCount(7);
     await expect(form.getByRole('button', { name: 'Back' })).toHaveCount(0);
     await expect(form.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await form.getByRole('button', { name: 'Next' }).click();
+
+    // The suggested rule joined the draft; it can be reviewed and edited before publishing.
+    await expect(form.getByRole('heading', { name: 'Validation rules' })).toBeVisible();
+    await expect(form.getByText('1 rule was suggested from your example file.')).toBeVisible();
+    await expect(form.getByRole('listitem', { name: 'Rule Status allowed values' })).toContainText('Status must be one of: Closed, Open');
     await form.getByRole('button', { name: 'Next' }).click();
     await expect(form.getByRole('heading', { name: 'Review and publish' })).toBeVisible();
     await expect(form.getByText('Status allowed values')).toBeVisible();
@@ -242,6 +248,8 @@ test('admins create a definition from a CSV example, which has no sheets', async
 
     // The name the admin typed is kept, and the shared editor contains the inferred columns.
     await expect(form.getByRole('table', { name: 'Columns for Table 1' }).getByPlaceholder('Column name')).toHaveCount(3);
+    await form.getByRole('button', { name: 'Next' }).click();
+    await expect(form.getByRole('heading', { name: 'Validation rules' })).toBeVisible();
     await form.getByRole('button', { name: 'Next' }).click();
     await expect(form.getByRole('region', { name: 'Review table Single table' })).toContainText('boolean');
 

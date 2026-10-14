@@ -15,7 +15,7 @@
     "table": { "type": ["string", "null"] },
     "type": {
       "enum": [
-        "columnsPresent", "required", "type", "enum", "range", "pattern", "length", "unique",
+        "enum", "range", "pattern", "length", "unique",
         "lookup", "dateRange", "conditionalRequired", "compare", "rowCount", "aggregate",
         "reconcile", "naturalLanguage"
       ]
@@ -24,39 +24,6 @@
   },
   "required": ["id", "name", "description", "severity", "executionOrder", "enabled", "table", "type", "params"],
   "oneOf": [
-    {
-      "properties": {
-        "type": { "const": "columnsPresent" },
-        "params": {
-          "type": "object", "additionalProperties": false, "required": ["columns"],
-          "properties": { "columns": { "$ref": "#/definitions/columns" } }
-        }
-      }
-    },
-    {
-      "properties": {
-        "type": { "const": "required" },
-        "params": {
-          "type": "object", "additionalProperties": false, "required": ["columns"],
-          "properties": { "columns": { "$ref": "#/definitions/columns" } }
-        }
-      }
-    },
-    {
-      "properties": {
-        "type": { "const": "type" },
-        "params": {
-          "type": "object", "additionalProperties": false, "required": ["column", "dataType"],
-          "properties": {
-            "column": { "$ref": "#/definitions/column" },
-            "dataType": { "enum": ["string", "integer", "decimal", "date", "datetime", "boolean"] },
-            "format": { "$ref": "#/definitions/format" },
-            "decimalSeparator": { "type": "string", "minLength": 1, "maxLength": 1 },
-            "thousandsSeparator": { "type": ["string", "null"], "maxLength": 1 }
-          }
-        }
-      }
-    },
     {
       "properties": {
         "type": { "const": "enum" },

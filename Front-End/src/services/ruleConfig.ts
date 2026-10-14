@@ -34,12 +34,8 @@ const withoutUndefined = (value: unknown): unknown => {
 
 export function defaultRuleParams(type: RuleConfig['type']): Record<string, unknown> {
   switch (type) {
-    case 'columnsPresent':
-    case 'required':
     case 'unique':
       return { columns: [''] };
-    case 'type':
-      return { column: '', dataType: 'string' };
     case 'enum':
       return { column: '', values: [''], caseSensitive: true, trim: true };
     case 'range':
@@ -98,9 +94,6 @@ export function updateRuleConfigFromForm(config: RuleConfig, form: RuleConfigFor
 
 export function ruleConfigTypeLabel(config: RuleConfig): string {
   const labels: Partial<Record<RuleConfig['type'], string>> = {
-    columnsPresent: 'Schema Validation',
-    required: 'Required Values',
-    type: 'Type Check',
     enum: 'Enum Check',
     range: 'Range Check',
     naturalLanguage: 'Natural Language',
@@ -111,12 +104,8 @@ export function ruleConfigTypeLabel(config: RuleConfig): string {
 export function ruleConfigExpression(config: RuleConfig): string {
   const params = config.params as Record<string, unknown>;
   switch (config.type) {
-    case 'columnsPresent':
-    case 'required':
     case 'unique':
       return Array.isArray(params.columns) ? params.columns.join(', ') : '';
-    case 'type':
-      return `${String(params.column ?? '')}: ${String(params.dataType ?? '')}`;
     case 'enum':
       return `${String(params.column ?? '')}: ${Array.isArray(params.values) ? params.values.join(', ') : ''}`;
     case 'range':

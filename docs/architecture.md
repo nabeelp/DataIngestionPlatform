@@ -117,14 +117,15 @@ sequenceDiagram
     participant A as API
     participant F as Foundry model
     participant R as Rules service
-    Ad->>A: "Amount must be ≤ credit limit" + definition
+    Ad->>A: "Amount must be ≤ credit limit" + the workspace's unsaved structure and rules
     A->>F: Prompt + draft column, type and sheet names (no file data)
     F-->>A: Mapped RuleConfig, NL SQL + examples, or Rejected
     A->>R: /v1/rules/validate + /v1/rules/test (sqlguard, run examples)
     alt invalid
         A->>F: One correction attempt (max 3 model calls in total)
     end
-    A-->>Ad: Streamed activity (NDJSON). Rule saved to the DRAFT only
+    A-->>Ad: Streamed activity (NDJSON). Proposal only; nothing is saved
+    Ad->>A: Add to the workspace draft → Save definition (rules + structure, one transaction)
     Ad->>A: Review → Publish version N (audited)
 ```
 
@@ -132,6 +133,7 @@ sequenceDiagram
 - The model output must be a schema-valid RuleConfig. It is never executed as code.
 - `sqlguard` parses the SQL with sqlglot and checks it against allow-lists. Only declared columns and approved functions are permitted. Files, DDL/DML and non-deterministic functions are blocked.
 - SQL runs in a spawned subprocess with a 30-second timeout.
+- The review is stateless: the workspace sends its unsaved structure and rules, the server rebuilds the contract (lookups are loaded from the database, never taken from the client) and returns a proposed RuleConfig. Rules reach the database only through `PUT /admin/file-definitions/:id` (or creation), which validates the whole draft first and replaces the rule set in one transaction guarded by a revision token (409 when someone else changed the draft).
 - An admin must publish a rule before it applies to uploads.
 - Single-rule validation and example testing check the candidate against the definition's schema and
   lookups independently of other draft rules. Invalid existing rules do not block creating, editing,

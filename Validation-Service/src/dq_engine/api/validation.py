@@ -161,9 +161,9 @@ def _contract_rule_errors(
                         "path": "$.params.columns",
                         "message": "A row rule must declare columns for its target table.",
                     })
-    elif rule_type in {"columnsPresent", "required", "unique"}:
+    elif rule_type == "unique":
         references.extend((target or "", str(column)) for column in params["columns"])
-    elif rule_type in {"type", "enum", "range", "pattern", "length", "lookup", "dateRange", "aggregate"}:
+    elif rule_type in {"enum", "range", "pattern", "length", "lookup", "dateRange", "aggregate"}:
         references.append((target or "", str(params["column"])))
     elif rule_type == "conditionalRequired":
         references.extend((target or "", str(column)) for column in params["columns"])

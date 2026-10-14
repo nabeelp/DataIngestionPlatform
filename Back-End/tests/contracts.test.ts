@@ -47,9 +47,6 @@ describe('contract examples', () => {
 
     it('requires every rule variant to satisfy its params schema', () => {
         const rules = [
-            ['columnsPresent', { columns: ['A'] }],
-            ['required', { columns: ['A'] }],
-            ['type', { column: 'A', dataType: 'decimal' }],
             ['enum', { column: 'A', values: ['x'] }],
             ['range', { column: 'A', min: 0 }],
             ['pattern', { column: 'A', pattern: '^x$' }],
@@ -96,5 +93,13 @@ describe('contract examples', () => {
                 params,
             })).toBe(true);
         }
+    });
+
+    it.each(['columnsPresent', 'required', 'type'])('rejects the removed %s rule type', type => {
+        const validate = ajv.getSchema('https://dataintegrationplatform.local/contracts/rule-config.schema.json')!;
+        expect(validate({
+            id: 'rule-1', name: 'Removed', description: '', severity: 'Error', executionOrder: 1, enabled: true,
+            table: null, type, params: { columns: ['A'], column: 'A', dataType: 'string' },
+        })).toBe(false);
     });
 });

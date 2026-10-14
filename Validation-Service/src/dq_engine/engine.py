@@ -20,7 +20,6 @@ from dq_engine.io.models import ParsedFile, ParsedTable, StructuralIssue
 from dq_engine.io.readers import read_file
 from dq_engine.rules import (
     aggregate,
-    columns_present,
     compare,
     conditional_required,
     date_range,
@@ -30,7 +29,6 @@ from dq_engine.rules import (
     natural_language,
     pattern,
     reconcile,
-    required,
     row_count,
     sqlguard,
     type_check,
@@ -45,9 +43,6 @@ MAX_ISSUES_PER_CHECK = 100
 MAX_REPORT_ISSUES = 1_000_000
 QUERY_TIMEOUT_SECONDS = 30
 _RULE_MODULES: dict[str, Any] = {
-    "columnsPresent": columns_present,
-    "required": required,
-    "type": type_check,
     "enum": enum,
     "range": range_rule,
     "pattern": pattern,
@@ -308,9 +303,9 @@ def _display_value(value: object) -> str | None:
 def _columns_for(rule_data: dict[str, Any]) -> set[str]:
     params = rule_data["params"]
     rule_type = rule_data["type"]
-    if rule_type in {"columnsPresent", "required", "unique"}:
+    if rule_type == "unique":
         return {str(item) for item in params["columns"]}
-    if rule_type in {"type", "enum", "range", "pattern", "length", "lookup", "dateRange"}:
+    if rule_type in {"enum", "range", "pattern", "length", "lookup", "dateRange"}:
         return {str(params["column"])}
     if rule_type == "conditionalRequired":
         return {str(params["when"]["column"]), *map(str, params["columns"])}
@@ -333,10 +328,6 @@ def _row_message(rule_data: dict[str, Any], column: str | None, value: object = 
     rule_type = rule_data["type"]
     if rule_type == "naturalLanguage":
         return str(params["message"])
-    if rule_type == "required":
-        return f'Required value missing for "{column}"'
-    if rule_type == "type":
-        return f'Value is not a valid {params["dataType"]}'
     if rule_type == "enum":
         return f'Value not in allowed values: {", ".join(map(str, params["values"]))}'
     if rule_type == "range":
@@ -567,7 +558,7 @@ def validate_parsed(
             module = _RULE_MODULES[rule.type]
             compile_started = time.perf_counter()
             try:
-                if rule.type not in {"columnsPresent", "naturalLanguage"}:
+                if rule.type != "naturalLanguage":
                     for column in _columns_for(rule_data):
                         context.actual_column(column)
                 expression = module.row_failure_expr(context, rule_data["params"])
@@ -761,12 +752,7 @@ def validate_parsed(
             for value_index, index in enumerate(failed_indices):
                 row_number = table.row_numbers[index] if index < len(table.row_numbers) else index + 1
                 raw_value = failed_values[value_index] if failed_values else None
-                issue_value = (
-                    None
-                    if raw_value is None
-                    or (rule_data["type"] == "required" and not str(raw_value).strip())
-                    else _display_value(raw_value)
-                )
+                issue_value = None if raw_value is None else _display_value(raw_value)
                 issue = RuleIssue(
                     row_number,
                     issue_column,
@@ -798,7 +784,7 @@ def validate_parsed(
 
         for rule in rules_for_table:
             rule_data = _rule_data(rule)
-            if rule.type not in {"columnsPresent", "rowCount", "aggregate"}:
+            if rule.type not in {"rowCount", "aggregate"}:
                 continue
             if any(error_data["id"] == rule.id for error_data, _ in compilation_errors):
                 continue

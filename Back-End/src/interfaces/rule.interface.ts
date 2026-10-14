@@ -4,13 +4,11 @@
 
 /**
  * Rule type options. SqlQuery is retained for backward-compatible API responses:
- * - Schema Validation / Required Values: "ColumnA, ColumnB"
- * - Type Check: "Column: integer|decimal|datetime|boolean|string"
  * - Enum Check: "Column: ValueA, ValueB"
  * - Range Check: "Column: min..max" (either bound may be omitted)
  * - Natural Language: the request text, also available as NaturalLanguageText
  */
-export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check' | 'Natural Language';
+export type RuleType = 'Schema Validation' | 'Enum Check' | 'Range Check' | 'Natural Language';
 
 /**
  * Severity options for rules

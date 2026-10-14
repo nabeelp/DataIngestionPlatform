@@ -126,6 +126,10 @@ def generate_xlsx(path: Path, row_count: int) -> None:
                 output.write("</sheetData></worksheet>")
 
 
+def _column(name: str, data_type: str, *, nullable: bool = True) -> dict[str, object]:
+    return {"name": name, "type": data_type, "mustExist": True, "nullable": nullable}
+
+
 def benchmark_contract() -> DefinitionContract:
     rules: list[dict[str, object]] = []
 
@@ -142,11 +146,6 @@ def benchmark_contract() -> DefinitionContract:
             "params": params,
         })
 
-    add("columnsPresent", "Required headers", {"columns": ["Id", "Amount", "Email"]})
-    add("required", "Order identifier", {"columns": ["Id"]})
-    add("required", "Customer identifier", {"columns": ["CustomerId"]})
-    add("type", "Order date", {"column": "OrderDate", "dataType": "date"})
-    add("type", "Amount number", {"column": "Amount", "dataType": "decimal"})
     add("enum", "Currency code", {"column": "Currency", "values": ["USD", "EUR", "GBP", "ZAR"]})
     add("enum", "Order status", {"column": "Status", "values": ["Paid", "Pending", "Refunded", "Failed"]})
     add("range", "Amount range", {"column": "Amount", "min": 0})
@@ -180,7 +179,13 @@ def benchmark_contract() -> DefinitionContract:
             "allowExtraColumns": True,
             "minRows": None,
             "maxRows": None,
-            "columns": [],
+            "columns": [
+                _column("Id", "string", nullable=False),
+                _column("CustomerId", "string", nullable=False),
+                _column("OrderDate", "date"),
+                _column("Amount", "decimal"),
+                _column("Email", "string"),
+            ],
         }],
         "rules": rules,
         "lookups": {

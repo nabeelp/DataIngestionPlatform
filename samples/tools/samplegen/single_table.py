@@ -3,15 +3,15 @@ from datetime import date, datetime
 
 from .data import customers, orders, products, texts, with_changes
 from .definitions import (COLUMNS_CHECK as COLS, CUSTOMER_HEADERS, ORDER_HEADERS, PRODUCT_HEADERS, O_CURRENCY,
-                          O_DISCOUNT, O_PAYMENT, O_TOTAL, P_CATEGORY, P_PRICE, P_REORDER, P_REORDER_TYPE, P_STOCK,
-                          P_WEIGHT, R_COUNTRY, R_KEY, R_PHONE, R_STATUS)
+                          O_DISCOUNT, O_PAYMENT, O_TOTAL, P_CATEGORY, P_PRICE, P_REORDER, P_STOCK,
+                          P_WEIGHT, R_COUNTRY, R_STATUS)
 from .writers import F, sheet, upload_case, write_delimited, write_text, write_xls, write_xlsx
 
 C = '01-single-table/customers/'
 P = '01-single-table/products/'
 O = '01-single-table/sales-orders/'
 # Checks that fail when none of the customer columns can be found (wrong header row, wrong sheet, empty file).
-NO_CUSTOMER_COLUMNS = dict(failed=[COLS, R_KEY, R_STATUS], warnings=[R_COUNTRY, R_PHONE])
+NO_CUSTOMER_COLUMNS = dict(failed=[COLS, R_STATUS], warnings=[R_COUNTRY])
 
 
 def build_customers():
@@ -88,20 +88,20 @@ def build_customers():
 
     optional = [h for h in CUSTOMER_HEADERS if h not in ('Phone', 'DateOfBirth', 'Address', 'City', 'State', 'ZipCode')]
     write_delimited(C + 'customers_warning_optional_columns_missing.csv', optional, rows)
-    upload_case(C + 'customers_warning_optional_columns_missing.csv', 'customers', 'WARNING',
-                'Only required columns present: definition passes; the Warning rule on Phone reports the missing column.',
-                warnings=[R_PHONE], rows=50)
+    upload_case(C + 'customers_warning_optional_columns_missing.csv', 'customers', 'PASSED',
+                'Optional columns (Phone, DateOfBirth, Address, City, State, ZipCode) may be absent from the file: only the required columns are present, so every check passes.',
+                rows=50)
 
     warn = with_changes(rows, {3: {'Country': 'NZ'}, 8: {'Country': 'BR'}, 11: {'Phone': None}, 20: {'Phone': None},
                                33: {'Country': 'us'}})
     write_delimited(C + 'customers_warning_unsupported_country_and_missing_phone.csv', CUSTOMER_HEADERS, warn)
     upload_case(C + 'customers_warning_unsupported_country_and_missing_phone.csv', 'customers', 'WARNING',
-                'Only Warning-severity rules fail (unsupported/lower-case country, missing phone), so the upload is accepted.',
-                warnings=[R_COUNTRY, R_PHONE], rows=50, error_counts={R_COUNTRY: 3, R_PHONE: 2})
+                'Only a Warning-severity rule fails (unsupported/lower-case country); the blank optional Phone values pass, so the upload is accepted.',
+                warnings=[R_COUNTRY], rows=50, error_counts={R_COUNTRY: 3})
 
     write_delimited(C + 'customers_invalid_missing_required_column.csv', [h for h in CUSTOMER_HEADERS if h != 'Email'], rows)
     upload_case(C + 'customers_invalid_missing_required_column.csv', 'customers', 'FAILED',
-                'Required Email column is absent: definition columns and the schema rule fail.', failed=[COLS, R_KEY])
+                'Required Email column is absent: the definition columns check fails.', failed=[COLS])
 
     empty = with_changes(rows, {2: {'FirstName': None}, 5: {'Country': ''}, 9: {'CustomerStatus': None},
                                 14: {'LastName': '   '}, 30: {'CustomerId': None}})
@@ -247,8 +247,8 @@ def build_products():
                     [{**texts([row])[0], **b} for row, b in zip(rows, bad)])
     upload_case(P + 'products_invalid_number_formats.csv', 'products', 'FAILED',
                 'Comma decimals, currency symbols, thousands separators, 10.5/1e3 as integers and non-boolean flags.',
-                failed=[COLS, P_PRICE], warnings=[P_REORDER, P_REORDER_TYPE],
-                error_counts={COLS: 8, P_PRICE: 2, P_REORDER: 1, P_REORDER_TYPE: 1})
+                failed=[COLS, P_PRICE], warnings=[P_REORDER],
+                error_counts={COLS: 8, P_PRICE: 2, P_REORDER: 1})
 
     ranges = with_changes(rows[:20], {0: {'UnitPrice': -5.0}, 1: {'UnitPrice': 100000.01}, 2: {'StockQuantity': -1},
                                       3: {'StockQuantity': 10001}, 4: {'WeightKg': -2.0}, 5: {'ReorderLevel': 501}})

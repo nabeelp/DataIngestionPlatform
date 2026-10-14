@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useReducer, useRef } from 'react';
 import { 
   getFileDefinitionsAdmin, 
   createFileDefinitionAdmin, 
@@ -16,18 +16,36 @@ import {
   FileDefinitionAdmin,
   FileDefinitionColumn,
   FileDefinitionTable,
-  IFileDefinitionUser,
-  InitialRule
+  IFileDefinitionUser
 } from '../../services/adminApi';
 import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../../contracts/definition-contract';
-
+import type { RuleConfig } from '../../contracts/rule-config';
 import { ArrowLeft, Check, FilePlus2, FileUp, Plus, Trash2, Users, X } from 'lucide-react';
 import { Download } from 'lucide-react';
 import DefinitionVersionsModal from './DefinitionVersionsModal';
 import ExampleFileAssistant from './ExampleFileAssistant';
-import { rulesForLayout, type DefinitionLayout, type ExampleProposal } from './exampleProposal';
+import type { DefinitionLayout, ExampleProposal } from './exampleProposal';
 import { Link, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import DefinitionStructureSummary from '../../components/DefinitionStructureSummary';
+import {
+  RuleList,
+  RulesStep,
+  getDraftRules,
+  initialRuleDraft,
+  isRuleDraftDirty,
+  removedRules,
+  ruleChangeSummary,
+  ruleConfigFromSuggestion,
+  ruleDraftReducer,
+  ruleHealth,
+  ruleStatus,
+  structureOf,
+  usePreflight,
+  useUnsavedChangesGuard,
+  type DraftContext,
+} from '../../features/definition-rules';
 
 const INITIAL_COLUMNS: FileDefinitionColumn[] = [
   { name: 'Column1', type: 'string', required: true, mustExist: true, nullable: false }
@@ -79,8 +97,6 @@ const EMPTY_FORM: DefinitionForm = {
   contract: EMPTY_CONTRACT,
 };
 
-const pendingRuleKey = (rule: InitialRule) => `${rule.table ?? ''}\u0000${rule.name}`;
-
 const toEditorColumn = (column: ContractColumn | FileDefinitionColumn): FileDefinitionColumn => {
   const required = 'required' in column && typeof column.required === 'boolean'
     ? column.required
@@ -103,7 +119,7 @@ const toContractColumn = ({ required, ...column }: FileDefinitionColumn): Contra
   nullable: !required,
 } as ContractColumn);
 
-export const buildDefinitionContract = (form: DefinitionForm): DefinitionContract => {
+export const buildDefinitionContract = (form: Pick<DefinitionForm, 'layout' | 'columns' | 'tables' | 'contract'>): DefinitionContract => {
   const tableDefaults = form.contract.tables;
   const tables: ContractTable[] = form.layout === 'single'
     ? [{
@@ -139,6 +155,16 @@ export const buildDefinitionContract = (form: DefinitionForm): DefinitionContrac
     layout: form.layout,
     tables: [tables[0] ?? fallbackTable, ...tables.slice(1)],
   };
+};
+
+/** Every table has at least one named column, and tables of a multi-table definition have sheet names. */
+const isStructureComplete = (form: Pick<DefinitionForm, 'layout' | 'columns' | 'tables'>): boolean => {
+  const tables = form.layout === 'single'
+    ? [{ sheet: null as string | null, columns: form.columns }]
+    : form.tables;
+  return tables.length > 0
+    && tables.every(table => table.columns.length > 0 && table.columns.every(column => column.name.trim()))
+    && (tables.length === 1 || tables.every(table => table.sheet?.trim()));
 };
 
 function BasicColumnsEditor({
@@ -244,11 +270,15 @@ function BasicColumnsEditor({
 export default function FileDefinitions() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { token } = useAuth();
   const newDefinitionMatch = useMatch('/admin/file-definitions/new');
   const editDefinitionMatch = useMatch('/admin/file-definitions/:definitionId/edit');
+  const rulesDefinitionMatch = useMatch('/admin/file-definitions/:definitionId/rules');
   const versionsDefinitionMatch = useMatch('/admin/file-definitions/:definitionId/versions');
-  const isDefinitionWorkspace = Boolean(newDefinitionMatch || editDefinitionMatch || versionsDefinitionMatch);
-  const routeDefinitionId = editDefinitionMatch?.params.definitionId ?? versionsDefinitionMatch?.params.definitionId;
+  const isDefinitionWorkspace = Boolean(newDefinitionMatch || editDefinitionMatch || rulesDefinitionMatch || versionsDefinitionMatch);
+  const routeDefinitionId = editDefinitionMatch?.params.definitionId
+    ?? rulesDefinitionMatch?.params.definitionId
+    ?? versionsDefinitionMatch?.params.definitionId;
   const handledDeepLink = useRef('');
   const initializedWorkspace = useRef('');
   const [definitions, setDefinitions] = useState<FileDefinitionAdmin[]>([]);
@@ -272,7 +302,14 @@ export default function FileDefinitions() {
   const [currentTemplateFilename, setCurrentTemplateFilename] = useState<string | null>(null);
   const [removeTemplateRequested, setRemoveTemplateRequested] = useState(false);
   const [notice, setNotice] = useState<{ text: string; definition?: FileDefinitionAdmin } | null>(null);
-  const [pendingRules, setPendingRules] = useState<InitialRule[]>([]);
+  const [ruleDraft, dispatchRules] = useReducer(ruleDraftReducer, undefined, () => initialRuleDraft());
+  const [rulesState, setRulesState] = useState<'idle' | 'loading' | 'ready' | 'error'>('ready');
+  const [rulesLoadError, setRulesLoadError] = useState<string | null>(null);
+  const [suggestedRuleCount, setSuggestedRuleCount] = useState(0);
+  const draftRevision = useRef<string | null>(null);
+  const appliedProposal = useRef<ExampleProposal | null>(null);
+  const rulesRequest = useRef(0);
+  const savedSnapshot = useRef('');
   const [showContractSettings, setShowContractSettings] = useState(false);
   const [creationPath, setCreationPath] = useState<'example' | 'clean' | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
@@ -292,6 +329,38 @@ export default function FileDefinitions() {
       || (statusFilter === 'inactive' && definition.status === 'Inactive')
       || (statusFilter === 'unpublished' && Boolean(definition.hasUnpublishedChanges));
     return matchesSearch && matchesStatus;
+  });
+
+  // The rules step and review check the whole draft with the rules service once the structure is complete.
+  const draftContract = useMemo(
+    () => buildDefinitionContract({ layout: formData.layout, columns: formData.columns, tables: formData.tables, contract: formData.contract }),
+    [formData.layout, formData.columns, formData.tables, formData.contract],
+  );
+  const rulesReady = !editingId || rulesState === 'ready';
+  const checkingDraft = wizardStep >= (creationPath === 'example' ? 4 : 3) && isDefinitionWorkspace && rulesReady;
+  const ruleSet = ruleDraft.rules;
+  const enabledRules = useMemo(() => ruleSet.filter(rule => rule.enabled), [ruleSet]);
+  const preflightContext: DraftContext | null = useMemo(
+    () => (checkingDraft && isStructureComplete(formData) ? { contract: draftContract, rules: enabledRules } : null),
+    [checkingDraft, draftContract, formData, enabledRules],
+  );
+  const preflight = usePreflight(preflightContext, editingId);
+  const health = useMemo(
+    () => ruleHealth(ruleDraft.rules, structureOf(draftContract), preflight.result),
+    [ruleDraft.rules, draftContract, preflight.result],
+  );
+  const preflightOk = !preflight.result || preflight.result.ok || health.blocking > 0;
+
+  const workspaceDirty = isDefinitionWorkspace && savedSnapshot.current !== '' && (
+    isRuleDraftDirty(ruleDraft)
+    || JSON.stringify(formData) !== savedSnapshot.current
+    || Boolean(templateFile)
+    || removeTemplateRequested
+    || Boolean(changeNote)
+    || (!editingId && (Boolean(creationPath) || ruleDraft.rules.length > 0))
+  );
+  useUnsavedChangesGuard(workspaceDirty && !uploading, {
+    keepPathPrefix: editingId ? `/admin/file-definitions/${encodeURIComponent(editingId)}` : '/admin/file-definitions/new',
   });
 
   useEffect(() => {
@@ -324,7 +393,11 @@ export default function FileDefinitions() {
       setCurrentTemplateFilename(null);
       setTemplateFile(null);
       setRemoveTemplateRequested(false);
-      setPendingRules([]);
+      resetRules();
+      rulesRequest.current += 1;
+      setRulesState('ready');
+      setRulesLoadError(null);
+      savedSnapshot.current = JSON.stringify(EMPTY_FORM);
       setShowContractSettings(false);
       setCreationPath(null);
       setWizardStep(1);
@@ -344,7 +417,7 @@ export default function FileDefinitions() {
       return;
     }
     initializedWorkspace.current = workspaceKey;
-    populateEditor(definition);
+    populateEditor(definition, rulesDefinitionMatch ? 'rules' : searchParams.get('step'));
   }, [definitions, newDefinitionMatch, routeDefinitionId]);
 
   // Fetch user counts for table
@@ -391,7 +464,12 @@ export default function FileDefinitions() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (uploading) return;
+    if (editingId && rulesState !== 'ready') {
+      setError('The rules have not loaded, so the definition cannot be saved yet.');
+      return;
+    }
 
+    const contract = buildDefinitionContract(formData);
     const payload = {
       name: formData.name,
       description: formData.description,
@@ -399,9 +477,9 @@ export default function FileDefinitions() {
       tables: formData.layout === 'sheets' ? formData.tables : [],
       status: editingId ? formData.status : 'Active',
       deliveryFolder: formData.deliveryFolder.trim() || null,
-      contract: buildDefinitionContract(formData),
+      contract,
     };
-    const initialRules = editingId ? [] : rulesForLayout(pendingRules, formData).kept;
+    const rules = ruleDraft.rules;
 
     let savedId: string | null = null;
     const wasEditing = Boolean(editingId);
@@ -413,9 +491,11 @@ export default function FileDefinitions() {
       setError(null);
 
       const saved = editingId
-        ? await updateFileDefinitionAdmin(editingId, payload)
-        : await createFileDefinitionAdmin(initialRules.length > 0 ? { ...payload, rules: initialRules } : payload);
+        ? await updateFileDefinitionAdmin(editingId, { ...payload, rules, revision: draftRevision.current })
+        : await createFileDefinitionAdmin(rules.length > 0 ? { ...payload, rules } : payload);
       savedId = saved?.id || editingId;
+      const savedRevision = (saved as { revision?: string | null }).revision;
+      if (savedRevision) draftRevision.current = savedRevision;
       if (templateFile) {
         if (!savedId) {
           throw new Error('Definition was saved, but its id was not returned');
@@ -429,7 +509,9 @@ export default function FileDefinitions() {
         publishedVersion = { versionNumber: published.versionNumber };
       }
       succeeded = true;
-      closeWorkspace();
+      savedSnapshot.current = JSON.stringify(formData);
+      dispatchRules({ type: 'load', rules });
+      closeWorkspace(true);
     } catch (err) {
       console.error('Failed to publish file definition:', err);
       setError(err instanceof Error ? err.message : 'Failed to publish file definition');
@@ -439,7 +521,7 @@ export default function FileDefinitions() {
       const current = refreshed.find(def => def.id === savedId);
       if (succeeded && current) {
         if (!wasEditing) {
-          const ruleText = initialRules.length > 0 ? ` It includes ${initialRules.length} rule${initialRules.length === 1 ? '' : 's'}.` : '';
+          const ruleText = rules.length > 0 ? ` It includes ${rules.length} rule${rules.length === 1 ? '' : 's'}.` : '';
           setNotice({ text: `"${current.name}" was created and published as version ${current.activeVersion?.versionNumber ?? 1}.${ruleText}` });
         } else if (publishedVersion) {
           setNotice({ text: `"${current.name}" was published as version ${publishedVersion.versionNumber}.` });
@@ -455,7 +537,30 @@ export default function FileDefinitions() {
     }
   };
 
-  const populateEditor = (def: FileDefinitionAdmin) => {
+  const resetRules = (rules: RuleConfig[] = [], revision: string | null = null) => {
+    dispatchRules({ type: 'load', rules });
+    draftRevision.current = revision;
+    appliedProposal.current = null;
+    setSuggestedRuleCount(0);
+  };
+
+  const loadRules = async (definitionId: string) => {
+    const request = ++rulesRequest.current;
+    setRulesState('loading');
+    setRulesLoadError(null);
+    try {
+      const saved = await getDraftRules(definitionId);
+      if (rulesRequest.current !== request) return;
+      resetRules(saved.rules, saved.revision);
+      setRulesState('ready');
+    } catch (err) {
+      if (rulesRequest.current !== request) return;
+      setRulesState('error');
+      setRulesLoadError(err instanceof Error ? err.message : 'Failed to load the rules');
+    }
+  };
+
+  const populateEditor = (def: FileDefinitionAdmin, initialStep?: string | null) => {
     const contract = def.contract ?? EMPTY_CONTRACT;
     const legacyTables = def.tables ?? [];
     const tables = legacyTables.length > 0
@@ -465,8 +570,7 @@ export default function FileDefinitions() {
         : [];
     const layout: DefinitionLayout = def.contract?.layout ?? (tables.length > 0 ? 'sheets' : 'single');
     const singleContractTable = contract.tables[0];
-    setEditingId(def.id);
-    setFormData({
+    const form: DefinitionForm = {
       name: def.name,
       description: def.description || '',
       layout,
@@ -483,23 +587,29 @@ export default function FileDefinitions() {
         layout,
         ignoredSheets: contract.ignoredSheets ?? [],
         encoding: contract.encoding ?? 'auto',
-        rules: contract.rules ?? [],
+        rules: [],
         lookups: contract.lookups ?? {},
         tables: contract.tables.length ? contract.tables : EMPTY_CONTRACT.tables,
       },
-    });
+    };
+    setEditingId(def.id);
+    setFormData(form);
+    savedSnapshot.current = JSON.stringify(form);
     setCurrentTemplateFilename(def.templateFilename || null);
     setTemplateFile(null);
     setRemoveTemplateRequested(false);
-    setPendingRules([]);
+    resetRules();
+    void loadRules(def.id);
     setShowContractSettings(false);
     setCreationPath('clean');
     setExampleProposal(null);
-    setWizardStep(1);
+    // Edit workspaces have four sections: details, structure, rules, review.
+    setWizardStep(initialStep === 'rules' ? 3 : 1);
     setChangeNote('');
   };
 
   const applyExample = (proposal: ExampleProposal) => {
+    if (appliedProposal.current === proposal) return;
     setFormData(prev => ({
       ...prev,
       name: prev.name.trim() ? prev.name : proposal.suggestedName,
@@ -507,41 +617,38 @@ export default function FileDefinitions() {
       columns: proposal.layout === 'single' ? proposal.columns : prev.columns,
       tables: proposal.layout === 'sheets' ? proposal.tables : prev.tables,
     }));
-    setPendingRules(proposal.rules);
+    const suggested = proposal.rules.flatMap((suggestion, index) => {
+      const rule = ruleConfigFromSuggestion(suggestion, index + 1, () => crypto.randomUUID());
+      return rule ? [rule] : [];
+    });
+    resetRules();
+    appliedProposal.current = proposal;
+    dispatchRules({ type: 'append', rules: suggested });
+    setSuggestedRuleCount(suggested.length);
   };
 
   const stepLabels = creationPath === 'example'
-    ? ['Details', 'Example file', 'Tables and columns', 'Review']
-    : ['Details', 'Tables and columns', 'Review'];
+    ? ['Details', 'Example file', 'Tables and columns', 'Rules', 'Review']
+    : ['Details', 'Tables and columns', 'Rules', 'Review'];
   const finalWizardStep = stepLabels.length;
   const structureWizardStep = creationPath === 'example' ? 3 : 2;
+  const rulesWizardStep = finalWizardStep - 1;
   const isStructureWizardStep = wizardStep === structureWizardStep;
+  const isRulesStep = wizardStep === rulesWizardStep;
   const isReviewStep = wizardStep === finalWizardStep;
   const nextPublishedVersionNumber = editingDefinition?.activeVersion ? editingDefinition.activeVersion.versionNumber + 1 : 1;
 
   const canMoveToNextStep = () => {
     if (editingId) {
       if (wizardStep === 1) return Boolean(formData.name.trim());
-      if (wizardStep === 2) {
-        const tables = formData.layout === 'single'
-          ? [{ sheet: null, columns: formData.columns }]
-          : formData.tables;
-        return tables.length > 0
-          && tables.every(table => table.columns.length > 0 && table.columns.every(column => column.name.trim()))
-          && (tables.length === 1 || tables.every(table => table.sheet?.trim()));
-      }
+      if (wizardStep === structureWizardStep) return isStructureComplete(formData);
+      if (isRulesStep || isReviewStep) return rulesReady && health.blocking === 0 && preflightOk;
       return true;
     }
     if (wizardStep === 1) return Boolean(formData.name.trim()) && Boolean(creationPath);
     if (creationPath === 'example' && wizardStep === 2) return Boolean(exampleProposal);
-    if (wizardStep === structureWizardStep) {
-      const tables = formData.layout === 'single'
-        ? [{ sheet: null, columns: formData.columns }]
-        : formData.tables;
-      return tables.length > 0
-        && tables.every(table => table.columns.length > 0 && table.columns.every(column => column.name.trim()))
-        && (tables.length === 1 || tables.every(table => table.sheet?.trim()));
-    }
+    if (wizardStep === structureWizardStep) return isStructureComplete(formData);
+    if (isRulesStep || isReviewStep) return health.blocking === 0 && preflightOk;
     return true;
   };
 
@@ -629,12 +736,22 @@ export default function FileDefinitions() {
     }
   };
 
-  const closeWorkspace = () => {
+  const openSection = (step: number) => {
+    setWizardStep(step);
+    if (versionsDefinitionMatch && editingId) navigate(`/admin/file-definitions/${encodeURIComponent(editingId)}/edit`);
+  };
+
+  const closeWorkspace = (force = false) => {
+    if (force !== true && workspaceDirty && !window.confirm('You have unsaved changes to this definition. Discard them?')) return;
     setEditingId(null);
     setTemplateFile(null);
     setRemoveTemplateRequested(false);
     setCurrentTemplateFilename(null);
-    setPendingRules([]);
+    resetRules();
+    rulesRequest.current += 1;
+    setRulesState('ready');
+    setRulesLoadError(null);
+    savedSnapshot.current = '';
     setShowContractSettings(false);
     setCreationPath(null);
     setExampleProposal(null);
@@ -920,7 +1037,7 @@ export default function FileDefinitions() {
                           Edit
                         </button>
                         <Link
-                          to={`/admin/rules?definitionId=${encodeURIComponent(def.id)}`}
+                          to={`/admin/file-definitions/${encodeURIComponent(def.id)}/edit?step=rules`}
                           className="mr-3 font-semibold text-blue-700 hover:text-blue-900"
                         >
                           Rules
@@ -972,7 +1089,7 @@ export default function FileDefinitions() {
               {editingId && (
                 <button
                   type="button"
-                  onClick={closeWorkspace}
+                  onClick={() => closeWorkspace()}
                   className="mt-0.5 flex min-h-11 min-w-11 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                   aria-label="Back to file definitions"
                 >
@@ -993,14 +1110,23 @@ export default function FileDefinitions() {
             </div>
             {editingId && (
               <nav aria-label="Definition workspace" className="flex flex-wrap gap-2 text-sm">
-                <Link
-                  to={`/admin/file-definitions/${encodeURIComponent(editingId)}/edit`}
-                  aria-current={editDefinitionMatch ? 'page' : undefined}
-                  className={`rounded-md px-3 py-2 font-semibold ${editDefinitionMatch ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-gray-100'}`}
+                <button
+                  type="button"
+                  aria-current={!versionsDefinitionMatch && !isRulesStep ? 'page' : undefined}
+                  onClick={() => openSection(1)}
+                  className={`rounded-md px-3 py-2 font-semibold ${!versionsDefinitionMatch && !isRulesStep ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-gray-100'}`}
                 >
                   Definition
-                </Link>
-                <Link to={`/admin/rules?definitionId=${encodeURIComponent(editingId)}`} className="rounded-md px-3 py-2 font-semibold text-gray-700 hover:bg-gray-100">Rules</Link>
+                </button>
+                <button
+                  type="button"
+                  aria-current={!versionsDefinitionMatch && isRulesStep ? 'page' : undefined}
+                  onClick={() => openSection(rulesWizardStep)}
+                  className={`rounded-md px-3 py-2 font-semibold ${!versionsDefinitionMatch && isRulesStep ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-gray-100'}`}
+                >
+                  Rules
+                  {ruleDraft.rules.length > 0 && <span className="ml-1.5 rounded-full bg-white/80 px-1.5 text-xs">{ruleDraft.rules.length}</span>}
+                </button>
                 <Link
                   to={`/admin/file-definitions/${encodeURIComponent(editingId)}/versions`}
                   aria-current={versionsDefinitionMatch ? 'page' : undefined}
@@ -1041,23 +1167,35 @@ export default function FileDefinitions() {
                     : 'Capture the definition details, choose how you want to start, then review and publish version 1.'}
                 </p>
                 <ol
-                  className={`mt-3 grid gap-2 text-sm ${stepLabels.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}
+                  className={`mt-3 grid gap-2 text-sm ${stepLabels.length === 5 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}
                   aria-label="Definition setup steps"
                 >
-                  {stepLabels.map((label, index) => (
-                    <li
-                      key={label}
-                      className={`rounded px-3 py-2 font-medium ${
-                        wizardStep === index + 1
-                          ? 'bg-blue-600 text-white'
-                          : index + 1 < wizardStep
-                            ? 'bg-blue-100 text-blue-900'
-                            : 'bg-white/80 text-blue-900'
-                      }`}
-                    >
-                      {index + 1}. {label}
-                    </li>
-                  ))}
+                  {stepLabels.map((label, index) => {
+                    const step = index + 1;
+                    // New definitions move forward with Next; saved ones can jump between sections once the structure is complete.
+                    const reachable = step <= wizardStep || Boolean(
+                      editingId && formData.name.trim() && (step <= structureWizardStep || isStructureComplete(formData)),
+                    );
+                    return (
+                      <li key={label}>
+                        <button
+                          type="button"
+                          disabled={!reachable}
+                          aria-current={wizardStep === step ? 'step' : undefined}
+                          onClick={() => setWizardStep(step)}
+                          className={`w-full rounded px-3 py-2 text-left font-medium disabled:cursor-default ${
+                            wizardStep === step
+                              ? 'bg-blue-600 text-white'
+                              : step < wizardStep
+                                ? 'bg-blue-100 text-blue-900 hover:bg-blue-200'
+                                : 'bg-white/80 text-blue-900 enabled:hover:bg-white'
+                          }`}
+                        >
+                          {step}. {label}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ol>
               </div>
               {error && (
@@ -1107,7 +1245,7 @@ export default function FileDefinitions() {
                         onClick={() => {
                           setCreationPath('example');
                           setExampleProposal(null);
-                          setPendingRules([]);
+                          resetRules();
                         }}
                         className={`w-full rounded-lg border p-4 text-left transition-colors ${
                           creationPath === 'example' ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300'
@@ -1132,7 +1270,7 @@ export default function FileDefinitions() {
                         onClick={() => {
                           setCreationPath('clean');
                           setExampleProposal(null);
-                          setPendingRules([]);
+                          resetRules();
                           setFormData(prev => ({
                             ...prev,
                             layout: 'single',
@@ -1359,35 +1497,30 @@ export default function FileDefinitions() {
                 </details>
               )}
 
-              {!editingId && pendingRules.length > 0 && (
-                <div className="mb-4">
-                  <p className="block text-sm font-medium text-gray-700 mb-2">Rules published with version 1</p>
-                  <ul className="space-y-1">
-                    {pendingRules.map(rule => {
-                      const skipped = rulesForLayout([rule], formData).skipped.length > 0;
-                      const key = pendingRuleKey(rule);
-                      return (
-                        <li key={key} className="flex items-center justify-between gap-2 text-sm bg-gray-50 border border-gray-200 rounded-md px-3 py-1.5">
-                          <span className={skipped ? 'text-gray-400 line-through' : 'text-gray-800'}>
-                            {rule.table && <span className="text-xs text-gray-500 mr-1">{rule.table} ›</span>}
-                            {rule.name} <code className="text-xs bg-white px-1 rounded">{rule.expression}</code>
-                          </span>
-                          <span className="flex items-center gap-2">
-                            {skipped && <span className="text-xs text-amber-700">Sheet or column removed; will be skipped</span>}
-                            <button
-                              type="button"
-                              onClick={() => setPendingRules(prev => prev.filter(r => pendingRuleKey(r) !== key))}
-                              className="text-red-600 hover:text-red-700"
-                              aria-label={`Remove rule ${rule.name}${rule.table ? ` for ${rule.table}` : ''}`}
-                            >
-                              <X size={16} />
-                            </button>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
+              {isRulesStep && (
+                <section className="mb-5">
+                  <RulesStep
+                    draft={ruleDraft}
+                    dispatch={dispatchRules}
+                    contract={draftContract}
+                    definitionId={editingId}
+                    token={token}
+                    health={health}
+                    preflight={preflight}
+                    loading={Boolean(editingId) && rulesState === 'loading'}
+                    loadError={rulesLoadError}
+                    suggestedCount={suggestedRuleCount}
+                  />
+                  {editingId && rulesState === 'error' && (
+                    <button
+                      type="button"
+                      onClick={() => void loadRules(editingId)}
+                      className="mt-3 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      Retry loading rules
+                    </button>
+                  )}
+                </section>
               )}
 
               {editingId && wizardStep === 1 && (
@@ -1506,47 +1639,68 @@ export default function FileDefinitions() {
                       </div>
                     </dl>
                   )}
-                  <div className="mt-3 space-y-3">
-                    {summaryTables.map((table, tableIndex) => (
-                      <section key={`${table.sheet}-${tableIndex}`} className="rounded bg-white p-3" aria-label={`Review table ${table.sheet}`}>
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <h4 className="font-semibold text-gray-900">{table.sheet}</h4>
-                            <p className="text-xs text-gray-500">
-                              Header row {table.headerRow ?? 'Auto detect'} · {table.allowExtraColumns ?? true ? 'Extra columns allowed' : 'Exact columns only'}
-                              {' · '}Rows {table.minRows ?? 0}–{table.maxRows ?? 'Unlimited'}
-                            </p>
-                          </div>
-                          <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800">
-                            {table.columns.length} column{table.columns.length === 1 ? '' : 's'}
-                          </span>
-                        </div>
-                        <ul className="mt-3 divide-y divide-gray-100 rounded border border-gray-200">
-                          {table.columns.map(column => (
-                            <li key={column.name} className="grid gap-1 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_8rem_8rem]">
-                              <div>
-                                <span className="font-medium text-gray-900">{column.name}</span>
-                              </div>
-                              <span className="text-gray-600">{column.type}</span>
-                              <span className="text-gray-600">
-                                {column.required ? 'Required' : 'Optional'}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    ))}
-                  </div>
-                  {pendingRules.length > 0 && (
-                    <div className="mt-3 rounded bg-white p-3">
-                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Suggested rules</p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
-                        {pendingRules.map(rule => (
-                          <li key={pendingRuleKey(rule)}>{rule.name}</li>
-                        ))}
-                      </ul>
+                  <DefinitionStructureSummary
+                    tables={summaryTables}
+                    ariaLabelPrefix="Review table"
+                    className="mt-3 space-y-3"
+                  />
+                  <div className="mt-3 rounded bg-white p-3" aria-label="Review rules">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Rules</p>
+                      <button
+                        type="button"
+                        onClick={() => setWizardStep(rulesWizardStep)}
+                        className="text-xs font-semibold text-blue-700 hover:text-blue-900"
+                      >
+                        Edit rules
+                      </button>
                     </div>
-                  )}
+                    <p className="mt-1 text-sm text-gray-700">
+                      {ruleDraft.rules.length === 0
+                        ? 'No rules. Files are checked against the structure only.'
+                        : `${ruleDraft.rules.length} rule${ruleDraft.rules.length === 1 ? '' : 's'}: ${ruleDraft.rules.filter(rule => rule.enabled && rule.severity === 'Error').length} blocking (Error), ${ruleDraft.rules.filter(rule => rule.enabled && rule.severity === 'Warning').length} warning${ruleDraft.rules.filter(rule => rule.enabled && rule.severity === 'Warning').length === 1 ? '' : 's'}, ${ruleDraft.rules.filter(rule => !rule.enabled).length} disabled.`}
+                    </p>
+                    {editingId && (() => {
+                      const summary = ruleChangeSummary(ruleDraft);
+                      const removed = removedRules(ruleDraft);
+                      return summary.added + summary.changed + summary.removed > 0 ? (
+                        <p className="mt-1 text-sm text-gray-700">
+                          Changes since the saved draft: {summary.added} added, {summary.changed} changed, {summary.removed} removed
+                          {removed.length > 0 ? ` (${removed.map(rule => rule.name).join(', ')})` : ''}.
+                        </p>
+                      ) : null;
+                    })()}
+                    {preflight.result?.diff && editingDefinition?.activeVersion && (
+                      <p className="mt-1 text-sm text-gray-700">
+                        Compared with v{editingDefinition.activeVersion.versionNumber}: rules {preflight.result.diff.rules.added.length} added,
+                        {' '}{preflight.result.diff.rules.changed.length} changed, {preflight.result.diff.rules.removed.length} removed;
+                        {' '}columns {preflight.result.diff.columns.added.length} added, {preflight.result.diff.columns.changed.length} changed,
+                        {' '}{preflight.result.diff.columns.removed.length} removed.
+                      </p>
+                    )}
+                    {ruleDraft.rules.length > 0 && (
+                      <div className="mt-3">
+                        <RuleList
+                          rules={ruleDraft.rules}
+                          layout={formData.layout}
+                          statusOf={rule => ruleStatus(ruleDraft, rule.id)}
+                          problemsOf={rule => health.problemsByRule[rule.id] ?? []}
+                        />
+                      </div>
+                    )}
+                    {preflight.loading && <p role="status" className="mt-2 text-xs text-gray-500">Checking the definition…</p>}
+                    {preflight.error && <p role="alert" className="mt-2 text-xs text-red-700">{preflight.error}</p>}
+                    {(health.blocking > 0 || health.general.length > 0) && (
+                      <div role="alert" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
+                        <p className="font-semibold">
+                          {health.blocking > 0 ? `${health.blocking} rule${health.blocking === 1 ? ' needs' : 's need'} attention before you can publish.` : 'The definition cannot be published yet.'}
+                        </p>
+                        {health.general.length > 0 && (
+                          <ul className="mt-1 list-disc pl-5">{health.general.map(message => <li key={message}>{message}</li>)}</ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1570,27 +1724,42 @@ export default function FileDefinitions() {
               <div className="sticky bottom-0 -mx-4 flex justify-between gap-3 border-t bg-white px-4 pt-4 pb-1 shadow-[0_-8px_16px_-16px_rgba(15,23,42,0.5)]">
                 <button
                   type="button"
-                  onClick={closeWorkspace}
+                  onClick={() => closeWorkspace()}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                 >
                   {editingId ? 'Back to definitions' : 'Cancel'}
                 </button>
 
                 {wizardStep < finalWizardStep ? (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      if (wizardStep === 2 && creationPath === 'example' && exampleProposal) {
-                        applyExample(exampleProposal);
-                      }
-                      setWizardStep(prev => prev + 1);
-                    }}
-                    disabled={!canMoveToNextStep()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {workspaceDirty && editingId && (
+                      <span role="status" className="hidden text-xs font-medium text-amber-800 sm:inline">Unsaved changes</span>
+                    )}
+                    {editingId && (
+                      <button
+                        type="button"
+                        onClick={() => setWizardStep(finalWizardStep)}
+                        disabled={!formData.name.trim() || !isStructureComplete(formData) || !rulesReady}
+                        className="px-4 py-2 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Review &amp; publish
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (wizardStep === 2 && creationPath === 'example' && exampleProposal) {
+                          applyExample(exampleProposal);
+                        }
+                        setWizardStep(prev => prev + 1);
+                      }}
+                      disabled={!canMoveToNextStep()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
                 ) : (
                   <button
                     type="submit"

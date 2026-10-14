@@ -11,7 +11,7 @@ import type {
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
 import { FileDefinition } from './FileDefinition.model';
-import { parseRuleConfig } from './contractMapper';
+import { isRemovedRuleConfig, parseRuleConfig } from './contractMapper';
 
 type LegacyRule = Pick<IRule, 'Id' | 'Name' | 'Description' | 'RuleType' | 'Severity' | 'ExecutionOrder' | 'SqlQuery' | 'IsEnabled' | 'TableName' | 'NaturalLanguageText' | 'CreatedBy' | 'CreatedAt' | 'UpdatedAt'>;
 
@@ -38,15 +38,7 @@ export function ruleConfigFromLegacy(
 
     switch (rule.RuleType) {
         case 'Schema Validation':
-            return { ...common, type: 'columnsPresent', params: { columns: parseList(rule.SqlQuery) } };
-        case 'Required Values':
-            return { ...common, type: 'required', params: { columns: parseList(rule.SqlQuery) } };
-        case 'Type Check': {
-            const match = /^\\s*([^:]+?)\\s*:\\s*(string|integer|decimal|date|datetime|boolean)\\s*$/i.exec(rule.SqlQuery);
-            if (!match) throw new Error('Type Check must use the form "Column: type".');
-            const dataType = match[2].toLowerCase() as 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
-            return { ...common, type: 'type', params: { column: match[1].trim(), dataType } };
-        }
+            throw new Error('Schema Validation rules are no longer supported; column definitions enforce required columns, required values and data types.');
         case 'Enum Check': {
             const delimiter = rule.SqlQuery.indexOf(':');
             if (delimiter < 1) throw new Error('Enum Check must use the form "Column: Value1, Value2".');
@@ -90,20 +82,13 @@ function parseStoredRule(row: any): IRule {
     const params = config.params as Record<string, unknown>;
     const ruleType: IRule['RuleType'] = (() => {
         switch (config.type) {
-            case 'columnsPresent': return 'Schema Validation';
-            case 'required': return 'Required Values';
-            case 'type': return 'Type Check';
             case 'enum': return 'Enum Check';
             case 'range': return 'Range Check';
             default: return 'Natural Language';
         }
     })();
     let sqlQuery = '';
-    if (config.type === 'columnsPresent' || config.type === 'required') {
-        sqlQuery = Array.isArray(params.columns) ? params.columns.join(', ') : '';
-    } else if (config.type === 'type') {
-        sqlQuery = `${String(params.column ?? '')}: ${String(params.dataType ?? '')}`;
-    } else if (config.type === 'enum') {
+    if (config.type === 'enum') {
         sqlQuery = `${String(params.column ?? '')}: ${Array.isArray(params.values) ? params.values.join(', ') : ''}`;
     } else if (config.type === 'range') {
         sqlQuery = `${String(params.column ?? '')}: ${typeof params.min === 'number' ? params.min : ''}..${typeof params.max === 'number' ? params.max : ''}`;
@@ -141,7 +126,7 @@ export class Rule {
             .input('Id', id)
             .query(`SELECT * FROM ${this.TABLE_NAME} WHERE Id = @Id`);
         
-        if (!result.recordset[0]) {
+        if (!result.recordset[0] || isRemovedRuleConfig(result.recordset[0].Config)) {
             return null;
         }
 
@@ -162,7 +147,7 @@ export class Rule {
                 ORDER BY ExecutionOrder ASC
             `);
         
-        return result.recordset.map(parseStoredRule);
+        return result.recordset.filter(row => !isRemovedRuleConfig(row.Config)).map(parseStoredRule);
     }
 
     /**
@@ -189,7 +174,9 @@ export class Rule {
                 ORDER BY r.ExecutionOrder ASC
             `);
         
-        return result.recordset.map(row => ({ ...parseStoredRule(row), CreatorName: row.CreatorName }));
+        return result.recordset
+            .filter(row => !isRemovedRuleConfig(row.Config))
+            .map(row => ({ ...parseStoredRule(row), CreatorName: row.CreatorName }));
     }
 
     /**
@@ -207,7 +194,7 @@ export class Rule {
                 ORDER BY ExecutionOrder ASC
             `);
         
-        return result.recordset.map(parseStoredRule);
+        return result.recordset.filter(row => !isRemovedRuleConfig(row.Config)).map(parseStoredRule);
     }
 
     /**

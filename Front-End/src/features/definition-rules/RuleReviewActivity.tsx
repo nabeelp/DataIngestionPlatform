@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Loader2, XCircle } from 'lucide-react';
-import type { ActivityLevel, ReviewActivity } from '../services/ruleAuthoringApi';
+import type { ActivityLevel, ReviewActivity } from './ruleDraftApi';
 
 interface Props {
   entries: ReviewActivity[];

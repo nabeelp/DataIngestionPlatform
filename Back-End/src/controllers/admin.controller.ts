@@ -15,7 +15,15 @@ import type { IUser } from '../interfaces/user.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
-import { DefinitionVersionService } from '../services/DefinitionVersion.service';
+import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
+import {
+    AuthoringInputError,
+    buildAuthoringContract,
+    getDraftRevision,
+    saveDraftRules,
+    type SavedRules,
+} from '../services/RuleAuthoring.service';
+import { getConnection } from '../config/database';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
 import { COLUMN_TYPES, MAX_SHEET_NAME_LENGTH } from '../services/validation/DefinitionContract';
@@ -520,17 +528,27 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
 export const updateFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
-        const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract, rules: submittedRules, revision } = req.body;
 
         const updates: any = {};
+        let draftRules: RuleConfig[] | undefined;
         try {
             if (submittedContract) {
                 const contract = { ...(submittedContract as DefinitionContract), rules: [] };
-                await validateDefinitionContract(contract);
+                if (Array.isArray(submittedRules)) {
+                    // The workspace saves its whole draft: structure and rules must be valid together before anything is written.
+                    const authored = await buildAuthoringContract(submittedContract, submittedRules);
+                    await validateDefinitionContract(authored);
+                    draftRules = authored.rules;
+                } else {
+                    await validateDefinitionContract(contract);
+                }
                 const layout = validateDefinitionLayout(...legacyLayoutArguments(contract));
                 updates.Columns = layout.columns;
                 updates.Tables = layout.tables;
                 updates.Contract = contract;
+            } else if (submittedRules !== undefined) {
+                throw new Error('Rules can only be saved together with the definition contract');
             } else if (tables !== undefined) {
                 // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
                 const layout = validateDefinitionLayout(columns, tables);
@@ -549,6 +567,21 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
         if (description !== undefined) updates.Description = description;
         if (status !== undefined) updates.Status = status;
 
+        let ruleChanges: SavedRules | undefined;
+        try {
+            if (draftRules) {
+                ruleChanges = await saveDraftRules(id, draftRules, req.user!.userId, typeof revision === 'string' ? revision : null);
+            } else if (typeof revision === 'string' && await getDraftRevision(await getConnection(), id) !== revision) {
+                throw new DefinitionVersionError(
+                    'This definition was changed by someone else after you opened it. Reload it to see their changes before saving.', 409);
+            }
+        } catch (conflict) {
+            if (conflict instanceof DefinitionVersionError) {
+                return res.status(conflict.statusCode).json({ success: false, message: conflict.message });
+            }
+            throw conflict;
+        }
+
         const definition = await FileDefinitionService.updateDefinition(id, updates);
 
         // Log this action
@@ -557,7 +590,16 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
             AUDIT_ACTIONS.DEFINITION_UPDATED,
             ENTITY_TYPES.FILE_DEFINITION,
             id,
-            { updates },
+            {
+                updates,
+                ...(ruleChanges ? {
+                    ruleChanges: {
+                        added: ruleChanges.added.length,
+                        updated: ruleChanges.updated.length,
+                        removed: ruleChanges.removed.length,
+                    },
+                } : {}),
+            },
             req.ip || undefined,
             req.headers['user-agent']
         );
@@ -566,10 +608,44 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
         res.json({
             success: true,
             definition: camelCaseDefinition,
+            revision: await getDraftRevision(await getConnection(), id),
             message: 'File definition updated successfully'
         });
     } catch (error) {
         logger.error('[ADMIN_CONTROLLER] Error updating file definition:', error);
+        next(error);
+    }
+};
+
+/**
+ * Check a definition draft held by the workspace without saving it: contract and rule validation errors plus what
+ * publishing it would change relative to the active version.
+ * POST /api/admin/file-definitions/preflight
+ */
+export const preflightFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { contract, rules, definitionId } = req.body;
+        let authored: DefinitionContract;
+        try {
+            authored = await buildAuthoringContract(contract, rules);
+        } catch (inputError) {
+            if (inputError instanceof AuthoringInputError) {
+                return res.status(400).json({ success: false, message: inputError.message });
+            }
+            throw inputError;
+        }
+        const validation = await RulesService.validateContract(authored);
+        let diff = null;
+        if (typeof definitionId === 'string' && validation.ok) {
+            try {
+                diff = await DefinitionVersionService.previewDiff(definitionId, authored);
+            } catch (diffError) {
+                if (!(diffError instanceof DefinitionVersionError)) throw diffError;
+            }
+        }
+        res.json({ success: true, ok: validation.ok, errors: validation.errors, diff });
+    } catch (error) {
+        logger.error(`[ADMIN_CONTROLLER] Definition preflight failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         next(error);
     }
 };
@@ -724,9 +800,6 @@ type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
 const MAX_INITIAL_RULES = 50;
 
 const ruleTypeLabels: Record<RuleConfig['type'], RuleType> = {
-    columnsPresent: 'Schema Validation',
-    required: 'Required Values',
-    type: 'Type Check',
     enum: 'Enum Check',
     range: 'Range Check',
     pattern: 'Schema Validation',
@@ -745,8 +818,6 @@ const ruleTypeLabels: Record<RuleConfig['type'], RuleType> = {
 const legacyRuleTypes: Record<string, RuleConfig['type']> = {
     'enum check': 'enum',
     'range check': 'range',
-    'required values': 'required',
-    'required': 'required',
 };
 
 function normalizeInitialRuleConfigs(value: unknown): RuleConfig[] {
@@ -796,7 +867,7 @@ function normalizeInitialRuleConfigs(value: unknown): RuleConfig[] {
             if (!match) throw new Error(`Rule ${index + 1} needs numeric range bounds in min..max format`);
             params = { column, min: Number(match[1]), max: Number(match[2]) };
         } else {
-            params = { columns: [column] };
+            throw new Error(`Rule ${index + 1} is not a supported typed rule or example suggestion`);
         }
 
         const severity = rule.severity === 'Warning' ? 'Warning' : 'Error';

@@ -6,10 +6,11 @@ from typing import Any
 
 import pytest
 from jsonschema import Draft7Validator, FormatChecker
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from referencing import Registry, Resource
 
 from dq_engine.contracts.models import (
+    REMOVED_RULE_TYPES,
     DefinitionContract,
     DeliveryRequest,
     RuleConfig,
@@ -63,7 +64,45 @@ def test_benchmark_rules_match_the_versioned_contract() -> None:
     validate_rule = validator_for("rule-config.schema.json")
     rule_adapter = TypeAdapter(RuleConfig)
 
-    assert len(rules) == 18
+    assert len(rules) == 12
     for rule in rules:
         validate_rule.validate(rule)
         rule_adapter.validate_python(rule)
+
+
+def _removed_rule(rule_type: str, params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": f"removed-{rule_type}",
+        "name": f"Removed {rule_type}",
+        "description": "",
+        "severity": "Error",
+        "executionOrder": 0,
+        "enabled": True,
+        "table": None,
+        "type": rule_type,
+        "params": params,
+    }
+
+
+REMOVED_RULES = [
+    _removed_rule("columnsPresent", {"columns": ["Id"]}),
+    _removed_rule("required", {"columns": ["Id"]}),
+    _removed_rule("type", {"column": "Id", "dataType": "integer"}),
+]
+
+
+def test_removed_rule_types_are_dropped_when_a_contract_loads() -> None:
+    payload = load_json(EXAMPLES / "definition-contract.json")
+    kept = [rule for rule in payload["rules"] if rule["type"] not in REMOVED_RULE_TYPES]
+    payload["rules"] = [*REMOVED_RULES, *kept]
+
+    contract = DefinitionContract.model_validate(payload)
+
+    assert [rule.id for rule in contract.rules] == [rule["id"] for rule in kept]
+    assert {rule.type for rule in contract.rules}.isdisjoint(REMOVED_RULE_TYPES)
+
+
+@pytest.mark.parametrize("rule", REMOVED_RULES, ids=lambda rule: rule["type"])
+def test_removed_rule_types_are_rejected_as_rule_config(rule: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        TypeAdapter(RuleConfig).validate_python(rule)

@@ -1,5 +1,5 @@
-import type { ChangeEvent } from 'react';
-import type { RuleConfig } from '../contracts/rule-config';
+import { useId, type ChangeEvent } from 'react';
+import type { RuleConfig } from '../../contracts/rule-config';
 
 type Params = Record<string, unknown>;
 type RuleType = Exclude<RuleConfig['type'], 'naturalLanguage'>;
@@ -9,6 +9,16 @@ interface Props {
   params: Params;
   onChange: (params: Params) => void;
   lookupIds?: string[];
+  /** Reference lists a lookup rule can use (preferred over bare ids). */
+  lookups?: Array<{ id: string; name: string }>;
+  /** Columns of the definition, offered as suggestions in column fields. */
+  columns?: string[];
+  /** Column fields are disabled while a sheet-scoped rule has no sheet. */
+  columnsDisabled?: boolean;
+  /** Tables (sheets) of the definition, for rules that compare tables. */
+  tables?: string[];
+  /** Columns available in each sheet, for rules that reference more than one table. */
+  columnsByTable?: Record<string, string[]>;
 }
 
 const value = (params: Params, key: string): string =>
@@ -33,6 +43,7 @@ const Input = ({
   min,
   max,
   step,
+  suggestions,
 }: {
   label: string;
   value: string;
@@ -41,32 +52,44 @@ const Input = ({
   min?: number;
   max?: number;
   step?: string;
-}) => (
-  <label className="block space-y-1">
-    <span className="block text-xs font-medium text-slate-600">{label}</span>
-    <input
-      aria-label={label}
-      type={type}
-      value={inputValue}
-      onChange={onChange}
-      min={min}
-      max={max}
-      step={step}
-      className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-    />
-  </label>
-);
+  suggestions?: string[];
+}) => {
+  const listId = useId();
+  return (
+    <label className="block space-y-1">
+      <span className="block text-xs font-medium text-slate-600">{label}</span>
+      <input
+        aria-label={label}
+        type={type}
+        value={inputValue}
+        onChange={onChange}
+        min={min}
+        max={max}
+        step={step}
+        list={suggestions && suggestions.length > 0 ? listId : undefined}
+        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      {suggestions && suggestions.length > 0 && (
+        <datalist id={listId}>
+          {suggestions.map(suggestion => <option key={suggestion} value={suggestion} />)}
+        </datalist>
+      )}
+    </label>
+  );
+};
 
 const Select = ({
   label,
   value: selected,
   options,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) => (
   <label className="block space-y-1">
     <span className="block text-xs font-medium text-slate-600">{label}</span>
@@ -74,10 +97,65 @@ const Select = ({
       aria-label={label}
       value={selected}
       onChange={event => onChange(event.target.value)}
-      className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      disabled={disabled}
+      className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
     >
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
+  </label>
+);
+
+const ColumnSelect = ({
+  label,
+  value: selected,
+  columns,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  columns: string[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) => (
+  <Select
+    label={label}
+    value={selected}
+    disabled={disabled}
+    options={[
+      { value: '', label: disabled ? 'Choose a sheet first' : 'Choose a column' },
+      ...columns.map(column => ({ value: column, label: column })),
+    ]}
+    onChange={onChange}
+  />
+);
+
+const ColumnsSelect = ({
+  label,
+  selected,
+  columns,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  selected: string[];
+  columns: string[];
+  disabled: boolean;
+  onChange: (columns: string[]) => void;
+}) => (
+  <label className="block space-y-1">
+    <span className="block text-xs font-medium text-slate-600">{label}</span>
+    <select
+      multiple
+      aria-label={label}
+      value={selected}
+      disabled={disabled}
+      onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}
+      className="min-h-24 w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+    >
+      {disabled ? <option value="">Choose a sheet first</option> : columns.map(column => <option key={column} value={column}>{column}</option>)}
+    </select>
+    {!disabled && <span className="block text-[11px] text-slate-500">Select one or more columns.</span>}
   </label>
 );
 
@@ -101,12 +179,17 @@ function AggregateReferenceFields({
   reference,
   onChange,
   tables,
+  columnsByTable,
 }: {
   label: string;
   reference: Record<string, unknown>;
   onChange: (reference: Record<string, unknown>) => void;
   tables: string[];
+  columnsByTable: Record<string, string[]>;
 }) {
+  const selectedTable = value(reference, 'table');
+  const columns = columnsByTable[selectedTable] ?? [];
+  const selectedColumn = value(reference, 'column');
   const tableOptions = tables.length > 0
     ? tables.map(table => ({ value: table, label: table }))
     : [{ value: value(reference, 'table'), label: 'Enter a table name below' }];
@@ -118,12 +201,22 @@ function AggregateReferenceFields({
           label={`${label} table`}
           value={value(reference, 'table')}
           options={tableOptions}
-          onChange={table => onChange({ ...reference, table })}
+          onChange={table => {
+            const nextColumns = columnsByTable[table] ?? [];
+            const column = nextColumns.some(item => item.toLowerCase() === selectedColumn.toLowerCase()) ? selectedColumn : '';
+            onChange({ ...reference, table, column });
+          }}
         />
       ) : (
         <Input label={`${label} table`} value={value(reference, 'table')} onChange={event => onChange({ ...reference, table: event.target.value })} />
       )}
-      <Input label={`${label} column`} value={value(reference, 'column')} onChange={event => onChange({ ...reference, column: event.target.value })} />
+      <ColumnSelect
+        label={`${label} column`}
+        value={value(reference, 'column')}
+        columns={columns}
+        disabled={!selectedTable}
+        onChange={column => onChange({ ...reference, column })}
+      />
       <Select
         label={`${label} function`}
         value={value(reference, 'fn') || 'sum'}
@@ -134,9 +227,32 @@ function AggregateReferenceFields({
   );
 }
 
-export default function RuleConfigFields({ type, params, onChange, lookupIds = [] }: Props) {
+export default function RuleConfigFields({
+  type,
+  params,
+  onChange,
+  lookupIds = [],
+  lookups = [],
+  columns = [],
+  columnsDisabled = false,
+  tables = [],
+  columnsByTable = {},
+}: Props) {
   const text = (key: string, label = key) => (
-    <Input label={label} value={value(params, key)} onChange={event => onChange({ ...params, [key]: event.target.value })} />
+    <Input
+      label={label}
+      value={value(params, key)}
+      onChange={event => onChange({ ...params, [key]: event.target.value })}
+    />
+  );
+  const column = (key: string, label: string) => (
+    <ColumnSelect
+      label={label}
+      value={value(params, key)}
+      columns={columns}
+      disabled={columnsDisabled}
+      onChange={next => onChange({ ...params, [key]: next })}
+    />
   );
   const numeric = (key: string, label = key, min?: number) => (
     <Input
@@ -156,38 +272,20 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
   );
 
   switch (type) {
-    case 'columnsPresent':
-    case 'required':
     case 'unique':
       return (
-        <Input
-          label="Columns (comma-separated)"
-          value={strings(params, 'columns').join(', ')}
-          onChange={event => onChange({
-            ...params,
-            columns: event.target.value.split(',').map(item => item.trim()).filter(Boolean),
-          })}
+        <ColumnsSelect
+          label="Columns"
+          selected={strings(params, 'columns')}
+          columns={columns}
+          disabled={columnsDisabled}
+          onChange={selected => onChange({ ...params, columns: selected })}
         />
-      );
-    case 'type':
-      return (
-        <div className="grid grid-cols-2 gap-3">
-          {text('column', 'Column')}
-          <Select
-            label="Data type"
-            value={value(params, 'dataType') || 'string'}
-            options={['string', 'integer', 'decimal', 'date', 'datetime', 'boolean'].map(item => ({ value: item, label: item }))}
-            onChange={dataType => onChange({ ...params, dataType })}
-          />
-          {text('format', 'Format (optional)')}
-          {text('decimalSeparator', 'Decimal separator (optional)')}
-          {text('thousandsSeparator', 'Thousands separator (optional)')}
-        </div>
       );
     case 'enum':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
+          {column('column', 'Column')}
           <Input
             label="Allowed values (comma-separated)"
             value={strings(params, 'values').join(', ')}
@@ -202,7 +300,7 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
     case 'range':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
+          {column('column', 'Column')}
           <div className="grid grid-cols-2 gap-3">{numeric('min', 'Minimum')}{numeric('max', 'Maximum')}</div>
           <div className="flex gap-5">{checkbox('minInclusive', 'Minimum is inclusive')}{checkbox('maxInclusive', 'Maximum is inclusive')}</div>
         </div>
@@ -210,7 +308,7 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
     case 'pattern':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
+          {column('column', 'Column')}
           {text('pattern', 'Regular expression')}
           {checkbox('caseSensitive', 'Case sensitive')}
         </div>
@@ -218,19 +316,22 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
     case 'length':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
+          {column('column', 'Column')}
           <div className="grid grid-cols-2 gap-3">{numeric('min', 'Minimum length', 0)}{numeric('max', 'Maximum length', 0)}</div>
         </div>
       );
     case 'lookup':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
-          {lookupIds.length > 0 ? (
+          {column('column', 'Column')}
+          {lookups.length > 0 || lookupIds.length > 0 ? (
             <Select
               label="Lookup"
               value={value(params, 'lookupId')}
-              options={[{ value: '', label: 'Choose a lookup' }, ...lookupIds.map(id => ({ value: id, label: id }))]}
+              options={[
+                { value: '', label: 'Choose a lookup' },
+                ...(lookups.length > 0 ? lookups.map(lookup => ({ value: lookup.id, label: lookup.name })) : lookupIds.map(id => ({ value: id, label: id }))),
+              ]}
               onChange={lookupId => onChange({ ...params, lookupId })}
             />
           ) : text('lookupId', 'Lookup ID')}
@@ -240,7 +341,7 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
     case 'dateRange':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
+          {column('column', 'Column')}
           <div className="grid grid-cols-2 gap-3">{text('min', 'Minimum date')}{text('max', 'Maximum date')}</div>
           <p className="text-[11px] text-slate-500">Use an ISO date or a supported relative date expression; leave an unused bound blank.</p>
         </div>
@@ -253,15 +354,20 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
       const op = value(when, 'op') || 'eq';
       return (
         <div className="space-y-3">
-          <Input
-            label="Required columns (comma-separated)"
-            value={strings(params, 'columns').join(', ')}
-            onChange={event => onChange({
-              ...params,
-              columns: event.target.value.split(',').map(item => item.trim()).filter(Boolean),
-            })}
+          <ColumnsSelect
+            label="Required columns"
+            selected={strings(params, 'columns')}
+            columns={columns}
+            disabled={columnsDisabled}
+            onChange={selected => onChange({ ...params, columns: selected })}
           />
-          <Input label="Condition column" value={value(when, 'column')} onChange={event => updateWhen({ column: event.target.value })} />
+          <ColumnSelect
+            label="Condition column"
+            value={value(when, 'column')}
+            columns={columns}
+            disabled={columnsDisabled}
+            onChange={next => updateWhen({ column: next })}
+          />
           <Select
             label="Condition"
             value={op}
@@ -292,12 +398,12 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
     case 'compare':
       return (
         <div className="grid grid-cols-2 gap-3">
-          {text('left', 'Left column')}
+          {column('left', 'Left column')}
           <Select label="Comparison" value={value(params, 'op') || 'eq'} options={[
             { value: 'lt', label: '<' }, { value: 'le', label: '<=' }, { value: 'eq', label: '=' },
             { value: 'ne', label: '!=' }, { value: 'ge', label: '>=' }, { value: 'gt', label: '>' },
           ]} onChange={op => onChange({ ...params, op })} />
-          {text('right', 'Right column')}
+          {column('right', 'Right column')}
           <Select label="Compare as" value={value(params, 'as') || 'string'} options={[
             { value: 'number', label: 'Number' }, { value: 'date', label: 'Date' }, { value: 'string', label: 'String' },
           ]} onChange={as => onChange({ ...params, as })} />
@@ -308,7 +414,7 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
     case 'aggregate':
       return (
         <div className="space-y-3">
-          {text('column', 'Column')}
+          {column('column', 'Column')}
           <Select label="Aggregate function" value={value(params, 'fn') || 'sum'} options={[
             'sum', 'min', 'max', 'avg', 'count', 'countDistinct',
           ].map(fn => ({ value: fn, label: fn }))} onChange={fn => onChange({ ...params, fn })} />
@@ -327,13 +433,15 @@ export default function RuleConfigFields({ type, params, onChange, lookupIds = [
           <AggregateReferenceFields
             label="Left aggregate"
             reference={left}
-            tables={[]}
+            tables={tables}
+            columnsByTable={columnsByTable}
             onChange={reference => onChange({ ...params, left: reference })}
           />
           <AggregateReferenceFields
             label="Right aggregate"
             reference={right}
-            tables={[]}
+            tables={tables}
+            columnsByTable={columnsByTable}
             onChange={reference => onChange({ ...params, right: reference })}
           />
           {numeric('tolerance', 'Allowed difference', 0)}

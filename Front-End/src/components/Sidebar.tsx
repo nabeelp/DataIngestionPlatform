@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Upload,
   FileText,
-  Settings,
   Search,
   UploadCloud,
   Menu,
@@ -69,11 +68,6 @@ const Sidebar = () => {
       icon: <FileText size={18} />,
       path: "/definitions",
     },
-    {
-      name: "Rules",
-      icon: <Settings size={18} />,
-      path: "/rules",
-    },
     { name: "Lookups", icon: <Search size={18} />, path: "/lookups" },
   ];
 
@@ -95,11 +89,6 @@ const Sidebar = () => {
           name: "File Definitions",
           icon: <FileText size={18} />,
           path: "/admin/file-definitions",
-        },
-        {
-          name: "Rules",
-          icon: <Settings size={18} />,
-          path: "/admin/rules",
         },
         {
           name: "Lookups",
