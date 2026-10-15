@@ -248,6 +248,25 @@ describe('rule health', () => {
     expect(Object.keys(health.problemsByRule).sort()).toEqual(['2', '3']);
   });
 
+  it('attributes friendly nested configuration errors without repeating them or affecting other rules', () => {
+    const rules = [rule('1', { enabled: false }), rule('2'), rule('3'), rule('4')];
+    const health = ruleHealth(rules, structure, {
+      ok: false,
+      errors: [
+        { path: '$.rules[0].params', message: 'Enter a minimum or maximum row count.' },
+        { path: '$.rules[1].params.when.values', message: 'Specify the values.' },
+        { path: '$.rules[1].params.when.values', message: 'Specify the values.' },
+      ],
+      diff: null,
+    });
+    expect(health.problemsByRule).toEqual({
+      '2': ['Enter a minimum or maximum row count.'],
+      '3': ['Specify the values.'],
+    });
+    expect(health.general).toEqual([]);
+    expect(health.blocking).toBe(2);
+  });
+
   it('merges instant structure checks with the rules service findings without repeating a message', () => {
     const rules = [rule('1', { type: 'unique', params: { columns: ['Gone'] } } as Partial<RuleConfig>)];
     const health = ruleHealth(rules, structure, {

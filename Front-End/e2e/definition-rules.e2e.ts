@@ -84,7 +84,7 @@ interface MockOptions {
   rules?: object[];
   definition?: typeof definition;
   propose?: (route: Route, body: Record<string, unknown>) => Promise<void>;
-  validate?: (body: Record<string, unknown>) => object;
+  validate?: (body: Record<string, unknown>) => object | Promise<object>;
   preflight?: (body: Record<string, unknown>) => object;
 }
 
@@ -124,7 +124,7 @@ const mockApi = async (page: Page, options: MockOptions = {}): Promise<Calls> =>
     if (path === '/rules/validate') {
       const body = request.postDataJSON();
       calls.validations.push(body);
-      return json({ success: true, ok: true, errors: [], ...(options.validate?.(body) ?? {}) });
+      return json({ success: true, ok: true, errors: [], ...(await options.validate?.(body) ?? {}) });
     }
     if (path === '/rules/natural-language/propose') {
       const body = request.postDataJSON();
@@ -244,6 +244,121 @@ test('rule validation feedback appears on submit and hides again when edited', a
 
   await page.getByLabel('Description').fill('A revised description');
   await expect(warning).toHaveCount(0);
+});
+
+const rowCountError = 'Enter a minimum or maximum row count.';
+const rowCountValidation = (body: Record<string, unknown>) => {
+  const config = body.Config as { params: { min?: number; max?: number } };
+  return config.params.min === undefined && config.params.max === undefined
+    ? { ok: false, errors: [{ path: '$.params', message: rowCountError }] }
+    : { ok: true, errors: [] };
+};
+
+test('a row count rule cannot be added or updated without bounds and accepts a zero bound', async ({ page }) => {
+  const calls = await mockApi(page, { validate: rowCountValidation });
+  await openRules(page);
+  await page.getByRole('button', { name: 'Choose a rule type' }).click();
+  await page.getByLabel('Rule type').selectOption('rowCount');
+  await page.getByLabel('Rule name').fill('Employee count');
+  await page.getByRole('button', { name: 'Add rule', exact: true }).click();
+
+  const warning = page.getByRole('alert').filter({ hasText: rowCountError });
+  await expect(warning).toBeVisible();
+  await expect(warning.getByRole('listitem')).toHaveText(rowCountError);
+  await expect(page.getByRole('listitem', { name: 'Rule Employee count' })).toHaveCount(0);
+  await page.getByLabel('Maximum rows').fill('40');
+  await expect(warning).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add rule', exact: true }).click();
+  const rule = page.getByRole('listitem', { name: 'Rule Employee count' });
+  await expect(rule).toBeVisible();
+
+  await rule.getByRole('button', { name: 'Edit Employee count' }).click();
+  await page.getByLabel('Maximum rows').fill('');
+  await page.getByRole('button', { name: 'Update rule' }).click();
+  await expect(warning).toBeVisible();
+  await expect(warning.getByRole('listitem')).toHaveText(rowCountError);
+  await expect(rule).toContainText('40');
+  await page.getByLabel('Minimum rows').fill('0');
+  await page.getByRole('button', { name: 'Update rule' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(rule).toContainText('0');
+  expect(calls.saves).toHaveLength(0);
+});
+
+test('an existing invalid rule shows actionable list feedback and can be repaired', async ({ page }) => {
+  const invalidRule = { ...rangeRule, name: 'Employee count', type: 'rowCount', params: {} };
+  await mockApi(page, {
+    rules: [invalidRule],
+    validate: rowCountValidation,
+    preflight: body => {
+      const rules = body.rules as Array<{ params: { max?: number } }>;
+      return rules[0]?.params.max === undefined
+        ? { ok: false, errors: [{ path: '$.rules[0].params', message: rowCountError }] }
+        : { ok: true, errors: [] };
+    },
+  });
+  await openRules(page);
+  const rule = page.getByRole('listitem', { name: 'Rule Employee count' });
+  await expect(rule).toContainText(rowCountError);
+  await expect(rule).toContainText('Needs attention');
+  await expect(rule).not.toContainText('given schemas');
+  await expect(rule).not.toContainText(invalidRule.id);
+
+  await rule.getByRole('button', { name: 'Edit Employee count' }).click();
+  await page.getByLabel('Maximum rows').fill('40');
+  await page.getByRole('button', { name: 'Update rule' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(rule).not.toContainText(rowCountError);
+  await expect(rule).not.toContainText('Needs attention');
+});
+
+test('an unavailable validator keeps a new rule out of the draft', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.route('**/rules/validate', route => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ success: false, message: 'The rules service is unavailable. Try again.' }),
+  }));
+  await openRules(page);
+  await page.getByRole('button', { name: 'Choose a rule type' }).click();
+  await page.getByLabel('Rule type').selectOption('rowCount');
+  await page.getByLabel('Rule name').fill('Employee count');
+  await page.getByLabel('Maximum rows').fill('40');
+  await page.getByRole('button', { name: 'Add rule', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'The rules service is unavailable.' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'New rule' })).toBeVisible();
+  await expect(page.getByRole('listitem', { name: 'Rule Employee count' })).toHaveCount(0);
+  expect(calls.saves).toHaveLength(0);
+});
+
+test('editing a rule while submission validation is pending cannot add an unchecked configuration', async ({ page }) => {
+  let release: () => void = () => undefined;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let blocked = 0;
+  await mockApi(page, {
+    validate: async body => {
+      const config = body.Config as { params: { max?: number } };
+      if (config.params.max === 40) {
+        blocked += 1;
+        await pending;
+      }
+      return rowCountValidation(body);
+    },
+  });
+  await openRules(page);
+  await page.getByRole('button', { name: 'Choose a rule type' }).click();
+  await page.getByLabel('Rule type').selectOption('rowCount');
+  await page.getByLabel('Rule name').fill('Employee count');
+  await page.getByLabel('Maximum rows').fill('40');
+  await page.getByRole('button', { name: 'Add rule', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Checking…', exact: true })).toBeDisabled();
+  await expect.poll(() => blocked).toBeGreaterThan(0);
+  await page.getByLabel('Maximum rows').fill('');
+  release();
+  await expect(page.getByRole('button', { name: 'Add rule', exact: true })).toBeEnabled();
+  await expect(page.getByRole('listitem', { name: 'Rule Employee count' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add rule', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: rowCountError })).toBeVisible();
 });
 
 test('structure warnings are deferred and keep an outdated rule from being added', async ({ page }) => {

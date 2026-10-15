@@ -452,7 +452,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
             {exampleError && <p role="alert" className="text-xs text-red-700">{exampleError}</p>}
             {exampleTest && exampleTest.errors.length > 0 && (
               <ul role="alert" className="space-y-1 rounded bg-red-50 p-3 text-xs text-red-700">
-                {exampleTest.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.path}: {item.message}</li>)}
+                {exampleTest.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.message}</li>)}
               </ul>
             )}
             <DryRunSection context={dryRunContext} definitionId={definitionId} />
@@ -498,7 +498,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
             {validationError && <p role="alert" className="text-xs text-red-700">{validationError}</p>}
             {validation?.errors.length ? (
               <ul role="alert" className="space-y-1 rounded bg-amber-50 p-3 text-xs text-amber-900">
-                {validation.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.path}: {item.message}</li>)}
+                {validation.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.message}</li>)}
               </ul>
             ) : validation?.ok ? (
               <p role="status" className="text-xs text-emerald-700">The rule is valid for this definition.</p>

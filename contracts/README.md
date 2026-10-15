@@ -25,3 +25,27 @@ the schemas and regenerate instead.
 Examples under `examples/` are representative valid payloads for schema tests.
 Unknown properties are rejected, and runtime validation must be performed at
 service boundaries rather than relying on TypeScript types alone.
+
+## Rule authoring validation
+
+Both candidate rule validation (Add/Update and example testing) and whole-definition
+validation use these JSON Schemas before typed parsing, reference checks and rule
+compilation. Python models and generated TypeScript types alone do not enforce every
+schema constraint. For example, row count, range, length, date range and aggregate
+rules require at least one minimum or maximum bound; zero is a valid numeric bound.
+Normalized rules preserve required nullable fields such as `table`, but omit unset
+optional parameter values rather than inserting `null` bounds that violate the schema.
+
+Configuration failures return `ok: false` with structured `errors` containing a
+`path` and an actionable `message`, rather than a serialized rule or a union-schema
+diagnostic. Candidate paths start at `$` (for example, `$.params`); whole-definition
+paths include the rule index (for example, `$.rules[0].params`). The workspace uses
+these indices to attach messages to the corresponding rules. A row count rule with
+no bounds reports "Enter a minimum or maximum row count."
+The rule editor displays only the actionable message, not the technical JSON path,
+including when showing example-test configuration errors.
+
+Invalid Add/Update submissions leave the editor open and the workspace draft
+unchanged. Existing invalid rules remain editable for correction. Configuration
+validity is separate from a rule failing against uploaded data: a valid rule may
+intentionally reject data that violates its configured bounds or conditions.

@@ -74,6 +74,27 @@ describe('RulesService HTTP client', () => {
         expect(disabled.enabled).toBe(false);
     });
 
+    it('preserves actionable candidate and contract configuration errors', async () => {
+        const candidateError = {
+            ok: false,
+            errors: [{ path: '$.params', message: 'Enter a minimum or maximum row count.' }],
+            normalizedRule: null,
+            explanation: null,
+        };
+        const contractError = {
+            ok: false,
+            errors: [{ path: '$.rules[0].params', message: 'Enter a minimum or maximum row count.' }],
+        };
+        fetchMock
+            .mockResolvedValueOnce({ ok: true, json: async () => candidateError } as Response)
+            .mockResolvedValueOnce({ ok: true, json: async () => contractError } as Response);
+        const candidate: RuleConfig = { ...rule, type: 'rowCount', params: {} };
+        const withRules: DefinitionContract = { ...contract, rules: [candidate] };
+
+        await expect(RulesService.validateRule(withRules, candidate)).resolves.toEqual(candidateError);
+        await expect(RulesService.validateContract(withRules)).resolves.toEqual(contractError);
+    });
+
     it('validates a contract without its disabled rules', async () => {
         fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true, errors: [] }) } as Response);
         const withRules = { schemaVersion: 1, rules: [rule, { ...rule, id: 'rule-2', enabled: false }] } as DefinitionContract;

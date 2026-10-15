@@ -83,6 +83,148 @@ def test_rule_validation_checks_declared_columns_and_compiles_builtin_rules() ->
     assert any("undeclared column" in error["message"] for error in rejected["errors"])
 
 
+@pytest.mark.parametrize(("rule_type", "params"), [
+    ("enum", {"column": "", "values": ["A"]}),
+    ("range", {"column": "Amount"}),
+    ("pattern", {"column": "Amount", "pattern": ""}),
+    ("length", {"column": "Amount"}),
+    ("unique", {"columns": [""]}),
+    ("lookup", {"column": "Amount", "lookupId": ""}),
+    ("dateRange", {"column": "Amount", "min": "tomorrow"}),
+    ("conditionalRequired", {"columns": [""], "when": {"column": "Amount", "op": "empty"}}),
+    ("compare", {"left": "", "right": "Amount", "op": "eq", "as": "string"}),
+    ("rowCount", {}),
+    ("aggregate", {"column": "Amount", "fn": "sum"}),
+    ("reconcile", {
+        "left": {"table": "", "column": "Amount", "fn": "sum"},
+        "right": {"table": "", "column": "Amount", "fn": "sum"},
+    }),
+    ("naturalLanguage", {}),
+])
+def test_candidate_validation_enforces_schema_for_every_rule_type(
+    rule_type: str, params: dict[str, object],
+) -> None:
+    contract = _contract([_table(None, "Amount")], [])
+    candidate = _rule(rule_type, params)
+    result = validate_rule_payload(contract, candidate)
+    assert result["ok"] is False
+    assert result["normalizedRule"] is None
+    assert result["errors"]
+    assert all(error["path"].startswith("$.params") for error in result["errors"])
+    assert all("given schemas" not in error["message"] for error in result["errors"])
+    assert execute_rule_examples(contract, candidate, [])["errors"] == result["errors"]
+
+
+@pytest.mark.parametrize(("rule_type", "extra", "bound"), [
+    ("rowCount", {}, 0),
+    ("range", {"column": "Amount"}, 0),
+    ("length", {"column": "Amount"}, 0),
+    ("dateRange", {"column": "Amount"}, "2025-01-01"),
+    ("aggregate", {"column": "Amount", "fn": "count"}, 0),
+])
+@pytest.mark.parametrize("side", ["min", "max"])
+def test_one_sided_bounds_remain_valid(
+    rule_type: str, extra: dict[str, object], bound: object, side: str,
+) -> None:
+    contract = _contract([_table(None, "Amount")], [])
+    candidate = _rule(rule_type, {**extra, side: bound})
+    result = validate_rule_payload(contract, candidate)
+    assert result["ok"] is True
+    normalized = result["normalizedRule"]
+    assert normalized["table"] is None
+    assert ("max" if side == "min" else "min") not in normalized["params"]
+    assert validate_rule_payload(contract, normalized)["ok"] is True
+    assert validate_contract_payload({**contract, "rules": [normalized]}) == {"ok": True, "errors": []}
+    assert validate_contract_payload({**contract, "rules": [candidate]}) == {"ok": True, "errors": []}
+
+
+def test_row_count_missing_bounds_has_same_actionable_error_in_both_validation_paths() -> None:
+    contract = _contract([_table(None, "Amount")], [])
+    candidate = _rule("rowCount", {})
+    assert validate_rule_payload(contract, candidate)["errors"] == [
+        {"path": "$.params", "message": "Enter a minimum or maximum row count."},
+    ]
+    assert validate_contract_payload({**contract, "rules": [candidate]}) == {
+        "ok": False,
+        "errors": [{"path": "$.rules[0].params", "message": "Enter a minimum or maximum row count."}],
+    }
+
+
+@pytest.mark.parametrize(("params", "path", "message"), [
+    ({"min": -1}, "$.params.min", "Specify at least 0 for the minimum."),
+    ({"min": 1.5}, "$.params.min", "Set the minimum to a whole number."),
+    ({"max": None}, "$.params.max", "Set the maximum to a whole number."),
+    ({"max": "40"}, "$.params.max", "Set the maximum to a whole number."),
+    ({"max": 40, "secret": "PRIVATE_PAYLOAD"}, "$.params", "Remove unsupported settings from the rule settings."),
+])
+def test_row_count_invalid_settings_are_actionable_without_echoing_values(
+    params: dict[str, object], path: str, message: str,
+) -> None:
+    result = validate_rule_payload(_contract([_table(None, "Amount")], []), _rule("rowCount", params))
+    assert result["errors"] == [{"path": path, "message": message}]
+    assert "PRIVATE_PAYLOAD" not in json.dumps(result)
+
+
+def test_nested_condition_errors_only_describe_the_selected_operator() -> None:
+    rule = _rule("conditionalRequired", {"columns": ["Amount"], "when": {"column": "Amount", "op": "in"}})
+    result = validate_rule_payload(_contract([_table(None, "Amount")], []), rule)
+    assert result["errors"] == [{"path": "$.params.when.values", "message": "Specify the values."}]
+
+
+def test_multiple_invalid_rules_keep_precise_paths_without_payload_dumps() -> None:
+    rules = [
+        _rule("rowCount", {}),
+        _rule("conditionalRequired", {"columns": ["Amount"], "when": {"column": "Amount", "op": "in"}}),
+        _rule("dateRange", {"column": "Amount", "min": {"relative": "tomorrow"}}),
+    ]
+    result = validate_contract_payload(_contract([_table(None, "Amount")], rules))
+    assert [error["path"] for error in result["errors"]] == [
+        "$.rules[0].params", "$.rules[1].params.when.values", "$.rules[2].params.min.relative",
+    ]
+    assert "given schemas" not in json.dumps(result)
+    assert "Test rule" not in json.dumps(result)
+
+
+def test_schema_errors_remain_bounded_and_deduplicated() -> None:
+    contract = _contract([_table(None, "Amount")], [_rule("rowCount", {}) for _ in range(60)])
+    result = validate_contract_payload(contract)
+    assert len(result["errors"]) == 50
+    assert len({error["path"] for error in result["errors"]}) == 50
+    candidate = _rule("rowCount", {})
+    del candidate["params"]
+    result = validate_rule_payload(_contract([_table(None, "Amount")], []), candidate)
+    assert result["errors"] == [{"path": "$.params", "message": "Specify the rule settings."}]
+
+
+def test_natural_language_schema_errors_target_only_the_selected_mode() -> None:
+    candidate = _employee_candidate()
+    candidate["params"]["mode"] = "query"
+    candidate["params"]["query"] = ""
+    candidate["params"]["failWhen"] = None
+    contract = _contract([_table("Employees", "Email", "LastName")], [], layout="sheets")
+    result = validate_rule_payload(contract, candidate)
+    assert result["errors"] == [
+        {"path": "$.params.query", "message": "Specify at least 1 character for the query."},
+    ]
+
+
+@pytest.mark.parametrize("candidate", [
+    _rule("PRIVATE_PAYLOAD", {}),
+    _rule("conditionalRequired", {"columns": ["Amount"], "when": {"op": "PRIVATE_PAYLOAD"}}),
+    {"type": {"PRIVATE_PAYLOAD": True}},
+    [],
+])
+def test_unknown_or_malformed_discriminators_do_not_dump_payloads(candidate: object) -> None:
+    contract = _contract([_table(None, "Amount")], [])
+    for result in (
+        validate_rule_payload(contract, candidate),
+        validate_contract_payload({**contract, "rules": [candidate]}),
+    ):
+        assert result["ok"] is False
+        assert "PRIVATE_PAYLOAD" not in json.dumps(result)
+        assert "given schemas" not in json.dumps(result)
+
+
 def test_contract_publish_validation_checks_both_sheet_table_and_column_names() -> None:
     contract = _contract(
         [_table("Orders", "Amount"), _table("Payments", "Amount")],
@@ -194,10 +336,11 @@ def test_candidate_validation_and_examples_ignore_invalid_existing_rules_without
         (False, True), (True, True),
     ]
     assert explicit_examples == examples
+    assert execute_rule_examples(contract, validation["normalizedRule"], None) == examples
     assert contract == original
     publish = validate_contract_payload(contract)
     assert publish["ok"] is False
-    assert publish["errors"][0]["path"] == "$.rules[3]"
+    assert publish["errors"][0]["path"] == "$.rules[3].params.columns"
 
 
 @pytest.mark.parametrize("candidate", [
