@@ -33,6 +33,24 @@ const definition = {
   hasUnpublishedChanges: false,
 };
 
+const sheetsDefinition = {
+  ...definition,
+  contract: {
+    ...contract,
+    layout: 'sheets' as const,
+    tables: [
+      {
+        sheet: 'Orders', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null,
+        columns: [column('Order ID'), column('Amount', 'decimal')],
+      },
+      {
+        sheet: 'Returns', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null,
+        columns: [column('Return ID'), column('Reason')],
+      },
+    ],
+  },
+};
+
 const rangeRule = {
   id: '11111111-1111-4111-8111-111111111111',
   name: 'Amount range',
@@ -391,23 +409,6 @@ test('structure warnings are deferred and keep an outdated rule from being added
 });
 
 test('column fields are disabled until a sheet is selected and use only that sheet columns', async ({ page }) => {
-  const sheetsDefinition = {
-    ...definition,
-    contract: {
-      ...contract,
-      layout: 'sheets' as const,
-      tables: [
-        {
-          sheet: 'Orders', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null,
-          columns: [column('Order ID'), column('Amount', 'decimal')],
-        },
-        {
-          sheet: 'Returns', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null,
-          columns: [column('Return ID'), column('Reason')],
-        },
-      ],
-    },
-  };
   await mockApi(page, { definition: sheetsDefinition });
   await openRules(page);
 
@@ -426,6 +427,95 @@ test('column fields are disabled until a sheet is selected and use only that she
   await expect(columnField).toHaveValue('');
   await expect(page.getByLabel('Minimum result')).toHaveValue('10');
   await expect(columnField.locator('option')).toHaveText(['Choose a column', 'Return ID', 'Reason']);
+});
+
+for (const sheetCount of [1, 2]) {
+  test(`reconcile aggregates require explicit sheet selection with ${sheetCount} sheet(s)`, async ({ page }) => {
+    const calls = await mockApi(page, {
+      definition: {
+        ...sheetsDefinition,
+        contract: { ...sheetsDefinition.contract, tables: sheetsDefinition.contract.tables.slice(0, sheetCount) },
+      },
+    });
+    await openRules(page);
+    await page.getByRole('button', { name: 'Choose a rule type' }).click();
+    await page.getByLabel('Rule type').selectOption('reconcile');
+    await page.getByLabel('Rule name').fill('Matching totals');
+
+    for (const side of ['Left', 'Right']) {
+      const tableField = page.getByLabel(`${side} aggregate table`, { exact: true });
+      const columnField = page.getByLabel(`${side} aggregate column`, { exact: true });
+      await expect(tableField).toHaveValue('');
+      await expect(tableField.locator('option:checked')).toHaveText('Choose a sheet ...');
+      await expect(columnField).toBeDisabled();
+      await expect(columnField).toHaveValue('');
+    }
+
+    for (const side of ['Left', 'Right']) {
+      const tableField = page.getByLabel(`${side} aggregate table`, { exact: true });
+      const columnField = page.getByLabel(`${side} aggregate column`, { exact: true });
+      await tableField.selectOption('Orders');
+      await expect(tableField).toHaveValue('Orders');
+      await expect(columnField).toBeEnabled();
+      await expect(columnField.locator('option')).toHaveText(['Choose a column', 'Order ID', 'Amount']);
+      await columnField.selectOption('Amount');
+      if (side === 'Left') {
+        await expect(page.getByLabel('Right aggregate table', { exact: true })).toHaveValue('');
+        await expect(page.getByLabel('Right aggregate column', { exact: true })).toBeDisabled();
+      }
+      if (sheetCount === 2) {
+        await tableField.selectOption('Returns');
+        await expect(columnField).toHaveValue('');
+        await expect(columnField.locator('option')).toHaveText(['Choose a column', 'Return ID', 'Reason']);
+        await columnField.selectOption('Return ID');
+      }
+      await tableField.selectOption('');
+      await expect(columnField).toBeDisabled();
+      await expect(columnField).toHaveValue('');
+      await tableField.selectOption('Orders');
+      await columnField.selectOption('Amount');
+    }
+
+    await expect(page.getByLabel('Left aggregate column', { exact: true })).toHaveValue('Amount');
+    await page.getByRole('button', { name: 'Add rule', exact: true }).click();
+    await expect(page.getByRole('listitem', { name: 'Rule Matching totals' })).toBeVisible();
+    expect(calls.validations.at(-1)).toMatchObject({
+      Config: {
+        type: 'reconcile',
+        params: {
+          left: { table: 'Orders', column: 'Amount', fn: 'sum' },
+          right: { table: 'Orders', column: 'Amount', fn: 'sum' },
+        },
+      },
+    });
+  });
+}
+
+test('editing a saved reconcile rule preserves its selected sheets and columns', async ({ page }) => {
+  const reconcileRule = {
+    ...rangeRule,
+    name: 'Matching totals',
+    type: 'reconcile',
+    params: {
+      left: { table: 'Orders', column: 'Amount', fn: 'sum' },
+      right: { table: 'Returns', column: 'Return ID', fn: 'count' },
+      tolerance: 0,
+    },
+  };
+  const calls = await mockApi(page, { definition: sheetsDefinition, rules: [reconcileRule] });
+  await openRules(page);
+  await page.getByRole('button', { name: 'Edit Matching totals', exact: true }).click();
+
+  for (const [side, reference] of [['Left', reconcileRule.params.left], ['Right', reconcileRule.params.right]] as const) {
+    await expect(page.getByLabel(`${side} aggregate table`, { exact: true })).toHaveValue(reference.table);
+    const columnField = page.getByLabel(`${side} aggregate column`, { exact: true });
+    await expect(columnField).toBeEnabled();
+    await expect(columnField).toHaveValue(reference.column);
+    await expect(page.getByLabel(`${side} aggregate function`, { exact: true })).toHaveValue(reference.fn);
+  }
+  await page.getByRole('button', { name: 'Update rule', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(calls.validations.at(-1)).toMatchObject({ Config: { params: reconcileRule.params } });
 });
 
 test('describing a rule shows the review activity and only adds it to the draft once accepted', async ({ page }) => {

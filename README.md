@@ -72,6 +72,7 @@ A definition has one of two layouts (Admin → File Definitions → **Layout**):
   - Sheets without a table are ignored and not validated.
   - CSV (and TSV/TXT) files have no sheets, so they are rejected when uploaded.
   - Every ordinary rule names the **sheet table** it applies to (Rules step → Sheet), and only checks that sheet's rows. A Natural Language rule that explicitly relates sheets can instead declare columns separately for each named sheet. Publishing is refused when a target sheet does not exist or a declared column is not in its sheet.
+  - For a **Reconcile tables** rule, choose a sheet for each aggregate before selecting its column. Both table selectors start with **Choose a sheet ...** when creating a rule; existing rules retain their saved selections.
 
 The layout, the sheet tables and each rule's table are part of the versioned contract, so switching layout or renaming a sheet is a draft change until published.
 

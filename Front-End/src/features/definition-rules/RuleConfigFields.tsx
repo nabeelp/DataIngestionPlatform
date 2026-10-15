@@ -190,9 +190,10 @@ function AggregateReferenceFields({
   const selectedTable = value(reference, 'table');
   const columns = columnsByTable[selectedTable] ?? [];
   const selectedColumn = value(reference, 'column');
-  const tableOptions = tables.length > 0
-    ? tables.map(table => ({ value: table, label: table }))
-    : [{ value: value(reference, 'table'), label: 'Enter a table name below' }];
+  const tableOptions = [
+    { value: '', label: 'Choose a sheet ...' },
+    ...tables.map(table => ({ value: table, label: table })),
+  ];
   return (
     <fieldset className="space-y-2 rounded-md border border-slate-200 p-3">
       <legend className="px-1 text-xs font-semibold text-slate-700">{label}</legend>
