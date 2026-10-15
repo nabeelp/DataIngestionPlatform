@@ -245,12 +245,15 @@ def _contract_rule_errors(
             if mapping is None and contract.layout == "single" and len(rule.params.columns) == 1:
                 mapping = next(iter(rule.params.columns.values()))
             if mapping is None:
-                errors.append({
-                    "path": "$.params.columns",
-                    "message": f'Query-mode columns for table "{name}" are missing.',
-                })
+                # A cross-sheet query reads only the sheets it declares.
                 continue
             table_mapping[f"t_{index}"] = [*mapping, "__row"]
+        if not table_mapping:
+            errors.append({
+                "path": "$.params.columns",
+                "message": "Query-mode rules must declare columns for at least one table.",
+            })
+            return errors
         try:
             sqlguard.validate_query(
                 sqlguard.substitute_validation_date(

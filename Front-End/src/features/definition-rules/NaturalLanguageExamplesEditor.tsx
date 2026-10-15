@@ -1,11 +1,18 @@
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 
+export interface NaturalLanguageExampleRow {
+  table: string;
+  values: Record<string, string>;
+}
+
 export interface NaturalLanguageExample {
   table: string;
   values: Record<string, string>;
   expectedValid: boolean;
   source: 'model' | 'admin';
+  /** Rows seeded in other sheets so a cross-sheet query rule can find or miss matching data. */
+  relatedRows?: NaturalLanguageExampleRow[];
 }
 
 interface ExampleResult {
@@ -20,10 +27,55 @@ interface ExampleResult {
 interface Props {
   examples: NaturalLanguageExample[];
   tableOptions: string[];
+  /** Query rules can read several sheets, so their examples can seed rows in the other sheets. */
+  allowRelatedRows?: boolean;
   results: ExampleResult[] | null;
   running: boolean;
   onChange: (examples: NaturalLanguageExample[]) => void;
   onRun: () => void;
+}
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  !!value && typeof value === 'object' && !Array.isArray(value) &&
+  Object.values(value).every(item => typeof item === 'string');
+
+function RelatedRowsEditor({
+  example,
+  index,
+  onChange,
+}: {
+  example: NaturalLanguageExample;
+  index: number;
+  onChange: (rows: NaturalLanguageExampleRow[]) => void;
+}) {
+  const [draft, setDraft] = useState(() => JSON.stringify(example.relatedRows ?? [], null, 2));
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div>
+      <textarea
+        aria-label={`Example ${index + 1} related rows as JSON`}
+        rows={3}
+        value={draft}
+        onChange={event => {
+          setDraft(event.target.value);
+          try {
+            const parsed: unknown = JSON.parse(event.target.value);
+            if (!Array.isArray(parsed) || parsed.some(row => !row || typeof row !== 'object' ||
+              typeof (row as { table?: unknown }).table !== 'string' || !isStringRecord((row as { values?: unknown }).values))) {
+              throw new Error('Related rows must be a JSON array of { "table": "Sheet", "values": { "Column": "text" } }.');
+            }
+            setError(null);
+            onChange(parsed as NaturalLanguageExampleRow[]);
+          } catch (parseError) {
+            setError(parseError instanceof SyntaxError ? 'Enter valid JSON.' : (parseError as Error).message);
+          }
+        }}
+        className="w-full min-w-56 rounded border border-slate-300 p-2 font-mono text-xs"
+      />
+      {error && <p role="alert" className="mt-1 text-xs text-red-700">{error}</p>}
+    </div>
+  );
 }
 
 function ExampleValuesEditor({
@@ -66,6 +118,7 @@ function ExampleValuesEditor({
 export default function NaturalLanguageExamplesEditor({
   examples,
   tableOptions,
+  allowRelatedRows = false,
   results,
   running,
   onChange,
@@ -79,7 +132,10 @@ export default function NaturalLanguageExamplesEditor({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h4 className="text-xs font-bold text-slate-700">Examples</h4>
-          <p className="text-[11px] text-slate-500">Edit examples as string-valued JSON, then run them through the Python rule engine.</p>
+          <p className="text-[11px] text-slate-500">
+            Edit examples as string-valued JSON, then run them through the Python rule engine.
+            {allowRelatedRows && ' For a rule that reads several sheets, add related rows to seed the other sheets (for example the matching customer).'}
+          </p>
         </div>
         <button
           type="button"
@@ -105,6 +161,7 @@ export default function NaturalLanguageExamplesEditor({
                 <th className="p-2">Table</th>
                 <th className="p-2">Expected</th>
                 <th className="p-2">Values</th>
+                {allowRelatedRows && <th className="p-2">Related rows (other sheets)</th>}
                 <th className="p-2">Source</th>
                 <th className="p-2"><span className="sr-only">Actions</span></th>
               </tr>
@@ -155,6 +212,15 @@ export default function NaturalLanguageExamplesEditor({
                         onChange={values => update(index, { values, source: 'admin' })}
                       />
                     </td>
+                    {allowRelatedRows && (
+                      <td className="min-w-64 p-2 align-top">
+                        <RelatedRowsEditor
+                          example={example}
+                          index={index}
+                          onChange={relatedRows => update(index, { relatedRows, source: 'admin' })}
+                        />
+                      </td>
+                    )}
                     <td className="p-2 align-top capitalize text-slate-500">{example.source}</td>
                     <td className="p-2 align-top">
                       <button

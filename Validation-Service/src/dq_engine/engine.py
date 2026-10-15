@@ -169,7 +169,7 @@ def _query_rule_issues(
     contract: DefinitionContract,
     parsed: ParsedFile,
     validation_date: date,
-) -> tuple[list[RuleIssue], int]:
+) -> tuple[list[RuleIssue], int, list[str | None]]:
     params = rule_data["params"]
     declared_by_table = params["columns"]
     registered_columns: dict[str, list[str]] = {}
@@ -180,6 +180,19 @@ def _query_rule_issues(
         table_name = definition.sheet or (
             next(iter(parsed.tables), "") if contract.layout == "single" else ""
         )
+        declared_columns = next(
+            (
+                columns
+                for name, columns in declared_by_table.items()
+                if str(name).strip().casefold() == table_name.strip().casefold()
+            ),
+            None,
+        )
+        if declared_columns is None and contract.layout == "single" and len(declared_by_table) == 1:
+            declared_columns = next(iter(declared_by_table.values()))
+        if declared_columns is None:
+            # A cross-sheet query reads only the sheets it declares; other sheets are not registered.
+            continue
         table = next(
             (value for name, value in parsed.tables.items()
              if name.strip().casefold() == table_name.strip().casefold()),
@@ -187,28 +200,31 @@ def _query_rule_issues(
         )
         if table is None:
             raise RuleConfigurationError(f'Query-mode table "{table_name}" is missing.')
-        declared_columns = next(
-            (
-                columns
-                for name, columns in declared_by_table.items()
-                if str(name).strip().casefold() == table.name.strip().casefold()
-            ),
-            None,
-        )
-        if declared_columns is None and contract.layout == "single" and len(declared_by_table) == 1:
-            declared_columns = next(iter(declared_by_table.values()))
         if not isinstance(declared_columns, list):
             raise RuleConfigurationError(f'Query-mode columns for table "{table_name}" are missing.')
         registered_name = f"t_{index}"
         context = RuleContext(table, validation_date, {})
         actual_columns = [context.actual_column(str(column)) for column in declared_columns]
-        if not actual_columns:
-            raise RuleConfigurationError(f'Query-mode columns for table "{table_name}" are missing.')
+        # A query may only count rows (COUNT(*)), so a declared table can have no columns; row ids are still registered.
         registered_columns[registered_name] = actual_columns + ["__row"]
-        frames[registered_name] = table.frame.select(actual_columns).with_row_index("__row")
+        if actual_columns:
+            # CSV blanks are empty strings while Excel blanks are nulls; queries see one representation: NULL.
+            frames[registered_name] = table.frame.select([
+                pl.when(pl.col(column).cast(pl.String).str.strip_chars() == "")
+                .then(None)
+                .otherwise(pl.col(column).cast(pl.String))
+                .alias(column)
+                for column in actual_columns
+            ]).with_row_index("__row")
+        else:
+            frames[registered_name] = pl.DataFrame(
+                {"__row": pl.Series("__row", range(table.frame.height), dtype=pl.UInt32)},
+            )
         table_by_registered_name[registered_name] = table
         table_aliases[table.name.strip().casefold()] = registered_name
         table_aliases[registered_name] = registered_name
+    if not frames:
+        raise RuleConfigurationError("Query-mode rules must declare columns for at least one table.")
 
     query = sqlguard.substitute_validation_date(
         str(params.get("query") or ""),
@@ -218,6 +234,7 @@ def _query_rule_issues(
     columns, total_rows, rows = _run_query_process(sql, frames)
     if "__row" in columns:
         issues: list[RuleIssue] = []
+        issue_sheets: list[str | None] = []
         for row in rows[:MAX_REPORT_ISSUES]:
             row_value = row["__row"]
             if not isinstance(row_value, int):
@@ -240,13 +257,14 @@ def _query_rule_issues(
             )
             issue_column = row.get("column")
             issue_message = row.get("message") or params["message"]
+            issue_sheets.append(table.name or None if contract.layout == "sheets" else None)
             issues.append(RuleIssue(
                 physical_row,
                 str(issue_column) if issue_column is not None else None,
                 None,
                 str(issue_message),
             ))
-        return issues, total_rows
+        return issues, total_rows, issue_sheets
     if "message" not in columns:
         raise RuleConfigurationError("Query-mode results must include __row or a message column.")
     if total_rows > 1:
@@ -254,6 +272,7 @@ def _query_rule_issues(
     return (
         [RuleIssue(None, None, None, str(rows[0]["message"] or params["message"]))] if rows else [],
         total_rows,
+        [None] if rows else [],
     )
 
 
@@ -867,7 +886,7 @@ def validate_parsed(
         started = time.perf_counter()
         rule_data = _rule_data(rule)
         try:
-            issues, issue_count = _query_rule_issues(
+            issues, issue_count, issue_sheets = _query_rule_issues(
                 rule_data,
                 contract,
                 parsed,
@@ -889,10 +908,10 @@ def validate_parsed(
                 sheet=rule.table,
             ))
             continue
-        for issue in issues:
+        for issue, issue_sheet in zip(issues, issue_sheets, strict=True):
             if len(report_issues) >= MAX_REPORT_ISSUES:
                 break
-            report_issues.append(ReportIssue(rule.id, rule.name, rule.table, issue))
+            report_issues.append(ReportIssue(rule.id, rule.name, issue_sheet or rule.table, issue))
         checks.append(CheckResult(
             id=rule.id,
             name=rule.name,

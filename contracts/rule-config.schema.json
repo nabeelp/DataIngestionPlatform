@@ -236,7 +236,17 @@
                   "table": { "type": "string" },
                   "values": { "type": "object", "additionalProperties": { "type": "string" } },
                   "expectedValid": { "type": "boolean" },
-                  "source": { "enum": ["model", "admin"] }
+                  "source": { "enum": ["model", "admin"] },
+                  "relatedRows": {
+                    "type": "array", "maxItems": 50, "items": {
+                      "type": "object", "additionalProperties": false,
+                      "required": ["table", "values"],
+                      "properties": {
+                        "table": { "type": "string" },
+                        "values": { "type": "object", "additionalProperties": { "type": "string" } }
+                      }
+                    }
+                  }
                 }
               }
             },

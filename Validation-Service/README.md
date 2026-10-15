@@ -50,8 +50,13 @@ not data validity.
 The SQL guard validates the AST with `sqlglot` before row predicates become Polars expressions or query-mode SQL
 is run. Its table-driven test executes every allow-listed function in Polars SQL; the deny-list covers file
 readers, DDL/DML, session commands, nondeterministic functions, undeclared columns and unregistered tables.
-Examples are run independently: each example populates only its named table, while all other declared tables
-are empty. This makes an example deterministic and avoids implicitly combining separate example records.
+Examples are run independently: each example populates its named table with the primary row, plus any
+`relatedRows` it lists (query-mode rules only, for cross-sheet checks); all other declared tables are empty. This
+keeps an example deterministic. Query mode registers only the tables a rule declares, normalises blank cells to
+`NULL`, and allows joins, CTEs, subqueries and `[NOT] EXISTS`. See `docs/natural-language-rules.md`.
+
+To score generated rules against the golden corpus after a live model run, use
+`uv run python scripts/score_nl_eval.py <report.json>` (see the doc for the full flow).
 
 The `dq-engine bench` command also measures the incremental cost of one guarded Natural Language row predicate
 over the same parsed 1,000,000-row frame as the 18-rule baseline. On the local Windows development host:

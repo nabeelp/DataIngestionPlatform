@@ -74,7 +74,8 @@ it('exports real HTTP requests, dependencies, exceptions and Winston logs throug
     let stdout = '';
     child.stderr.on('data', chunk => { stderr += chunk.toString(); });
     child.stdout.on('data', chunk => { stdout += chunk.toString(); });
-    const timeout = setTimeout(() => child.kill(), 20_000);
+    // A cold ts-node child can take ~20 s when Jest workers compete for CPU, so leave generous headroom.
+    const timeout = setTimeout(() => child.kill(), 75_000);
     try {
         const exitCode = await new Promise<number | null>((resolve, reject) => {
             child.once('error', reject);
@@ -101,4 +102,4 @@ it('exports real HTTP requests, dependencies, exceptions and Winston logs throug
         clearTimeout(timeout);
         if (child.exitCode === null) child.kill();
     }
-}, 30_000);
+}, 90_000);

@@ -151,6 +151,44 @@ describe('rule references', () => {
   it('does not treat a natural-language rule without a sheet as a problem in a sheet layout', () => {
     expect(ruleProblems(rule('1', { type: 'naturalLanguage', params: { columns: { Orders: ['Amount'] } } } as Partial<RuleConfig>), sheets)).toEqual([]);
   });
+
+  describe('cross-sheet query rules', () => {
+    const query = (columns: Record<string, string[]>, sql: string) => rule('1', {
+      type: 'naturalLanguage',
+      table: null,
+      params: { mode: 'query', query: sql, columns },
+    } as Partial<RuleConfig>);
+    const join = 'SELECT 1 FROM t_0 AS o JOIN t_1 AS r ON o.Amount = r.Total';
+
+    it('accepts a query whose aliases still point at the sheets it declares', () => {
+      expect(ruleProblems(query({ Orders: ['Amount'], Refunds: ['Total'] }, join), sheets)).toEqual([]);
+    });
+
+    it('flags an alias that now points at a sheet the rule did not declare (sheets reordered)', () => {
+      const reordered = structureOf({
+        layout: 'sheets',
+        tables: [
+          { sheet: 'Refunds', columns: [{ name: 'Total' }] },
+          { sheet: 'Orders', columns: [{ name: 'Amount' }] },
+          { sheet: 'Notes', columns: [{ name: 'Text' }] },
+        ],
+      });
+      const problems = ruleProblems(query({ Orders: ['Amount'], Notes: ['Text'] }, join), reordered);
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/t_0.*now sheet "Refunds".*regenerate/);
+    });
+
+    it('flags an alias beyond the remaining sheets (sheet removed)', () => {
+      const problems = ruleProblems(query({ Orders: ['Amount'], Refunds: ['Total'] }, 'SELECT 1 FROM t_0 JOIN t_2 ON 1 = 1'), sheets);
+      expect(problems).toEqual(['The query uses table t_2, which no longer exists. Regenerate the rule.']);
+    });
+
+    it('reports every sheet of a query rule that was removed', () => {
+      const onlyOrders = structureOf({ layout: 'sheets', tables: [{ sheet: 'Orders', columns: [{ name: 'Amount' }] }] });
+      const problems = ruleProblems(query({ Orders: ['Amount'], Refunds: ['Total'] }, 'SELECT 1 FROM t_0'), onlyOrders);
+      expect(problems).toEqual(['Sheet "Refunds" is no longer defined.']);
+    });
+  });
 });
 
 describe('describeRule', () => {

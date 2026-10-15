@@ -9,7 +9,8 @@
     "test": "jest",
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
-    "contracts:gen": "node scripts/generate-contracts.cjs"
+    "contracts:gen": "node scripts/generate-contracts.cjs",
+    "eval:nl-rules": "ts-node --transpile-only scripts/eval-nl-rules.ts"
   },
   "keywords": [],
   "author": "",

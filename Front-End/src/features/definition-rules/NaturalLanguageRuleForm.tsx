@@ -78,12 +78,23 @@ export default function NaturalLanguageRuleForm({ context, token, onAdd, onCance
     }
   };
 
+  const sheetNames = context.contract.layout === 'sheets'
+    ? context.contract.tables.map(table => table.sheet).filter((sheet): sheet is string => !!sheet)
+    : [];
+  const crossSheet = sheetNames.length > 1;
+
   return (
     <section className="space-y-3" aria-label="Describe a rule">
       <p className="text-xs text-slate-500">
         Describe one check. The model prefers a matching built-in rule type; otherwise it proposes restricted SQL.
         The rules service validates every proposal and runs its examples before you can add it.
       </p>
+      {crossSheet && (
+        <p className="text-xs text-slate-500">
+          A rule can use data from several sheets. Name each sheet, for example:
+          {' '}<em>Every row in the {sheetNames[0]} sheet must have a matching row in the {sheetNames[1]} sheet.</em>
+        </p>
+      )}
       <label htmlFor="naturalLanguageRule" className="block text-xs font-bold text-slate-600">
         Rule to enforce <span className="text-red-500">*</span>
       </label>

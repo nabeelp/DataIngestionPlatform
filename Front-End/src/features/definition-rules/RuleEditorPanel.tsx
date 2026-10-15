@@ -3,7 +3,8 @@ import { Sparkles } from 'lucide-react';
 import type { RuleConfig } from '../../contracts/rule-config';
 import { defaultRuleParams, ruleConfigFromForm, ruleConfigExpression, updateRuleConfigFromForm } from '../../services/ruleConfig';
 import DryRunSection from './DryRunSection';
-import NaturalLanguageExamplesEditor, { type NaturalLanguageExample } from './NaturalLanguageExamplesEditor';
+import NaturalLanguageExamplesEditor from './NaturalLanguageExamplesEditor';
+import { naturalLanguageExamples } from './naturalLanguageExamples';
 import RuleConfigDetails from './RuleConfigDetails';
 import RuleConfigFields from './RuleConfigFields';
 import RuleReviewActivity from './RuleReviewActivity';
@@ -62,24 +63,6 @@ const scopeParamsToColumns = (
   if (type === 'compare') return { ...params, left: keep(params.left), right: keep(params.right) };
   if (type === 'rowCount' || type === 'reconcile' || type === 'naturalLanguage') return params;
   return { ...params, column: keep(params.column) };
-};
-
-const naturalLanguageExamples = (params: Record<string, unknown>): NaturalLanguageExample[] => {
-  if (!Array.isArray(params.examples)) return [];
-  return params.examples.flatMap((item): NaturalLanguageExample[] => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-    const example = item as Record<string, unknown>;
-    const values = example.values;
-    if (typeof example.table !== 'string' || typeof example.expectedValid !== 'boolean' ||
-      !values || typeof values !== 'object' || Array.isArray(values) ||
-      Object.values(values).some(value => typeof value !== 'string')) return [];
-    return [{
-      table: example.table,
-      expectedValid: example.expectedValid,
-      values: values as Record<string, string>,
-      source: example.source === 'admin' ? 'admin' : 'model',
-    }];
-  });
 };
 
 const initialForm = (rule: RuleConfig | null): FormState => rule
@@ -436,6 +419,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
             <NaturalLanguageExamplesEditor
               examples={naturalLanguageExamples(form.params)}
               tableOptions={sheets}
+              allowRelatedRows={form.ruleType === 'naturalLanguage' && form.params.mode === 'query'}
               results={exampleTest?.results ?? null}
               running={testingExamples}
               onChange={examples => { setForm(previous => ({ ...previous, params: { ...previous.params, examples } })); setExampleTest(null); }}

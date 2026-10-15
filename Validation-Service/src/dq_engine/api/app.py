@@ -178,9 +178,13 @@ def _run_dry_run(
     return payload
 
 
+# Capabilities the Back-End relies on; the live evaluation checks them so it never runs against a stale service.
+SERVICE_FEATURES = ["nl-cross-sheet-v1"]
+
+
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+def healthz() -> dict[str, Any]:
+    return {"status": "ok", "features": SERVICE_FEATURES}
 
 
 @app.get("/v1/schemas/{name}", dependencies=[Depends(require_internal_auth)])

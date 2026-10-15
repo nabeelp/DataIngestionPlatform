@@ -70,6 +70,8 @@ def _validate_nodes(expression: exp.Expr, query_mode: bool = False) -> None:
             isinstance(node, exp.If) and isinstance(node.parent, exp.Case)
         ):
             continue
+        if query_mode and isinstance(node, exp.Exists):
+            continue
         if isinstance(node, exp.Func):
             name = node.sql_name().casefold()
             if name == "anonymous":
@@ -154,13 +156,43 @@ def validate_query(sql: str, registered_tables: dict[str, list[str]]) -> str:
         table.casefold(): {column.casefold() for column in columns}
         for table, columns in registered_tables.items()
     }
+    # Columns produced by CTEs and aliased derived tables are valid only when qualified by that alias (or unambiguous).
+    derived_outputs: dict[str, set[str]] = {}
+    derived_columns: set[str] = set()
+    for derived in [*expression.find_all(exp.CTE), *expression.find_all(exp.Subquery)]:
+        alias = derived.alias_or_name.casefold() if derived.alias_or_name else ""
+        select = derived.this
+        if alias and isinstance(select, exp.Select):
+            derived_outputs[alias] = {
+                projection.alias_or_name.casefold()
+                for projection in select.expressions
+                if projection.alias_or_name
+            }
+            # Only an explicit alias creates a new name; a bare projected column is checked where it is written.
+            derived_columns.update(
+                projection.alias.casefold()
+                for projection in select.expressions
+                if isinstance(projection, exp.Alias)
+            )
+    # A CTE can be referenced under another alias (JOIN paid AS p2); its output columns are visible through that alias.
+    for table in expression.find_all(exp.Table):
+        if table.alias and table.name.casefold() in derived_outputs and table.name.casefold() in cte_names:
+            derived_outputs[table.alias.casefold()] = derived_outputs[table.name.casefold()]
     for column in expression.find_all(exp.Column):
         if column.table:
-            table_name = table_aliases.get(column.table.casefold())
+            qualifier = column.table.casefold()
+            table_name = table_aliases.get(qualifier)
+            if column.name.casefold() in derived_outputs.get(qualifier, set()):
+                continue
             if table_name is None or column.name.casefold() not in declared[table_name]:
                 raise RuleConfigurationError("Natural-language SQL references an undeclared column.")
         elif column.name.casefold() == "__row":
             continue
-        elif sum(column.name.casefold() in values for values in declared.values()) != 1:
+        elif sum(column.name.casefold() in values for values in declared.values()) > 1:
+            raise RuleConfigurationError("Natural-language SQL has an ambiguous or undeclared column.")
+        elif (
+            sum(column.name.casefold() in values for values in declared.values()) == 0
+            and column.name.casefold() not in derived_columns
+        ):
             raise RuleConfigurationError("Natural-language SQL has an ambiguous or undeclared column.")
     return sql

@@ -75,7 +75,15 @@ export default function RuleConfigDetails({
                     <td className="p-2">{typeof example.table === 'string' ? example.table : ''}</td>
                     <td className="p-2">{example.expectedValid === true ? 'Pass' : example.expectedValid === false ? 'Fail' : '—'}</td>
                     <td className="p-2 capitalize">{typeof example.source === 'string' ? example.source : '—'}</td>
-                    <td className="p-2"><pre className="whitespace-pre-wrap">{JSON.stringify(example.values ?? {}, null, 2)}</pre></td>
+                    <td className="p-2">
+                      <pre className="whitespace-pre-wrap">{JSON.stringify(example.values ?? {}, null, 2)}</pre>
+                      {Array.isArray(example.relatedRows) && example.relatedRows.length > 0 && (
+                        <div className="mt-1 border-t border-slate-100 pt-1">
+                          <p className="font-semibold text-slate-500">Related rows</p>
+                          <pre className="whitespace-pre-wrap">{JSON.stringify(example.relatedRows, null, 2)}</pre>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

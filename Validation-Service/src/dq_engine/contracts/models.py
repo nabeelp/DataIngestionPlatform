@@ -294,11 +294,18 @@ class ReconcileRule(ContractModel):
     params: ReconcileParams
 
 
+class ExampleRow(ContractModel):
+    table: str
+    values: dict[str, str]
+
+
 class NaturalLanguageExample(ContractModel):
     table: str
     values: dict[str, str]
     expectedValid: bool
     source: Literal["model", "admin"]
+    # Extra rows seeded in any sheet so cross-sheet rules can be exercised with matching or missing data.
+    relatedRows: list[ExampleRow] = Field(default_factory=list, max_length=50)
 
 
 class RuleProvenance(ContractModel):

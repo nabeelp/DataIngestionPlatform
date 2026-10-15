@@ -27,16 +27,23 @@ class ExampleResult:
     error: str | None
 
 
+def _resolve_table(
+    contract: DefinitionContract,
+    name: str,
+) -> tuple[str, TableDefinition]:
+    if contract.layout == "single":
+        return name, contract.tables[0]
+    for definition in contract.tables:
+        if definition.sheet and definition.sheet.strip().casefold() == name.strip().casefold():
+            return definition.sheet, definition
+    raise RuleConfigurationError(f'Example refers to an unknown table "{name}".')
+
+
 def _example_table(
     contract: DefinitionContract,
     example: NaturalLanguageExample,
 ) -> tuple[str, TableDefinition]:
-    if contract.layout == "single":
-        return example.table, contract.tables[0]
-    for definition in contract.tables:
-        if definition.sheet and definition.sheet.strip().casefold() == example.table.strip().casefold():
-            return definition.sheet, definition
-    raise RuleConfigurationError(f'Example refers to an unknown table "{example.table}".')
+    return _resolve_table(contract, example.table)
 
 
 def _example_columns(
@@ -64,28 +71,38 @@ def _parsed_example(
     example: NaturalLanguageExample,
 ) -> ParsedFile:
     selected_table_name, selected_definition = _example_table(contract, example)
-    if not set(example.values).issubset(set(_example_columns(rule, selected_table_name, selected_definition))):
-        raise RuleConfigurationError("Example values contain undeclared columns.")
+    if example.relatedRows and rule.params.mode != "query":
+        raise RuleConfigurationError("Only query-mode examples can seed related rows.")
+
+    seeded: list[tuple[str, TableDefinition, dict[str, str]]] = [
+        (selected_table_name, selected_definition, example.values),
+    ]
+    for related in example.relatedRows:
+        related_name, related_definition = _resolve_table(contract, related.table)
+        seeded.append((related_name, related_definition, related.values))
+    for name, definition, values in seeded:
+        if not set(values).issubset(set(_example_columns(rule, name, definition))):
+            raise RuleConfigurationError("Example values contain undeclared columns.")
 
     tables: dict[str, ParsedTable] = {}
     for definition in contract.tables:
         table_name = definition.sheet or selected_table_name
         columns = _example_columns(rule, table_name, definition)
         schema = {column: pl.String for column in columns}
-        if table_name.strip().casefold() == selected_table_name.strip().casefold():
-            frame = pl.DataFrame(
-                {column: [example.values.get(column, "")] for column in columns},
-                schema=schema,
-            )
-            row_numbers = [max(2, (definition.headerRow or 1) + 1)]
-        else:
-            frame = pl.DataFrame(schema=schema)
-            row_numbers = []
+        rows = [
+            values for name, _, values in seeded
+            if name.strip().casefold() == table_name.strip().casefold()
+        ]
+        first_row_number = max(2, (definition.headerRow or 1) + 1)
+        frame = pl.DataFrame(
+            {column: [row.get(column, "") for row in rows] for column in columns},
+            schema=schema,
+        )
         tables[table_name] = ParsedTable(
             name=table_name,
             definition=definition,
             frame=frame,
-            row_numbers=row_numbers,
+            row_numbers=list(range(first_row_number, first_row_number + len(rows))),
             source_columns=columns,
         )
     return ParsedFile(

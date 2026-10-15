@@ -97,6 +97,34 @@ export function ruleProblems(rule: RuleConfig, structure: RuleStructure): string
       report(`Column ${label} is no longer defined.`);
     }
   }
+  problems.push(...queryAliasProblems(rule, structure, reported));
+  return problems;
+}
+
+/**
+ * A query rule addresses sheets by position (t_0, t_1, ... in definition order). If sheets were reordered or removed after
+ * the rule was saved, an alias can point at a sheet the rule never declared; flag it so the rule is regenerated.
+ */
+function queryAliasProblems(rule: RuleConfig, structure: RuleStructure, reported: Set<string>): string[] {
+  if (rule.type !== 'naturalLanguage' || structure.layout !== 'sheets') return [];
+  const params = asParams(rule.params);
+  if (params.mode !== 'query' || typeof params.query !== 'string') return [];
+  const declaredColumns = asParams(params.columns);
+  const declared = new Set(Object.keys(declaredColumns).map(norm));
+  const problems: string[] = [];
+  for (const alias of new Set(params.query.match(/\bt_\d+\b/gi) ?? [])) {
+    const position = Number(alias.slice(2));
+    const sheet = structure.tables[position]?.sheet;
+    const message = sheet === undefined || sheet === null
+      ? `The query uses table ${alias.toLowerCase()}, which no longer exists. Regenerate the rule.`
+      : declared.has(norm(sheet)) ? null
+      : `The query uses table ${alias.toLowerCase()}, which is now sheet "${sheet}" and is not one of the sheets this rule declares. `
+        + 'Sheets may have been reordered or removed; regenerate the rule.';
+    if (message && !reported.has(message)) {
+      reported.add(message);
+      problems.push(message);
+    }
+  }
   return problems;
 }
 
