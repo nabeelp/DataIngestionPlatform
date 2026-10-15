@@ -84,6 +84,7 @@ interface MockOptions {
   rules?: object[];
   definition?: typeof definition;
   propose?: (route: Route, body: Record<string, unknown>) => Promise<void>;
+  validate?: (body: Record<string, unknown>) => object;
   preflight?: (body: Record<string, unknown>) => object;
 }
 
@@ -121,8 +122,9 @@ const mockApi = async (page: Page, options: MockOptions = {}): Promise<Calls> =>
       return json({ success: true, rules: options.rules ?? [], published: false, versionNumber: null, revision: 'rev-1' });
     }
     if (path === '/rules/validate') {
-      calls.validations.push(request.postDataJSON());
-      return json({ success: true, ok: true, errors: [] });
+      const body = request.postDataJSON();
+      calls.validations.push(body);
+      return json({ success: true, ok: true, errors: [], ...(options.validate?.(body) ?? {}) });
     }
     if (path === '/rules/natural-language/propose') {
       const body = request.postDataJSON();
@@ -188,7 +190,7 @@ test('adding and editing rules is buffered and saved with the definition', async
   await page.getByLabel('Rule name').fill('Allowed statuses');
   await page.getByLabel('Column', { exact: true }).selectOption('Email');
   await page.getByLabel('Allowed values (comma-separated)').fill('a, b');
-  await expect(page.getByText('The rule is valid for this definition.')).toBeVisible();
+  await expect(page.getByText('The rule is valid for this definition.')).toHaveCount(0);
   await page.getByRole('button', { name: 'Add rule' }).click();
 
   const added = page.getByRole('listitem', { name: 'Rule Allowed statuses' });
@@ -218,6 +220,59 @@ test('adding and editing rules is buffered and saved with the definition', async
   expect(saved.revision).toBe('rev-1');
   expect(saved.rules.map(item => `${item.name}:${item.severity}`)).toEqual(['Amount range:Warning', 'Allowed statuses:Error']);
   await expect.poll(() => calls.publishes).toBe(1);
+});
+
+test('rule validation feedback appears on submit and hides again when edited', async ({ page }) => {
+  await mockApi(page, {
+    validate: () => ({ ok: false, errors: [{ path: 'params.column', message: 'The selected column cannot be used.' }] }),
+  });
+  await openRules(page);
+
+  await page.getByRole('button', { name: 'Choose a rule type' }).click();
+  await page.getByLabel('Rule type').selectOption('enum');
+  await page.getByLabel('Rule name').fill('Allowed statuses');
+  await page.getByLabel('Column', { exact: true }).selectOption('Email');
+  await page.getByLabel('Allowed values (comma-separated)').fill('a, b');
+
+  const addRule = page.getByRole('button', { name: 'Add rule' });
+  const warning = page.getByRole('alert').filter({ hasText: 'The selected column cannot be used.' });
+  await expect(addRule).toBeEnabled();
+  await expect(warning).toHaveCount(0);
+  await addRule.click();
+  await expect(warning).toBeVisible();
+  await expect(page.getByRole('listitem', { name: 'Rule Allowed statuses' })).toHaveCount(0);
+
+  await page.getByLabel('Description').fill('A revised description');
+  await expect(warning).toHaveCount(0);
+});
+
+test('structure warnings are deferred and keep an outdated rule from being added', async ({ page }) => {
+  const renamedDefinition = {
+    ...definition,
+    contract: {
+      ...contract,
+      tables: [{
+        ...contract.tables[0],
+        columns: [column('Total', 'decimal'), { ...column('Email'), mustExist: false, nullable: true }],
+      }],
+    },
+  };
+  await mockApi(page, { rules: [rangeRule], definition: renamedDefinition });
+  await openRules(page);
+
+  await page.getByRole('button', { name: 'Edit Amount range' }).click();
+  const panel = page.locator('section[aria-label="Edit rule Amount range"]');
+  const warning = panel.getByRole('alert').filter({ hasText: 'Column "Amount" is no longer defined.' });
+  await expect(warning).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Update rule' }).click();
+  await expect(warning).toBeVisible();
+  await expect(panel).toBeVisible();
+
+  await page.getByLabel('Column', { exact: true }).selectOption('Total');
+  await expect(warning).toHaveCount(0);
+  await page.getByRole('button', { name: 'Update rule' }).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByRole('listitem', { name: 'Rule Amount range' })).toContainText('Total must be between 0 and 100');
 });
 
 test('column fields are disabled until a sheet is selected and use only that sheet columns', async ({ page }) => {

@@ -90,10 +90,19 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
   const [validation, setValidation] = useState<RuleConfigValidationResult | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const newId = useRef(crypto.randomUUID());
   const requestId = useRef(0);
+  const editVersion = useRef(0);
+
+  const editForm = (update: (current: FormState) => FormState) => {
+    editVersion.current += 1;
+    setFeedbackVisible(false);
+    setSaveError(null);
+    setForm(update);
+  };
 
   const generated = base?.type === 'naturalLanguage';
   const sheetLayout = structure.layout === 'sheets';
@@ -117,10 +126,12 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
 
   // A different rule was opened: start from its values.
   useEffect(() => {
+    editVersion.current += 1;
     setBase(rule);
     setForm(initialForm(rule));
     newId.current = crypto.randomUUID();
     setValidation(null);
+    setFeedbackVisible(false);
     setSaveError(null);
     setRegenerated(null);
     setExampleTest(null);
@@ -188,15 +199,21 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
   }, [candidate.config, context]);
 
   const submit = async () => {
-    if (!candidate.config || saving) return;
+    if (saving || regenerating) return;
+    const version = editVersion.current;
+    setFeedbackVisible(true);
+    if (!candidate.config) return;
     setSaving(true);
     setSaveError(null);
     try {
       const result = await validateDraftRule(context, candidate.config);
+      if (version !== editVersion.current) return;
       setValidation(result);
-      if (result.ok) onSave(candidate.config);
+      if (result.ok && structureProblems.length === 0) onSave(candidate.config);
     } catch (failure) {
-      setSaveError(failure instanceof Error ? failure.message : 'Could not validate the rule.');
+      if (version === editVersion.current) {
+        setSaveError(failure instanceof Error ? failure.message : 'Could not validate the rule.');
+      }
     } finally {
       setSaving(false);
     }
@@ -240,6 +257,8 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
 
   const useRegenerated = () => {
     if (!regenerated?.config) return;
+    editVersion.current += 1;
+    setFeedbackVisible(false);
     setBase(regenerated.config);
     setForm(previous => ({ ...previous, name: regenerated.config!.name, params: regenerated.config!.params as Record<string, unknown> }));
     setRegenerated(null);
@@ -281,7 +300,6 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
       : context.rules,
   }), [candidate.config, context]);
 
-  const blockingProblems = structureProblems.length > 0 || (validation !== null && !validation.ok);
   const unchangedRequest = request.trim() === (typeof (base?.params as Record<string, unknown> | undefined)?.request === 'string'
     ? (base!.params as Record<string, unknown>).request as string
     : '').trim();
@@ -307,7 +325,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
             maxLength={255}
             placeholder="e.g. Amount cannot be negative"
             value={form.name}
-            onChange={event => setForm({ ...form, name: event.target.value })}
+            onChange={event => editForm(current => ({ ...current, name: event.target.value }))}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -318,7 +336,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
             id="ruleDescription"
             rows={2}
             value={form.description}
-            onChange={event => setForm({ ...form, description: event.target.value })}
+            onChange={event => editForm(current => ({ ...current, description: event.target.value }))}
             className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -328,7 +346,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
           <select
             id="ruleSeverity"
             value={form.severity}
-            onChange={event => setForm({ ...form, severity: event.target.value as FormState['severity'] })}
+            onChange={event => editForm(current => ({ ...current, severity: event.target.value as FormState['severity'] }))}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="Error">Error - the upload fails validation</option>
@@ -344,11 +362,11 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
               value={form.tableName}
               onChange={event => {
                 const tableName = event.target.value;
-                setForm({
-                  ...form,
+                editForm(current => ({
+                  ...current,
                   tableName,
-                  params: scopeParamsToColumns(form.ruleType, form.params, columnsForTable(tableName)),
-                });
+                  params: scopeParamsToColumns(current.ruleType, current.params, columnsForTable(tableName)),
+                }));
               }}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -375,7 +393,13 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
               rows={4}
               disabled={regenerating}
               value={request}
-              onChange={event => { setRequest(event.target.value); setRegenerated(null); }}
+              onChange={event => {
+                editVersion.current += 1;
+                setFeedbackVisible(false);
+                setSaveError(null);
+                setRequest(event.target.value);
+                setRegenerated(null);
+              }}
               className="w-full resize-y rounded-lg border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {regenerating ? (
@@ -442,7 +466,7 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
                 value={form.ruleType}
                 onChange={event => {
                   const ruleType = event.target.value as BuiltInRuleType;
-                  setForm({ ...form, ruleType, params: defaultRuleParams(ruleType) });
+                  editForm(current => ({ ...current, ruleType, params: defaultRuleParams(ruleType) }));
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
@@ -457,35 +481,37 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
               tables={sheetLayout ? sheets : []}
               columnsByTable={columnsByTable}
               lookups={lookups}
-              onChange={params => setForm(previous => ({ ...previous, params }))}
+              onChange={params => editForm(current => ({ ...current, params }))}
             />
           </>
         )}
 
-        <div aria-live="polite" className="space-y-1">
-          {candidate.error && form.name.trim() && <p className="text-xs text-slate-500">{candidate.error}</p>}
-          {structureProblems.length > 0 && (
-            <ul role="alert" className="space-y-1 rounded bg-amber-50 p-3 text-xs text-amber-900">
-              {structureProblems.map(problem => <li key={problem}>{problem}</li>)}
-            </ul>
-          )}
-          {validating && <p role="status" className="text-xs text-slate-500">Checking the rule…</p>}
-          {validationError && <p role="alert" className="text-xs text-red-700">{validationError}</p>}
-          {validation?.errors.length ? (
-            <ul role="alert" className="space-y-1 rounded bg-amber-50 p-3 text-xs text-amber-900">
-              {validation.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.path}: {item.message}</li>)}
-            </ul>
-          ) : validation?.ok ? (
-            <p role="status" className="text-xs text-emerald-700">The rule is valid for this definition.</p>
-          ) : null}
-        </div>
+        {feedbackVisible && (
+          <div aria-live="polite" className="space-y-1">
+            {candidate.error && <p className="text-xs text-slate-500">{candidate.error}</p>}
+            {structureProblems.length > 0 && (
+              <ul role="alert" className="space-y-1 rounded bg-amber-50 p-3 text-xs text-amber-900">
+                {structureProblems.map(problem => <li key={problem}>{problem}</li>)}
+              </ul>
+            )}
+            {validating && <p role="status" className="text-xs text-slate-500">Checking the rule…</p>}
+            {validationError && <p role="alert" className="text-xs text-red-700">{validationError}</p>}
+            {validation?.errors.length ? (
+              <ul role="alert" className="space-y-1 rounded bg-amber-50 p-3 text-xs text-amber-900">
+                {validation.errors.map((item, index) => <li key={`${item.path}-${index}`}>{item.path}: {item.message}</li>)}
+              </ul>
+            ) : validation?.ok ? (
+              <p role="status" className="text-xs text-emerald-700">The rule is valid for this definition.</p>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2 border-t border-slate-100 p-4">
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={!candidate.config || saving || regenerating || blockingProblems}
+          disabled={saving || regenerating}
           className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
         >
           {saving ? 'Checking…' : rule ? 'Update rule' : 'Add rule'}
