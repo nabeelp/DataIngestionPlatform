@@ -52,12 +52,12 @@ export function parseDraftRules(value: unknown, excludeRuleId?: string): RuleCon
 
 /**
  * The contract a rule is checked against: the client's structure, the client's other rules and lookups loaded
- * from the database for the rules that reference them.
+ * from the database for the rules that reference them, including the separately validated candidate.
  */
 export async function buildAuthoringContract(
     contract: unknown,
     rules: unknown,
-    options: { excludeRuleId?: string } = {},
+    options: { excludeRuleId?: string; candidate?: RuleConfig } = {},
 ): Promise<DefinitionContract> {
     if (!contract || typeof contract !== 'object' || Array.isArray(contract)) {
         throw new AuthoringInputError('A definition contract is required');
@@ -73,10 +73,18 @@ export async function buildAuthoringContract(
         throw new AuthoringInputError(`A definition can have at most ${MAX_COLUMNS} columns`);
     }
 
-    const ruleConfigs = parseDraftRules(rules, options.excludeRuleId);
+    let candidate: RuleConfig | undefined;
+    if (options.candidate) {
+        try {
+            candidate = parseRuleConfig(options.candidate);
+        } catch (error) {
+            throw new AuthoringInputError((error as Error).message);
+        }
+    }
+    const ruleConfigs = parseDraftRules(rules, candidate?.id ?? options.excludeRuleId);
     let lookups: DefinitionContract['lookups'];
     try {
-        lookups = await hydrateLookups(await getConnection(), ruleConfigs);
+        lookups = await hydrateLookups(await getConnection(), candidate ? [...ruleConfigs, candidate] : ruleConfigs);
     } catch (error) {
         throw new AuthoringInputError((error as Error).message);
     }

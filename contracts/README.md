@@ -28,6 +28,12 @@ service boundaries rather than relying on TypeScript types alone.
 
 ## Rule authoring validation
 
+The candidate rule is sent separately from the draft's other rules. The backend
+loads lookup values from the database for both the candidate and the other rules,
+including when an edited rule selects a different lookup. This applies to unsaved
+workspace contracts and saved-definition authoring requests. Client-supplied lookup
+values are ignored; missing or malformed stored lookups remain configuration errors.
+
 Both candidate rule validation (Add/Update and example testing) and whole-definition
 validation use these JSON Schemas before typed parsing, reference checks and rule
 compilation. Python models and generated TypeScript types alone do not enforce every

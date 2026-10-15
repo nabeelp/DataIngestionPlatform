@@ -1,4 +1,5 @@
 import { getConnection } from '../src/config/database';
+import { parseRuleConfig } from '../src/models/contractMapper';
 import {
     AuthoringInputError,
     buildAuthoringContract,
@@ -108,6 +109,77 @@ describe('rule authoring', () => {
             jest.mocked(getConnection).mockResolvedValue(pool as never);
             await expect(buildAuthoringContract(contract, [rule(ids[0], { type: 'lookup', params: { column: 'Amount', lookupId } })]))
                 .rejects.toThrow(/missing lookup/);
+        });
+
+        it.each(['single', 'sheets'])('hydrates a separate lookup candidate against a %s draft', async layout => {
+            const candidate = parseRuleConfig(rule(ids[0], {
+                type: 'lookup',
+                table: layout === 'sheets' ? 'Benefits (2026)' : null,
+                params: { column: 'Amount', lookupId, caseSensitive: true },
+            }));
+            const { pool } = fakePool([[/FROM Lookups/, () => [
+                { Id: lookupId, Name: 'BenefitPlan', Values: '["Gold","Silver"]' },
+            ]]]);
+            jest.mocked(getConnection).mockResolvedValue(pool as never);
+            const draft = {
+                ...contract,
+                layout,
+                tables: [{ ...contract.tables[0], sheet: candidate.table }],
+                lookups: { [lookupId]: { name: 'Untrusted', values: ['anything'] } },
+            };
+
+            const built = await buildAuthoringContract(draft, [rule(ids[1])], { candidate });
+
+            expect(built.lookups).toEqual({ [lookupId]: { name: 'BenefitPlan', values: ['Gold', 'Silver'] } });
+            expect(built.rules.map(item => item.id)).toEqual([ids[1]]);
+            expect(candidate.params).toEqual({ column: 'Amount', lookupId, caseSensitive: true });
+        });
+
+        it('hydrates the replacement candidate without requiring the old same-id lookup', async () => {
+            const previous = rule(ids[0], { type: 'lookup', params: { column: 'Amount', lookupId: ids[2] } });
+            const candidate = parseRuleConfig({
+                ...previous, params: { column: 'Amount', lookupId, caseSensitive: false },
+            });
+            const { pool } = fakePool([[/FROM Lookups/, () => [
+                { Id: lookupId, Name: 'BenefitPlan', Values: '["Gold"]' },
+            ]]]);
+            jest.mocked(getConnection).mockResolvedValue(pool as never);
+
+            const built = await buildAuthoringContract(contract, [previous, rule(ids[1])], { candidate });
+
+            expect(Object.keys(built.lookups)).toEqual([lookupId]);
+            expect(built.rules.map(item => item.id)).toEqual([ids[1]]);
+        });
+
+        it.each([
+            [[], /missing lookup/],
+            [[{ Id: lookupId, Name: 'BenefitPlan', Values: 'not JSON' }], /invalid JSON/],
+            [[{ Id: lookupId, Name: 'BenefitPlan', Values: '[42]' }], /array of strings/],
+        ])('rejects missing or malformed database values for a separate candidate (%#)', async (rows, message) => {
+            const candidate = parseRuleConfig(rule(ids[0], { type: 'lookup', params: { column: 'Amount', lookupId } }));
+            const { pool } = fakePool([[/FROM Lookups/, () => rows]]);
+            jest.mocked(getConnection).mockResolvedValue(pool as never);
+
+            await expect(buildAuthoringContract(contract, [], { candidate })).rejects.toThrow(message);
+        });
+
+        it('preserves the other rules lookup dependencies for a non-lookup candidate', async () => {
+            const lookupRule = rule(ids[1], { type: 'lookup', params: { column: 'Amount', lookupId } });
+            const { pool } = fakePool([[/FROM Lookups/, () => [
+                { Id: lookupId, Name: 'BenefitPlan', Values: '["Gold"]' },
+            ]]]);
+            jest.mocked(getConnection).mockResolvedValue(pool as never);
+
+            const built = await buildAuthoringContract(contract, [lookupRule], { candidate: parseRuleConfig(rule(ids[0])) });
+
+            expect(Object.keys(built.lookups)).toEqual([lookupId]);
+            expect(built.rules).toEqual([lookupRule]);
+        });
+
+        it('rejects a malformed candidate before loading its lookup dependencies', async () => {
+            await expect(buildAuthoringContract(contract, [], { candidate: { id: ids[0] } as never }))
+                .rejects.toBeInstanceOf(AuthoringInputError);
+            expect(getConnection).not.toHaveBeenCalled();
         });
 
         it('rejects a missing or malformed contract', async () => {

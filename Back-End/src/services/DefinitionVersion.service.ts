@@ -127,7 +127,12 @@ export async function hydrateLookups(
     return lookups;
 }
 
-async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: string, lock = false): Promise<DraftContract | null> {
+async function readDraft(
+    db: ConnectionPool | Transaction,
+    fileDefinitionId: string,
+    lock = false,
+    excludeRuleId?: string,
+): Promise<DraftContract | null> {
     const definition = await db.request()
         .input('Id', fileDefinitionId)
         .query(`
@@ -143,7 +148,8 @@ async function readDraft(db: ConnectionPool | Transaction, fileDefinitionId: str
     const ruleConfigs = rules.recordset
         .filter((row: { IsEnabled: boolean | number }) => Boolean(row.IsEnabled))
         .filter((row: { Config: unknown }) => !isRemovedRuleConfig(row.Config))
-        .map((row: { Config: unknown }) => parseRuleConfig(row.Config));
+        .map((row: { Config: unknown }) => parseRuleConfig(row.Config))
+        .filter((rule: RuleConfig) => rule.id.toLowerCase() !== excludeRuleId?.toLowerCase());
     const baseContract = parseDefinitionContract(definition.recordset[0].Contract);
     const lookups = await hydrateLookups(db, ruleConfigs);
 
@@ -179,8 +185,8 @@ export class DefinitionVersionService {
         return { activeVersion, draft: draft.snapshot, diff: diffDefinition(activeVersion, draft) };
     }
 
-    static async getDraftContract(fileDefinitionId: string): Promise<DefinitionContract> {
-        const draft = await readDraft(await getConnection(), fileDefinitionId);
+    static async getDraftContract(fileDefinitionId: string, excludeRuleId?: string): Promise<DefinitionContract> {
+        const draft = await readDraft(await getConnection(), fileDefinitionId, false, excludeRuleId);
         if (!draft) throw new DefinitionVersionError('File definition not found', 404);
         return draft.contract;
     }

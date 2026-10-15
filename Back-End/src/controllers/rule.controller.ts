@@ -97,13 +97,15 @@ async function resolveAuthoringContract(
     config: RuleConfig | undefined,
 ): Promise<DefinitionContract> {
     if (req.body.Contract) {
-        return buildAuthoringContract(req.body.Contract, req.body.Rules, { excludeRuleId: config?.id });
+        return buildAuthoringContract(req.body.Contract, req.body.Rules, { candidate: config });
     }
     const fileDefinitionId = String(req.body.FileDefinitionId || '');
     if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, req.user!.userId)) {
         throw new RuleGenerationError('Access denied to this file definition', 403);
     }
-    return DefinitionVersionService.getDraftContract(fileDefinitionId);
+    const excludeRuleId = typeof config?.id === 'string' ? config.id : undefined;
+    const contract = await DefinitionVersionService.getDraftContract(fileDefinitionId, excludeRuleId);
+    return buildAuthoringContract(contract, contract.rules, { candidate: config });
 }
 
 const respondAuthoringFailure = (error: unknown, res: Response, next: NextFunction) => {
