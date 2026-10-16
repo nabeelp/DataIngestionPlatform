@@ -4,6 +4,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import fs from 'fs';
 import path from 'path';
 import { UploadController } from '../controllers/upload.controller';
 import { authenticate } from '../middleware/authMiddleware';
@@ -17,7 +18,9 @@ const router = Router();
 // Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, appConfig.upload.tempDirectory || path.join(process.cwd(), 'temp'));
+        const dir = appConfig.upload.tempDirectory;
+        fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -107,14 +110,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
  */
 router.get('/:id', async (req: Request, res: Response) => {
     await UploadController.getUploadById(req, res);
-});
-
-/**
- * GET /api/uploads/:id/progress
- * Get upload progress (for real-time updates)
- */
-router.get('/:id/progress', async (req: Request, res: Response) => {
-    await UploadController.getUploadProgress(req, res);
 });
 
 /**

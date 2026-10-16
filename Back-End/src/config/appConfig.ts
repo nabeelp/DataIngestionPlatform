@@ -4,21 +4,8 @@
 
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { parseTrustProxyHops } from './proxyTrust';
 dotenv.config();
-
-// Ensure temp directory exists at startup
-const ensureTempDirectory = (): string => {
-    const tempDir = process.env.UPLOAD_TEMP_DIR || path.join(process.cwd(), 'temp');
-    if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-    }
-    return tempDir;
-};
-
-// Initialize temp directory immediately
-const TEMP_DIR = ensureTempDirectory();
 
 const deliveryProvider = process.env.DELIVERY_PROVIDER ?? 'local';
 if (deliveryProvider !== 'local' && deliveryProvider !== 'azure') {
@@ -41,8 +28,6 @@ export const appConfig = {
     // JWT Configuration
     jwt: {
         secret: process.env.JWT_SECRET || '',
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h',
-        refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     },
 
     // Microsoft Azure AD SSO Configuration
@@ -61,9 +46,6 @@ export const appConfig = {
     // Security
     security: {
         bcryptRounds: 10,
-        maxLoginAttempts: 5,
-        lockoutDurationMinutes: 30,
-        passwordMinLength: 8,
     },
 
     // Frontend URL for CORS - allow multiple origins for development
@@ -78,7 +60,6 @@ export const appConfig = {
     rateLimit: {
         windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000)),
         maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '1000'),
-        loginMaxAttempts: 5, // limit login attempts
     },
 
     // Worker Configuration
@@ -91,11 +72,11 @@ export const appConfig = {
         },
     },
 
-    // Azure Storage Configuration
+    // Azure Storage and Foundry Configuration
     azure: {
         foundry: {
-            resource: process.env.AZURE_FOUNDRY_RESOURCE || 'aif-zlyway6g7icoy-0',
-            project: process.env.AZURE_FOUNDRY_PROJECT || 'citadel-governance-project',
+            resource: process.env.AZURE_FOUNDRY_RESOURCE || '',
+            project: process.env.AZURE_FOUNDRY_PROJECT || '',
             model: process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.3-codex',
         },
         storage: {
@@ -105,7 +86,7 @@ export const appConfig = {
             reportsContainerName: process.env.AZURE_STORAGE_REPORTS_CONTAINER || 'reports',
             stagingContainerName: process.env.AZURE_STORAGE_STAGING_CONTAINER || 'staging',
             deliveriesContainerName: process.env.AZURE_STORAGE_DELIVERIES_CONTAINER || 'deliveries',
-            compressedContainerName: process.env.AZURE_STORAGE_COMPRESSED_CONTAINER || 'compressed',
+            templatesContainerName: process.env.AZURE_STORAGE_TEMPLATES_CONTAINER || 'templates',
         }
     },
 
@@ -126,25 +107,9 @@ export const appConfig = {
         deliveryRetryBaseMs: parseInt(process.env.SERVICEBUS_DELIVERY_RETRY_BASE_MS || '5000', 10),
     },
 
-    // SharePoint/Local Storage Configuration (Temporary replacement for Azure)
-    sharePoint: {
-        enabled: process.env.SHAREPOINT_ENABLED === 'true' || process.env.STORAGE_PROVIDER === 'sharepoint',
-        localPath: process.env.SHAREPOINT_LOCAL_PATH || path.join(process.cwd(), 'sharepoint'),
-    },
-
-    // Storage Provider Configuration
-    storage: {
-        provider: process.env.STORAGE_PROVIDER ||
-            (process.env.AZURE_STORAGE_CONNECTION_STRING || process.env.AZURE_STORAGE_ACCOUNT_URL ? 'azure' : 'sharepoint'),
-    },
-
     // Stats Configuration
     stats: {
         cacheTtl: parseInt(process.env.STATS_CACHE_TTL || '300'), // seconds
-        healthThresholds: {
-            warning: 80,
-            critical: 50
-        }
     },
 
     // Upload Configuration

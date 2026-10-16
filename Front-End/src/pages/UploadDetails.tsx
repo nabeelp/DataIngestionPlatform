@@ -5,7 +5,7 @@ import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
 import { downloadUploadDelivery, downloadUploadReport } from '../services/uploadApi';
 import { groupRulesBySheet } from './uploadRuleGroups';
-import { getValidationIssueCount, mapValidationCheckStatus, parseValidationIssues, type ValidationIssue, type ValidationCheckStatus } from './validationIssues';
+import { mapValidationCheckStatus, parseValidationIssues, type ValidationIssue, type ValidationCheckStatus } from './validationIssues';
 
 // ============================================================================
 // Types
@@ -102,19 +102,15 @@ export const fetchUploadDetails = async (id: string): Promise<UploadDetail> => {
 
   // Map validation rules - handle empty arrays
   const mappedRules: RuleResult[] = ruleDetails.map((rule: any) => {
-    const status = mapValidationCheckStatus(rule.Status || rule.status);
-    const errors = parseValidationIssues(rule.Issues ?? rule.issues ?? rule.FailedRows ?? rule.failedRows);
-    const errorCount = rule.IssueCount ?? rule.issueCount ?? getValidationIssueCount(
-      status,
-      rule.ErrorCount ?? rule.errorCount ?? errors.length,
-      rule.WarningCount ?? rule.warningCount ?? errors.length,
-    );
-    const elapsedMs = rule.ElapsedMs ?? rule.elapsedMs ?? rule.ExecutionTimeMs ?? rule.executionTimeMs ?? 0;
+    const status = mapValidationCheckStatus(rule.Status);
+    const errors = parseValidationIssues(rule.Issues);
+    const errorCount = rule.IssueCount ?? errors.length;
+    const elapsedMs = rule.ElapsedMs ?? 0;
 
     return {
-      title: rule.RuleName || rule.ruleName || 'Unknown Rule',
-      type: rule.RuleType || rule.ruleType || 'Unknown',
-      sheet: rule.Sheet ?? rule.sheet ?? null,
+      title: rule.RuleName || 'Unknown Rule',
+      type: rule.RuleType || 'Unknown',
+      sheet: rule.Sheet ?? null,
       time: `${elapsedMs}ms`,
       status,
       errorCount,

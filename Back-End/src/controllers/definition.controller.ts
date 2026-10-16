@@ -10,8 +10,7 @@ import { TemplateStorage, getTemplateContentType, getTemplateDisplayName } from 
 import { logger } from '../utils/logger';
 import type { 
     ICreateFileDefinitionDto, 
-    IUpdateFileDefinitionDto,
-    IFileDefinition 
+    IUpdateFileDefinitionDto
 } from '../interfaces/fileDefinition.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 
@@ -445,32 +444,6 @@ export const downloadTemplate = async (req: AuthRequest, res: Response, next: Ne
         template.stream.pipe(res);
     } catch (error) {
         logger.error('[DEFINITION_CTRL] Error downloading template:', error);
-        next(error);
-    }
-};
-
-/**
- * Get definition stats for dashboard (total and active counts)
- */
-export const getDefinitionStats = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.userId;
-
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Unauthorized' 
-            });
-        }
-
-        const stats = await FileDefinition.getStatsForUser(userId);
-
-        res.json({
-            success: true,
-            ...stats
-        });
-    } catch (error) {
-        logger.error('[DEFINITION_CONTROLLER] Error getting definition stats:', error);
         next(error);
     }
 };

@@ -16,7 +16,7 @@ import {
 import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
-import { isRemovedRuleConfig, legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
+import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
 import { RulesService } from './RulesService.service';
 
 export class DefinitionVersionError extends Error {
@@ -147,7 +147,6 @@ async function readDraft(
         .query(`SELECT Config, IsEnabled FROM Rules WHERE FileDefinitionId = @FileDefinitionId`);
     const ruleConfigs = rules.recordset
         .filter((row: { IsEnabled: boolean | number }) => Boolean(row.IsEnabled))
-        .filter((row: { Config: unknown }) => !isRemovedRuleConfig(row.Config))
         .map((row: { Config: unknown }) => parseRuleConfig(row.Config))
         .filter((rule: RuleConfig) => rule.id.toLowerCase() !== excludeRuleId?.toLowerCase());
     const baseContract = parseDefinitionContract(definition.recordset[0].Contract);

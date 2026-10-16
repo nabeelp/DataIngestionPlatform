@@ -21,9 +21,9 @@ describe('upload details mapping', () => {
         Status: 'ERROR', IssueCount: 1, ElapsedMs: 7,
         Issues: '[{"row":null,"column":null,"value":null,"message":"Check unavailable"}]',
       }, {
-        RuleName: 'Legacy warning', RuleType: 'range', Sheet: 'Tenth',
-        Status: 'WARNING', WarningCount: 1, ExecutionTimeMs: 3,
-        FailedRows: '[{"row_num":4,"column":"Total","value":0,"error":"Outside range"}]',
+        RuleName: 'Range warning', RuleType: 'range', Sheet: 'Tenth',
+        Status: 'WARNING', IssueCount: 1, ElapsedMs: 3,
+        Issues: '[{"row":4,"column":"Total","value":0,"message":"Outside range"}]',
       }],
     })));
     vi.stubGlobal('fetch', fetchMock);

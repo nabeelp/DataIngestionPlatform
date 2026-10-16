@@ -4,7 +4,7 @@
 
 import { getConnection } from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
-import type { IUser, ICreateUserDto, UserRole, SsoProvider } from '../interfaces/user.interface';
+import type { IUser, ICreateUserDto, SsoProvider } from '../interfaces/user.interface';
 import { logger } from '../utils/logger';
 
 export class User {

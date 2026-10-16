@@ -67,7 +67,7 @@ flowchart TB
 | API (`Back-End`) | Node 24, Express, TypeScript | Authentication and RBAC, definitions, versioning and audit, upload intake, orchestration, delivery, NL rule authoring |
 | Rules service (`Validation-Service`) | Python 3.12, FastAPI | Synchronous rule compile/test, contract validation, dry run, example-file analysis |
 | Validation worker (same image) | Python, Polars, PyArrow, sqlglot | Parses files, evaluates rules, writes reports and Parquet, persists results |
-| Contracts (`contracts/`) | JSON Schema | Single source for RuleConfig, the definition contract and message schemas. TypeScript and Pydantic types are generated from it |
+| Contracts (`contracts/`) | JSON Schema | Single source for RuleConfig, the definition contract and message schemas. TypeScript declarations are generated from it (CI fails when they are stale); the Pydantic models are hand-written and checked against the schemas and examples by tests |
 | Data | Azure SQL, Blob Storage | Metadata and results (SQL); files and artifacts (Blob) |
 | Messaging | Service Bus | Decouples intake, validation and delivery; provides retries and dead-lettering |
 
@@ -210,7 +210,7 @@ flowchart LR
   | 1M-row CSV, 18 rules | ~1.2 s | ~1.1 GiB |
   | 300k-row XLSX | ~2.5 s | — |
 
-  An NL SQL row rule adds about 17 ms. A golden suite of 110 tests confirms parity with the legacy Node engine.
+  An NL SQL row rule adds about 17 ms. A golden suite over the 109 sample upload files regression-tests the engine's outcomes.
 - **Current constraints:** the API and rules service are each pinned to **1 replica**, because Socket.IO and the delivery consumer run in-process. There is no zone redundancy (Storage LRS, single-zone SQL), and no multi-region DR.
 
 ## 9. Observability and operations
@@ -218,7 +218,7 @@ flowchart LR
 - **Telemetry:** Azure Monitor OpenTelemetry instruments the Node API, Python rules API, and validation worker with separate service roles; the worker exports validation-stage spans (download, parse, rules, write, persist) and a rows/sec metric with bounded exporter flushing before job exit. The React browser uses the Application Insights JavaScript SDK through public runtime routing configuration. Exported telemetry excludes raw query strings and application payloads. Container console/system logs remain a separate Log Analytics pipeline with 30-day workspace retention. Prometheus metrics are still exposed by the API. See [telemetry configuration and verification](deployment.md#application-insights-telemetry).
 - **Queue health:** queue depth and dead-letter counts are shown on the admin Monitoring page.
 - **Logging policy:** no cell values, file contents, tokens or secrets in logs.
-- **CI** (GitHub Actions on every PR and push to main): lint, type-check, unit tests and build for all three components, plus compile the Bicep templates and parameter file. Playwright end-to-end tests and a sample corpus are available locally.
+- **CI** (GitHub Actions on every PR and push to main): zero-warning lint, type-check, unit tests and build for all three components, a check that the generated TypeScript contracts are up to date, and compilation of the Bicep templates and parameter file. The Playwright end-to-end suite and the sample corpus need the full local stack and are run manually before a release (see the [README](../README.md#testing)).
 - **CD:**
   - A manual workflow uses OIDC and a protected GitHub environment. It supports targeted frontend and validation-worker image deployments, plus an all-services `azd deploy`; provisioning is a separate step that requires approval.
   - Images for the web front end, the API and the rules service/worker are built remotely in ACR with immutable tags.
@@ -242,7 +242,7 @@ There is no fixed estimate yet. It depends on active hours and data volumes.
 
 | # | Decision | Alternatives considered | Rationale |
 |---|---|---|---|
-| D1 | Python + Polars engine replacing Node validation | Keep Node; Spark/Fabric | ~1M rows/s on one node, columnar, no cluster cost; parity proven by the golden suite |
+| D1 | Python + Polars engine replacing Node validation | Keep Node; Spark/Fabric; DuckDB | ~1M rows/s on one node, columnar, no cluster cost; regression-tested by the sample-corpus golden suite. Evidence in "Evidence for D1" below |
 | D2 | Container Apps Jobs (event-triggered) for workers | Functions, AKS, always-on worker | Scale to zero, long runs (30 min), large memory, KEDA built in |
 | D3 | Service Bus queues/topic between API and worker | Direct HTTP, Storage queues | Retries, DLQ, scheduled delivery retries, topic fan-out |
 | D4 | Contract-first JSON Schema shared across TS/Python | Hand-maintained types | Prevents drift across language boundaries |
@@ -268,7 +268,27 @@ There is no fixed estimate yet. It depends on active hours and data volumes.
 | Medium | Earlier provisioning failed for lack of regional capacity (SQL in East US 2; Container Apps in Central US). France Central is the new target, but capacity isn't guaranteed. Soft-deleted Key Vaults remain in the earlier regions | Run `azd provision --preview` in France Central and get approval before provisioning. Decide whether to purge the old Key Vaults |
 | Low | No retention policy for `uploads`/`reports`, and `deliveries` has no expiry | Define data retention and deletion aligned with the customer's data-handling policy |
 | Low | NL rules: example tests reduce but do not prove semantic equivalence | Keep human review and publish approval; add an evaluation set for the authoring prompt |
-| Low | The local `.env` contains keys that are no longer in `.env.example` (`REDIS_*`, `STORAGE_PROVIDER`, `UPLOAD_TEMP_DIR`) | Remove the stale settings to avoid configuration drift |
+
+## Evidence for D1: engine selection
+
+Measured on one machine (8 cores, 32 GB) with a 1M-row, 104 MB CSV and 18 rules, and a 300k-row, 52 MB `.xlsx`; every engine produced identical failure counts.
+
+| Workload | Engine | Time | Peak memory |
+|---|---|---:|---:|
+| CSV, 1M rows, 18 rules | Former Node engine (row by row) | 14.0 s | 235 MB |
+| | DuckDB from Node.js | 1.26 s | 544 MB |
+| | **Polars from Python** | **0.55 s** | 400 MB |
+| `.xlsx`, 300k rows, read only | SheetJS (former) | 8.4 s | 989 MB |
+| | openpyxl (read-only) | 10.4 s | 67 MB |
+| | DuckDB `read_xlsx` | 1.9 s | 131 MB |
+| | **calamine via `fastexcel`** | **1.3 s** | 336 MB |
+
+Why Polars and calamine: columnar engines are 10–25× faster than row loops in any language; the JSON rules compile to engine expressions (no SQL pasted from
+user input); Excel reading is the bottleneck and calamine is the fastest reader measured and also reads legacy `.xls`, which DuckDB cannot. Options not chosen:
+Spark/Fabric (job start-up dominates for files of 100 MB or less; keep as an option for multi-GB backfills), loading into Azure SQL then running SQL rules (the load
+costs more than the checks and competes with the operational database), DuckDB as the core (within 2× of Polars but needs generated SQL text, a slower Excel reader
+and no `.xls`), and .NET/Go row-by-row engines (faster than Node but still row-oriented). Python gives about 90% of Rust's speed with much faster development; the
+worker and API boundary is only the queue and the JSON rule format, so the engine could be replaced without changing the UI or API.
 
 ## 13. Asks of the board
 

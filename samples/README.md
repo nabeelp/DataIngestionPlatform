@@ -1,6 +1,6 @@
 # Sample files
 
-Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, one-table and one-table-per-sheet definitions, enum and range rules at both severities, example-file proposals, rejected and corrupt files, and very large files. The manifest records the expected sample outcomes. The Python golden suite compares upload fixtures against the captured WP0 Node baselines.
+Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, one-table and one-table-per-sheet definitions, enum and range rules at both severities, example-file proposals, rejected and corrupt files, and very large files. The manifest records the expected sample outcomes. The Python golden suite compares every upload fixture with the reviewed snapshot `Validation-Service/tests/golden/expected_outcomes.json`.
 
 > **Generated content.** This README, the sample files, `manifest.json`, `.gitignore` and `definitions/` are produced by [tools/generate_samples.py](tools/generate_samples.py). Change the generator, not the output. All data is synthetic (fixed random seed); e-mail addresses use `example.com`/`.example` domains.
 
@@ -28,9 +28,9 @@ The dedicated Playwright corpus run publishes these drafts, uploads every upload
 # Regenerate (pip install xlsxwriter xlwt). --skip-large skips 05-large/, --skip-max-rows skips the 1M-row workbook.
 python samples\tools\generate_samples.py
 
-# Compare every upload sample with its captured WP0 Node baseline.
+# Compare every upload sample with the reviewed engine snapshot (UPDATE_GOLDEN=1 regenerates it).
 cd Validation-Service
-uv run pytest tests/golden/test_node_baseline.py -q
+uv run pytest tests/golden -q
 
 # With .\start.ps1 running and the sample definitions seeded, exercise every fixture through the local stack.
 cd ..\Front-End
@@ -47,7 +47,7 @@ Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity c
 - **Duplicate headers: the last one wins.** A second, empty `Email` column makes every Email look blank.
 - **Title rows break the header.** The first non-empty row is the header; blank rows above it are fine.
 - **An empty table sheet counts as missing.** A `Payments` sheet with no cells is reported as "Required sheet not found".
-- **Date parsing is strict.** ISO dates are validated as real calendar dates; non-ISO strings need an explicit format. This intentionally differs from the WP0 Node baseline; see the recorded golden differences.
+- **Date parsing is strict.** ISO dates are validated as real calendar dates; non-ISO strings need an explicit format. Non-ISO date strings are therefore reported as failures unless the column declares a format.
 - **Excel date serials are not dates.** A date cell without a date format is read as a number and fails a datetime column.
 - **1/0 columns are proposed as integer, not boolean,** by the example analyzer; change the type before saving if needed.
 - **Workbook signatures are checked.** CSV text renamed to `.xlsx` is rejected as a malformed workbook.

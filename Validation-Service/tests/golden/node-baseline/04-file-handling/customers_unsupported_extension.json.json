@@ -1,7 +1,0 @@
-{
-  "file": "04-file-handling/customers_unsupported_extension.json",
-  "definition": "customers",
-  "outcome": "UPLOAD_REJECTED",
-  "reason": "unsupported_extension",
-  "checks": []
-}

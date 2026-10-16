@@ -27,15 +27,3 @@ export async function isUserAdmin(userId: string): Promise<boolean> {
         return false;
     }
 }
-
-/**
- * The user's role ('admin' or 'user'). Defaults to 'user' if the user is unknown or the lookup fails.
- */
-export async function getUserRole(userId: string): Promise<string> {
-    try {
-        return (await findRole(userId)) || 'user';
-    } catch (error) {
-        logger.warn('[USER_UTILS] Role lookup failed; defaulting to user role', error);
-        return 'user';
-    }
-}

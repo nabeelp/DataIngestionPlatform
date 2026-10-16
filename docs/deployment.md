@@ -3,25 +3,19 @@
 The repository contains an `azd`/Bicep deployment for the API, React SPA,
 Python validation service and worker, plus Azure SQL, Blob Storage, Service
 Bus, Key Vault, Container Registry, monitoring and private networking.
-Provisioning attempts in East US 2 and Central US failed on regional SQL and
-Container Apps capacity, respectively. The deployed target is France Central,
-with the frontend hosted in Container Apps because Azure Static Web Apps is not
-listed there. Provider metadata and quota retrieval do not guarantee live
-capacity; the successful deployment is recorded below.
 
-The prior groups were inspected after the user reported cleaning them up:
-East US 2 was absent and Central US was still deleting with the failed
-Container Apps environment present. Soft-deleted Key Vaults remain in the
-prior regions. No purge was performed. France Central is provisioned and hosts
-the deployed API, frontend, and rules service. The frontend uses an HTTP
-concurrency scale rule and scales from zero to two replicas.
-
-The latest deployment check returned HTTP 200 from the frontend health, root,
-and runtime-config routes and the API health route. The rules service requires
-Entra authentication. SQL bootstrap succeeded and restored the configured SQL
-administrator. Authenticated OPS-01 cloud workflow acceptance (delivery,
-replay, owner-authorized download, and deletion) remains pending a test identity
-and test data.
+**Status.** The target is France Central (earlier attempts in East US 2 and
+Central US failed on regional SQL and Container Apps capacity; soft-deleted Key
+Vaults remain in those regions and have not been purged). The frontend runs in
+Container Apps because Azure Static Web Apps is not offered in France Central.
+The API, frontend and rules service are deployed; the frontend scales from zero
+to two replicas on an HTTP concurrency rule. The latest check returned HTTP 200
+from the frontend health, root and runtime-config routes and the API health
+route; the rules service requires Entra authentication; SQL bootstrap succeeded
+and restored the configured SQL administrator. Authenticated OPS-01 cloud
+workflow acceptance (delivery, replay, owner-authorized download and deletion)
+remains pending a test identity and test data. Provider metadata and quota
+retrieval do not guarantee capacity, so run `azd provision --preview` first.
 
 ## Local development remains independent
 
@@ -36,8 +30,8 @@ strings into committed files.
 ## Prerequisites
 
 - An Azure subscription and region supported by Azure Container Apps workload
-  profiles, Azure SQL serverless and Service Bus Standard. France Central does
-  not offer the Static Web Apps resource used by the previous design.
+  profiles, Azure SQL serverless and Service Bus Standard (France Central is the
+  target; it does not offer Static Web Apps).
 - Azure CLI, Azure Developer CLI (`azd`), Bicep, Node.js 24 and PowerShell 7
   (`pwsh`). Docker is optional when ACR remote
   builds succeed; `azd` may use a local container engine as a fallback.

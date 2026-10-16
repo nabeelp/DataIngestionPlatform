@@ -11,104 +11,14 @@ import type {
     IFileDefinition, 
     ICreateFileDefinitionDto, 
     IUpdateFileDefinitionDto,
-    IColumn,
-    IFileDefinitionUser,
-    IAddUsersToDefinitionDto
+    IFileDefinitionUser
 } from '../interfaces/fileDefinition.interface';
-import type { IUser } from '../interfaces/user.interface';
 import { logger } from '../utils/logger';
 
 /**
  * FileDefinition Service - Handles all file definition business logic
  */
 export class FileDefinitionService {
-    /**
-     * Get file definitions for current user (filtered by access)
-     */
-    /**
-     * Get file definitions assigned to a specific user (admin view)
-     */
-    static async getFileDefinitionsForUser(userId: string): Promise<IFileDefinition[]> {
-        try {
-            logger.info(`[FILEDEF_SVC] Getting definitions for user (admin): ${userId}`);
-            
-            // Admin bypass: get all definitions and filter by access
-            const allDefinitions = await FileDefinition.findAll();
-            const accessibleDefinitions = await Promise.all(
-                allDefinitions.map(async (def) => {
-                    const hasAccess = await FileDefinition.hasAccess(def.Id, userId);
-                    return hasAccess ? def : null;
-                })
-            );
-            
-            const definitions = accessibleDefinitions.filter(Boolean) as IFileDefinition[];
-            logger.info(`[FILEDEF_SVC] Found ${definitions.length} definitions for user ${userId}`);
-            return definitions;
-        } catch (error) {
-            logger.error(`[FILEDEF_SVC] Error getting user definitions:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Assign file definitions to a user (admin)
-     */
-    static async assignFileDefinitionsToUser(
-        userId: string, 
-        fileDefinitionIds: string[], 
-        assignedByUserId: string
-    ): Promise<IFileDefinition[]> {
-        try {
-            logger.info(`[FILEDEF_SVC] Assigning ${fileDefinitionIds.length} definitions to user ${userId}`);
-            
-            if (!Array.isArray(fileDefinitionIds) || fileDefinitionIds.length === 0) {
-                throw new Error('FileDefinitionIds must be a non-empty array');
-            }
-
-            for (const defId of fileDefinitionIds) {
-                await FileDefinition.addUserAccess(defId, userId);
-            }
-
-            const assignedDefinitions = await this.getFileDefinitionsForUser(userId);
-            logger.info(`[FILEDEF_SVC] Assigned definitions to user ${userId}`);
-            return assignedDefinitions;
-        } catch (error) {
-            logger.error(`[FILEDEF_SVC] Error assigning definitions to user:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Remove file definition from user (admin)
-     */
-    static async removeFileDefinitionFromUser(
-        userId: string,
-        fileDefinitionId: string
-    ): Promise<IFileDefinition[]> {
-        try {
-            logger.info(`[FILEDEF_SVC] Removing definition ${fileDefinitionId} from user ${userId}`);
-            await FileDefinition.removeUserAccess(fileDefinitionId, userId);
-            const remainingDefinitions = await this.getFileDefinitionsForUser(userId);
-            logger.info(`[FILEDEF_SVC] Removed definition from user ${userId}`);
-            return remainingDefinitions;
-        } catch (error) {
-            logger.error(`[FILEDEF_SVC] Error removing definition from user:`, error);
-            throw error;
-        }
-    }
-
-    static async getDefinitionsForUser(userId: string): Promise<IFileDefinition[]> {
-        try {
-            logger.info(`[FILEDEF_SVC] Getting definitions for user: ${userId}`);
-            const definitions = await FileDefinition.findForUser(userId);
-            logger.info(`[FILEDEF_SVC] Found ${definitions.length} definitions for user ${userId}`);
-            return definitions;
-        } catch (error) {
-            logger.error(`[FILEDEF_SVC] Error getting definitions for user ${userId}:`, error);
-            throw error;
-        }
-    }
-
     /**
      * Get all file definitions (admin only)
      */
@@ -118,33 +28,6 @@ export class FileDefinitionService {
             return await FileDefinition.findAll();
         } catch (error) {
             logger.error('[FILEDEF_SVC] Error getting all definitions:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Get single file definition (checks user access)
-     */
-    static async getDefinitionById(id: string, userId: string): Promise<IFileDefinition> {
-        try {
-            logger.info(`[FILEDEF_SVC] Getting definition ${id} for user ${userId}`);
-            
-            // Check access first
-            const hasAccess = await FileDefinition.hasAccess(id, userId);
-            if (!hasAccess) {
-                const error = new Error('Access denied to this file definition');
-                logger.warn(`[FILEDEF_SVC] User ${userId} denied access to definition ${id}`);
-                throw error;
-            }
-
-            const definition = await FileDefinition.findById(id);
-            if (!definition) {
-                throw new Error('File definition not found');
-            }
-
-            return definition;
-        } catch (error) {
-            logger.error(`[FILEDEF_SVC] Error getting definition ${id}:`, error);
             throw error;
         }
     }
@@ -247,8 +130,7 @@ export class FileDefinitionService {
      */
     static async addUsersToDefinition(
         fileDefinitionId: string, 
-        userIds: string[], 
-        assignedByUserId: string
+        userIds: string[]
     ): Promise<IFileDefinitionUser[]> {
         try {
             logger.info(`[FILEDEF_SVC] Adding ${userIds.length} users to definition ${fileDefinitionId}`);
@@ -299,19 +181,6 @@ export class FileDefinitionService {
             return await FileDefinition.getAllUsers();
         } catch (error) {
             logger.error('[FILEDEF_SVC] Error getting available users:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Get definition statistics for user dashboard
-     */
-    static async getDefinitionStats(userId: string): Promise<{ totalDefinitions: number; activeDefinitions: number }> {
-        try {
-            logger.info(`[FILEDEF_SVC] Getting stats for user ${userId}`);
-            return await FileDefinition.getStatsForUser(userId);
-        } catch (error) {
-            logger.error(`[FILEDEF_SVC] Error getting stats:`, error);
             throw error;
         }
     }

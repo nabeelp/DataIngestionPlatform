@@ -85,15 +85,6 @@ router.get(
 );
 
 /**
- * GET /api/admin/users/:id
- * Get user by ID
- */
-router.get(
-    '/users/:id',
-    AdminController.getUserById
-);
-
-/**
  * POST /api/admin/users
  * Create new user
  */
@@ -156,15 +147,6 @@ router.delete(
 router.get(
     '/audit-logs',
     AdminController.getAuditLogs
-);
-
-/**
- * GET /api/admin/audit-logs/recent
- * Get recent audit logs (for dashboard)
- */
-router.get(
-    '/audit-logs/recent',
-    AdminController.getRecentAuditLogs
 );
 
 // ============================================================================
@@ -272,7 +254,6 @@ router.delete(
 // ============================================================================
 
 import * as FileDefinitionAdminController from '../controllers/fileDefinitionAdmin.controller';
-import * as UserFileDefinitionController from '../controllers/userFileDefinition.controller';
 
 /**
  * GET /api/admin/file-definitions/:definitionId/users
@@ -400,45 +381,6 @@ router.post(
     [body('changeNote').optional({ values: 'null' }).isString().isLength({ max: 500 })],
     validateRequest,
     FileDefinitionAdminController.publishFileDefinitionVersion
-);
-
-
-// ============================================================================
-
-// User-File Definition Assignments (symmetric)
-// ============================================================================
-
-/**
- * GET /api/admin/users/:userId/file-definitions
- * Get file definitions assigned to a specific user
- */
-router.get(
-    '/users/:userId/file-definitions',
-    UserFileDefinitionController.getUserFileDefinitions
-);
-
-/**
- * POST /api/admin/users/:userId/file-definitions
- * Assign file definitions to user
- * Body: { fileDefinitionIds: string[] }
- */
-router.post(
-    '/users/:userId/file-definitions',
-    [
-        body('fileDefinitionIds').isArray({ min: 1 }),
-        body('fileDefinitionIds.*').isString().isUUID(),
-    ],
-    validateRequest,
-    UserFileDefinitionController.assignFileDefinitionsToUser
-);
-
-/**
- * DELETE /api/admin/users/:userId/file-definitions/:definitionId
- * Remove specific file definition from user
- */
-router.delete(
-    '/users/:userId/file-definitions/:definitionId',
-    UserFileDefinitionController.removeFileDefinitionFromUser
 );
 
 export default router;

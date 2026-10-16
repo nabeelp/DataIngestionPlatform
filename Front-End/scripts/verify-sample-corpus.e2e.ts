@@ -18,11 +18,9 @@ const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLES, 'manifest.json'),
 };
 const definitions = JSON.parse(fs.readFileSync(path.join(SAMPLES, 'definitions', 'sample_definitions.json'), 'utf8')) as
   Record<string, { name: string; tables: unknown[] }>;
-const intentionalDifferences = new Set(
-  [...fs.readFileSync(path.join(ROOT, 'Validation-Service', 'tests', 'golden', 'INTENTIONAL_DIFFERENCES.md'), 'utf8')
-    .matchAll(/`samples\/([^`]+)`/g)]
-    .map(match => match[1]),
-);
+// Engine truth per sample (status, failing/warning checks, rows), reviewed in Validation-Service/tests/golden.
+const snapshot = JSON.parse(fs.readFileSync(path.join(ROOT, 'Validation-Service', 'tests', 'golden', 'expected_outcomes.json'), 'utf8')) as
+  Record<string, { status: string; failedChecks?: string[]; warningChecks?: string[]; rows?: number }>;
 const TERMINAL_UPLOAD_STATUSES = new Set(['VALIDATED', 'VALIDATION_FAILED', 'DELIVERED', 'DELIVERY_FAILED']);
 const SUPPORTED_UPLOAD_EXTENSIONS = new Set(['.csv', '.tsv', '.txt', '.xlsx', '.xls']);
 const UNSUPPORTED_UPLOAD_MESSAGE = 'Please select a CSV, TSV, TXT, or Excel file (.xlsx, .xls)';
@@ -193,7 +191,14 @@ test('runs all upload and example samples through the local UI and APIs', async 
     const result = await waitForUpload(page, token!, uploadId);
     const status = result.upload.Status as string;
     const relative = entry.file;
-    const hasIntentionalDifference = intentionalDifferences.has(relative);
+    // Where the engine intentionally differs from the manifest's product expectation (see the golden snapshot),
+    // only the terminal status is verified end to end.
+    const snap = snapshot[relative];
+    const hasIntentionalDifference = !!snap && (
+      snap.status !== entry.expected.status
+      || JSON.stringify(snap.failedChecks ?? []) !== JSON.stringify(entry.expected.failedChecks ?? [])
+      || (entry.expected.rows !== undefined && snap.rows !== undefined && snap.rows !== entry.expected.rows)
+    );
     expect(TERMINAL_UPLOAD_STATUSES.has(status), `${entry.file}: ${status}`).toBe(true);
 
     if (!hasIntentionalDifference) {

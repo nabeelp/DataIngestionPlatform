@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getUsers, createUser, updateUser, unlockUser, deleteUser, AdminUser } from '../../services/adminApi';
 import { Plus, Edit, Trash2, X, Check, Unlock, Search } from 'lucide-react';
 
@@ -27,11 +27,7 @@ export default function AdminUsers() {
     isActive: true
   });
 
-  useEffect(() => {
-    fetchUsers();
-  }, [search]);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -43,7 +39,11 @@ export default function AdminUsers() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const handleEdit = (user: AdminUser) => {
     setEditingUser(user);

@@ -98,47 +98,6 @@ export class UploadController {
         }
     }
 
-    /**
-     * Get upload progress (for real-time updates)
-     */
-    static async getUploadProgress(req: Request, res: Response): Promise<void> {
-        try {
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-            const userId = (req as any).user?.userId;
-
-            // Check access
-            const hasAccess = await Upload.hasAccessToUpload(id, userId);
-            if (!hasAccess) {
-                res.status(403).json({
-                    success: false,
-                    message: 'Access denied'
-                });
-                return;
-            }
-
-            const progress = await UploadService.getUploadProgress(id);
-
-            if (!progress) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Upload not found'
-                });
-                return;
-            }
-
-            res.json({
-                success: true,
-                ...progress
-            });
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Progress lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to fetch upload progress'
-            });
-        }
-    }
-
     static async dryRun(req: Request, res: Response): Promise<void> {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         const userId = (req as any).user?.userId;

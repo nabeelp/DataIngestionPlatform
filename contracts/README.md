@@ -15,12 +15,15 @@ Python and TypeScript test suites.
 - `messages/validation-event.schema.json` is the event topic body.
 - `messages/delivery-request.schema.json` is the delivery queue message.
 
-## Type generation
+## Type generation and drift checks
 
-The backend and frontend each expose `npm run contracts:gen`. Their generated
-declarations are checked in beneath `src/contracts/` and refreshed automatically
-by the corresponding build script. Do not hand-edit generated declarations; edit
-the schemas and regenerate instead.
+The backend and frontend each expose `npm run contracts:gen`, which compiles the schemas to TypeScript under `src/contracts/`. The backend generates every
+schema (including `messages/`); the frontend generates only the definition and rule contracts, because the browser does not consume the messages. The
+generated declarations are checked in and refreshed by the build script. Do not hand-edit them; edit the schemas and regenerate. CI rebuilds both projects
+and fails when the committed declarations differ from the generated output.
+
+The Python Pydantic models in `Validation-Service/src/dq_engine/contracts/models.py` are hand-written. The Python tests validate every example with both
+JSON Schema and the models, and check that the rule types in `rule-config.schema.json` match the engine's rule implementations.
 
 Examples under `examples/` are representative valid payloads for schema tests.
 Unknown properties are rejected, and runtime validation must be performed at

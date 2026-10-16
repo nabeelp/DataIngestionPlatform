@@ -27,7 +27,7 @@ describe('clean-slate database schema', () => {
         for (const column of ['BlobContainer', 'BlobName', 'FileSha256', 'DetectedEncoding', 'ValidationDate', 'EngineVersion', 'ReportBlobName', 'ParquetPrefix']) {
             expect(createUpload).toContain(column);
         }
-        expect(createUpload).not.toMatch(/TempLocalPath|ValidationJobId/);
+        expect(createUpload).not.toMatch(/TempLocalPath|ValidationJobId|DeliveryJobId|ProcessingNode|Compressed/);
         for (const table of ['ProcessingJobs', 'WorkerInstances', 'DeadLetterJobs', 'ValidationErrorBatches']) {
             expect(sql).toMatch(new RegExp(`DROP TABLE dbo\\.${table}`, 'i'));
         }

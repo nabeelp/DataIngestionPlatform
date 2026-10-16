@@ -61,10 +61,6 @@ export async function getPublishedRules(
     return { rules, versionNumber: activeVersion.VersionNumber };
 }
 
-export async function getEnabledRulesByFileDefinitionId(fileDefinitionId: string): Promise<IRule[]> {
-    return Rule.findEnabledByFileDefinitionId(fileDefinitionId);
-}
-
 export async function getRuleById(ruleId: string, userId: string): Promise<IRule | null> {
     if (!await Rule.hasAccessToRule(ruleId, userId)) {
         throw new Error('Access denied to this rule');

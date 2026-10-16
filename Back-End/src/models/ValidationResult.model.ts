@@ -156,57 +156,6 @@ export class ValidationResult {
     }
 
     /**
-     * Mark validation as completed
-     */
-    static async markCompleted(
-        id: string, 
-        status: 'PASSED' | 'FAILED' | 'WARNING',
-        errorSummary?: string
-    ): Promise<void> {
-        await this.update(id, {
-            Status: status,
-            CompletedAt: new Date(),
-            ProgressPercent: 100,
-            CurrentRule: undefined,
-            ErrorSummary: errorSummary
-        });
-    }
-
-    /**
-     * Update progress
-     */
-    static async updateProgress(
-        id: string,
-        passedRules: number,
-        failedRules: number,
-        warningRules: number,
-        currentRule: string,
-        totalRules: number
-    ): Promise<void> {
-        const completedRules = passedRules + failedRules + warningRules;
-        const progress = totalRules > 0 ? Math.round((completedRules / totalRules) * 100) : 0;
-
-        await this.update(id, {
-            PassedRules: passedRules,
-            FailedRules: failedRules,
-            WarningRules: warningRules,
-            ProgressPercent: progress,
-            CurrentRule: currentRule
-        });
-    }
-
-    /**
-     * Delete validation result
-     */
-    static async delete(id: string): Promise<void> {
-        const pool = await getConnection();
-        
-        await pool.request()
-            .input('Id', id)
-            .query(`DELETE FROM ${this.TABLE_NAME} WHERE Id = @Id`);
-    }
-
-    /**
      * Delete validation result by upload ID
      */
     static async deleteByUploadId(uploadId: string): Promise<void> {

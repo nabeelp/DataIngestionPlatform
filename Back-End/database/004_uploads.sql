@@ -32,8 +32,6 @@ BEGIN
         AzureBlobUrl NVARCHAR(1000) NULL,
         FileSize BIGINT NOT NULL CONSTRAINT DF_Uploads_FileSize DEFAULT 0,
         FileType NVARCHAR(50) NOT NULL,
-        CompressedFileSize BIGINT NULL,
-        CompressedBlobUrl NVARCHAR(1000) NULL,
         RetryCount INT NOT NULL CONSTRAINT DF_Uploads_RetryCount DEFAULT 0,
         RowCountNo BIGINT NULL,
         SheetCount INT NULL,
@@ -43,8 +41,6 @@ BEGIN
         ValidationCompletedAt DATETIME2 NULL,
         DeliveryStartedAt DATETIME2 NULL,
         DeliveryCompletedAt DATETIME2 NULL,
-        DeliveryJobId NVARCHAR(36) NULL,
-        ProcessingNode NVARCHAR(100) NULL,
         DeliveredTo NVARCHAR(500) NULL,
         DeliveredAt DATETIME2 NULL,
         ErrorMessage NVARCHAR(MAX) NULL
@@ -56,6 +52,14 @@ IF COL_LENGTH(N'dbo.Uploads', N'TempLocalPath') IS NOT NULL
     ALTER TABLE dbo.Uploads DROP COLUMN TempLocalPath;
 IF COL_LENGTH(N'dbo.Uploads', N'ValidationJobId') IS NOT NULL
     ALTER TABLE dbo.Uploads DROP COLUMN ValidationJobId;
+IF COL_LENGTH(N'dbo.Uploads', N'CompressedFileSize') IS NOT NULL
+    ALTER TABLE dbo.Uploads DROP COLUMN CompressedFileSize;
+IF COL_LENGTH(N'dbo.Uploads', N'CompressedBlobUrl') IS NOT NULL
+    ALTER TABLE dbo.Uploads DROP COLUMN CompressedBlobUrl;
+IF COL_LENGTH(N'dbo.Uploads', N'DeliveryJobId') IS NOT NULL
+    ALTER TABLE dbo.Uploads DROP COLUMN DeliveryJobId;
+IF COL_LENGTH(N'dbo.Uploads', N'ProcessingNode') IS NOT NULL
+    ALTER TABLE dbo.Uploads DROP COLUMN ProcessingNode;
 GO
 
 IF OBJECT_ID(N'dbo.Uploads', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.Uploads', N'BlobContainer') IS NULL

@@ -129,15 +129,6 @@ export const getUsers = async (params?: { page?: number; limit?: number; search?
   return data;
 };
 
-export const getUserById = async (id: string): Promise<AdminUser> => {
-  const response = await fetch(`${getBaseUrl()}/admin/users/${id}`, getFetchOptions('GET'));
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch user');
-  }
-  return data.user;
-};
-
 export const createUser = async (userData: {
   email: string;
   username: string;
@@ -246,18 +237,6 @@ export const getAuditLogs = async (params?: {
       timestamp: log.timestamp ?? log.Timestamp,
     })),
   };
-};
-
-export const getRecentAuditLogs = async (limit: number = 20): Promise<AuditLog[]> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/audit-logs/recent?limit=${limit}`,
-    getFetchOptions('GET')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch recent audit logs');
-  }
-  return data.logs;
 };
 
 // ============================================================================
@@ -592,61 +571,6 @@ export const getFileDefinitionUserCounts = async (): Promise<Record<string, numb
     throw new Error(data.message || 'Failed to fetch user counts');
   }
   return data.counts;
-};
-
-// ============================================================================
-// User File Definitions Management (Admin)
-// ============================================================================
-
-/**
- * Get file definitions for specific user
- */
-export const getUserFileDefinitions = async (userId: string): Promise<{ definitions: FileDefinitionAdmin[] }> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${userId}/file-definitions`,
-    getFetchOptions('GET')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch user file definitions');
-  }
-  return data;
-};
-
-/**
- * Assign file definitions to user
- */
-export const assignFileDefinitionsToUser = async (
-  userId: string,
-  definitionIds: string[]
-): Promise<{ definitions: FileDefinitionAdmin[] }> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${userId}/file-definitions`,
-    getFetchOptions('POST', { fileDefinitionIds: definitionIds })
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to assign file definitions to user');
-  }
-  return data;
-};
-
-/**
- * Remove file definition from user
- */
-export const removeFileDefinitionFromUser = async (
-  userId: string,
-  definitionId: string
-): Promise<{ definitions: FileDefinitionAdmin[] }> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${userId}/file-definitions/${definitionId}`,
-    getFetchOptions('DELETE')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to remove file definition from user');
-  }
-  return data;
 };
 
 // ============================================================================

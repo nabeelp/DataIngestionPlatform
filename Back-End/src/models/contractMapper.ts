@@ -24,22 +24,6 @@ export const emptyDefinitionContract = (): DefinitionContract => ({
 
 const ruleTypes = new Set<string>(RULE_CONFIG_TYPES);
 
-// Required columns, required values and data types are enforced by the column definitions. Rules of these removed types
-// that were saved earlier are ignored when read, and are dropped the next time the definition is saved.
-const REMOVED_RULE_TYPES = new Set(['columnsPresent', 'required', 'type']);
-
-export function isRemovedRuleConfig(value: unknown): boolean {
-    let parsed = value;
-    if (typeof value === 'string') {
-        try {
-            parsed = JSON.parse(value) as unknown;
-        } catch {
-            return false;
-        }
-    }
-    return Boolean(parsed) && typeof parsed === 'object' && 'type' in (parsed as object)
-        && REMOVED_RULE_TYPES.has(String((parsed as { type: unknown }).type));
-}
 type ContractColumn = DefinitionContract['tables'][number]['columns'][number];
 
 const canonicalColumn = (column: ContractColumn): ContractColumn => ({
@@ -113,7 +97,7 @@ export function parseDefinitionContract(value: unknown): DefinitionContract {
             ...table,
             columns: table.columns.map(canonicalColumn),
         })) as DefinitionContract['tables'],
-        rules: contract.rules.filter(rule => !isRemovedRuleConfig(rule)).map(parseRuleConfig),
+        rules: contract.rules.map(parseRuleConfig),
     };
 }
 

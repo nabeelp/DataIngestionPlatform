@@ -290,10 +290,6 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
               value: 'azure'
             }
             {
-              name: 'STORAGE_PROVIDER'
-              value: 'azure'
-            }
-            {
               name: 'SERVICEBUS_NAMESPACE'
               value: serviceBusNamespace
             }

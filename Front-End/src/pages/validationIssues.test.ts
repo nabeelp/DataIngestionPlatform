@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getValidationIssueCount, mapValidationCheckStatus, parseValidationIssues } from './validationIssues';
+import { mapValidationCheckStatus, parseValidationIssues } from './validationIssues';
 
 describe('mapValidationCheckStatus', () => {
   it('distinguishes execution errors from failed checks and never defaults to passed', () => {
@@ -9,22 +9,6 @@ describe('mapValidationCheckStatus', () => {
     expect(mapValidationCheckStatus('PENDING')).toBe('Pending');
     expect(mapValidationCheckStatus('IN_PROGRESS')).toBe('In Progress');
     expect(mapValidationCheckStatus('unexpected')).toBe('Unknown');
-  });
-});
-
-describe('getValidationIssueCount', () => {
-  it('uses the warning count for warning rules', () => {
-    expect(getValidationIssueCount('Warning', 0, 4)).toBe(4);
-  });
-
-  it('uses the error count for failed rules', () => {
-    expect(getValidationIssueCount('Failed', 3, 0)).toBe(3);
-  });
-
-  it('uses error counts for ERROR checks and handles absent counts', () => {
-    expect(getValidationIssueCount('Error', 1, 5)).toBe(1);
-    expect(getValidationIssueCount('Error', null, null)).toBe(0);
-    expect(getValidationIssueCount('Warning', 3, undefined)).toBe(0);
   });
 });
 
@@ -41,16 +25,10 @@ describe('parseValidationIssues', () => {
 
   it('maps the persisted validation issue row to a display row number', () => {
     expect(parseValidationIssues(JSON.stringify([
-      { row: 7, column: 'Email', value: 'invalid', error: 'Invalid email' },
+      { row: 7, column: 'Email', value: 'invalid', message: 'Invalid email' },
+      { row: '12', column: 'Amount', value: 5000, message: 'Outside range' },
     ]))).toEqual([
       { rowNumber: 7, column: 'Email', value: 'invalid', error: 'Invalid email' },
-    ]);
-  });
-
-  it('supports legacy row_num values', () => {
-    expect(parseValidationIssues(JSON.stringify([
-      { row_num: '12', column: 'Amount', value: 5000, error: 'Outside range' },
-    ]))).toEqual([
       { rowNumber: 12, column: 'Amount', value: '5000', error: 'Outside range' },
     ]);
   });
@@ -63,15 +41,15 @@ describe('parseValidationIssues', () => {
   it('preserves file-level issues without inventing a row number', () => {
     for (const row of [null, undefined, '', 0, -1, 1.5, 'NaN', 'Infinity', false]) {
       expect(parseValidationIssues(JSON.stringify([
-        { row, column: null, value: null, error: 'Missing sheet' },
+        { row, column: null, value: null, message: 'Missing sheet' },
       ]))).toEqual([{ rowNumber: undefined, column: '', value: '', error: 'Missing sheet' }]);
     }
   });
 
-  it('supports PascalCase legacy rows and ignores non-object samples', () => {
+  it('ignores non-object entries', () => {
     expect(parseValidationIssues(JSON.stringify([
       null, false, 'invalid',
-      { RowNumber: '23', column: 'Total', value: 0, error: 'Outside range' },
+      { row: 23, column: 'Total', value: 0, message: 'Outside range' },
     ]))).toEqual([{ rowNumber: 23, column: 'Total', value: '0', error: 'Outside range' }]);
     expect(parseValidationIssues(null)).toEqual([]);
   });

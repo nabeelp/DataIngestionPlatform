@@ -3,7 +3,6 @@
 // =============================================================================
 
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import { appConfig } from '../config/appConfig';
 import { User } from '../models/User.model';
 import type { 
@@ -13,25 +12,13 @@ import type {
     ILoginResponse, 
     IUserResponse,
     IJwtPayload,
-    LoginMethod,
-    SsoProvider 
+    LoginMethod
 } from '../interfaces/user.interface';
 import { logger } from '../utils/logger';
+import { verifyPassword } from '../utils/password';
 import { redeemAuthorizationCode, type MicrosoftIdTokenClaims } from './MicrosoftSso.service';
 
 export class AuthService {
-    /**
-     * Main login handler - determines login method and processes accordingly
-     */
-    static async login(loginData: ILoginDto | ISsoLoginDto): Promise<ILoginResponse> {
-        // Check if this is SSO login or password login
-        if ('Provider' in loginData && 'Code' in loginData) {
-            return await this.handleSsoLogin(loginData as ISsoLoginDto);
-        } else {
-            return await this.handlePasswordLogin(loginData as ILoginDto);
-        }
-    }
-
     /**
      * Handle SSO Login (Microsoft Azure AD)
      */
@@ -120,7 +107,7 @@ export class AuthService {
             throw new Error('Account is disabled');
         }
 
-        const isPasswordValid = await bcrypt.compare(Password, user.PasswordHash);
+        const isPasswordValid = await verifyPassword(Password, user.PasswordHash);
         if (!isPasswordValid) {
             await User.incrementFailedAttempts(user.Id);
             logger.warn(`[AUTH] Failed login attempt for user ${user.Id}`);
@@ -156,17 +143,6 @@ export class AuthService {
     }
 
     /**
-     * Verify JWT Token
-     */
-    static verifyToken(token: string): IJwtPayload {
-        try {
-            return jwt.verify(token, appConfig.jwt.secret) as IJwtPayload;
-        } catch (error) {
-            throw new Error('Invalid or expired token');
-        }
-    }
-
-    /**
      * Format user response (exclude sensitive data)
      */
     static formatUserResponse(user: IUser, loginMethod: LoginMethod): IUserResponse {
@@ -179,50 +155,6 @@ export class AuthService {
             Role: user.Role,
             LoginMethod: loginMethod,
         };
-    }
-
-    /**
-     * Hash password for storage
-     */
-    static async hashPassword(password: string): Promise<string> {
-        return await bcrypt.hash(password, appConfig.security.bcryptRounds);
-    }
-
-    /**
-     * Create password reset token (for future implementation)
-     */
-    static createPasswordResetToken(userId: string): string {
-        return jwt.sign(
-            { userId, type: 'password_reset' },
-            appConfig.jwt.secret,
-            { expiresIn: '1h' }
-        );
-    }
-
-    /**
-     * Refresh token
-     */
-    static async refreshToken(token: string): Promise<ILoginResponse> {
-        try {
-            const payload = this.verifyToken(token);
-            const user = await User.findById(payload.userId);
-
-            if (!user || !user.IsActive) {
-                throw new Error('User not found or inactive');
-            }
-
-            await User.updateLastLogin(user.Id);
-            const newToken = this.generateToken(user, payload.loginMethod);
-
-            return {
-                success: true,
-                token: newToken,
-                user: this.formatUserResponse(user, payload.loginMethod),
-                loginMethod: payload.loginMethod,
-            };
-        } catch (error) {
-            throw new Error('Invalid refresh token');
-        }
     }
 }
 

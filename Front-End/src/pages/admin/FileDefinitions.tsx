@@ -418,6 +418,8 @@ export default function FileDefinitions() {
     }
     initializedWorkspace.current = workspaceKey;
     populateEditor(definition, rulesDefinitionMatch ? 'rules' : searchParams.get('step'));
+    // Initialization is keyed by `initializedWorkspace`; re-running on every handler/param change would reset edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitions, newDefinitionMatch, routeDefinitionId]);
 
   // Fetch user counts for table

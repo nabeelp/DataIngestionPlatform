@@ -11,7 +11,7 @@ import type {
     IUpdateRuleDto 
 } from '../interfaces/rule.interface';
 import { FileDefinition } from './FileDefinition.model';
-import { isRemovedRuleConfig, parseRuleConfig } from './contractMapper';
+import { parseRuleConfig } from './contractMapper';
 
 type LegacyRule = Pick<IRule, 'Id' | 'Name' | 'Description' | 'RuleType' | 'Severity' | 'ExecutionOrder' | 'SqlQuery' | 'IsEnabled' | 'TableName' | 'NaturalLanguageText' | 'CreatedBy' | 'CreatedAt' | 'UpdatedAt'>;
 
@@ -126,28 +126,11 @@ export class Rule {
             .input('Id', id)
             .query(`SELECT * FROM ${this.TABLE_NAME} WHERE Id = @Id`);
         
-        if (!result.recordset[0] || isRemovedRuleConfig(result.recordset[0].Config)) {
+        if (!result.recordset[0]) {
             return null;
         }
 
         return parseStoredRule(result.recordset[0]);
-    }
-
-    /**
-     * Get all rules for a specific file definition
-     * Sorted by ExecutionOrder
-     */
-    static async findByFileDefinitionId(fileDefinitionId: string): Promise<IRule[]> {
-        const pool = await getConnection();
-        const result = await pool.request()
-            .input('FileDefinitionId', fileDefinitionId)
-            .query(`
-                SELECT * FROM ${this.TABLE_NAME} 
-                WHERE FileDefinitionId = @FileDefinitionId 
-                ORDER BY ExecutionOrder ASC
-            `);
-        
-        return result.recordset.filter(row => !isRemovedRuleConfig(row.Config)).map(parseStoredRule);
     }
 
     /**
@@ -174,9 +157,7 @@ export class Rule {
                 ORDER BY r.ExecutionOrder ASC
             `);
         
-        return result.recordset
-            .filter(row => !isRemovedRuleConfig(row.Config))
-            .map(row => ({ ...parseStoredRule(row), CreatorName: row.CreatorName }));
+        return result.recordset.map(row => ({ ...parseStoredRule(row), CreatorName: row.CreatorName }));
     }
 
     /**
@@ -194,7 +175,7 @@ export class Rule {
                 ORDER BY ExecutionOrder ASC
             `);
         
-        return result.recordset.filter(row => !isRemovedRuleConfig(row.Config)).map(parseStoredRule);
+        return result.recordset.map(parseStoredRule);
     }
 
     /**

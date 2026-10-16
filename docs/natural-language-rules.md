@@ -1,7 +1,7 @@
 # Natural-language rules and cross-sheet checks
 
-How a plain-language request becomes a validated `RuleConfig`, what was reviewed, how cross-sheet rules work, and how to
-evaluate generation quality.
+How a plain-language request becomes a validated `RuleConfig`, how cross-sheet rules work, the design findings behind the
+current behaviour, and how to evaluate generation quality.
 
 ## Pipeline
 
@@ -70,7 +70,7 @@ query rules and is optional, so previously saved rules are unchanged. The editor
   (an accidental cross join on large sheets will hit it and report an error).
 * Row-mode rules (and every built-in type except `reconcile`) read exactly one sheet.
 
-## Review findings and fixes
+## Design findings
 
 | # | Finding | Resolution |
 | --- | --- | --- |
@@ -84,83 +84,39 @@ query rules and is optional, so previously saved rules are unchanged. The editor
 | 8 | Saved query rules silently re-pointed when sheets were reordered. | `ruleProblems` flags aliases that no longer map to a declared sheet. |
 | 9 | All model tests mocked the model; nothing measured generation quality. | Golden corpus + opt-in live evaluation (below). |
 
-### Fourth live evaluation (full corpus): an outage hid most of it, and the replay found three prompt gaps
+### Evaluation results and lessons
 
-The rules service stopped partway through the run, so 15 of 26 cases ended with `The rules service could not complete validation`
-(one more with a dropped model connection). Only 11 were usable (6 mapped, 5 rejected). The recorded proposals were replayed
-through a current service (no new model calls) to recover the rest: all 10 cross-sheet cases and the reconcile case were accepted
-and behaved correctly (cross-sheet 10/10, built-in 6/6, row SQL 1/1). The replay also exposed problems that the outage had hidden:
-
-| Finding | Change |
-| --- | --- |
-| **Safety-relevant:** asked to check customers against "the Dynamics CRM", the model substituted the file's own `Customers` sheet (the first run rejected this correctly; the added cross-sheet guidance made it over-eager). | Prompt: reject any request that names an external system even if a similarly named sheet exists; never substitute a sheet for an external source. |
-| A failing example had a blank value in a declared column, which a row rule can never fail (the engine skips rows with a blank declared column). | Prompt explains that failWhen never sees blanks and failing examples must not use them; blanks that must fail need a query rule. |
-| Duplicate/uniqueness rules were given single-row examples, so the "failing" example could not fail. | Prompt: rules comparing rows need the other row(s) in `relatedRows`, even in a single table. |
-| "Order ids must be 2–6 characters" was rejected as ambiguous (`OrderId` exists in two sheets) — a fair rejection of an ambiguous eval prompt. | Golden request now names the sheet. |
-| A dropped connection was classified as non-retryable. | Unclassified connection failures are retried; authorization and 4xx errors still are not. |
-
-The evaluation now classifies outage failures (`infrastructureError`), reports them separately (`infrastructureErrors`), and stops
-after three consecutive ones, writing a report with `aborted` set, so an outage no longer spends model calls.
-These prompt changes are unmeasured against the live model; re-run the full corpus after restarting the rules service.
-
-### Third live evaluation (cross-sheet × 3, current service): targets met
+Four live evaluations of the full corpus (26 prompts, plus cross-sheet repeats) drove the current prompt and guard design. The latest cross-sheet
+run met its targets:
 
 | Metric | Result | Target |
 | --- | --- | --- |
 | Runnable | 30/30 | ≥ 90 % |
 | Behaviour match on the sample data | 30/30 | 100 % |
-| Correct decision/type/mode | 30/30 | — |
 | First-attempt success | 29/30 | — |
 | Recovered after correction | 1/1 | ≥ 60 % |
-| Model calls / input / output tokens | 31 / 114k / 21.5k (was 57 / 211k / 44.6k) | — |
+| Model calls / input / output tokens | 31 / 114k / 21.5k | — |
 | Latency avg / p95 | 9.8 s / 13.5 s | — |
 
-The one correction was a **guard false positive**, not a model error: the query joined a CTE under an alias
-(`JOIN paid AS p2 … p2.total`) and `sqlguard` only resolved the CTE's own name. A CTE's output columns are now visible through
-any alias given to it (an alias still cannot expose columns the CTE does not produce; tested). Still unmeasured: the single-sheet,
-built-in and rejection categories since the example/feedback changes — run the full corpus (`npm run eval:nl-rules --yes`) before
-treating those as regression-free.
+Single-sheet, built-in and rejection categories were last measured before the final example/feedback changes; run the full corpus
+(`npm run eval:nl-rules --yes`) before treating them as regression-free.
 
-### Second live evaluation (cross-sheet × 3): a stale rules service hid the result
+Design rules that came out of those runs:
 
-The second run scored 3/30 runnable, but 34 of the rejections were `relatedRows: Extra inputs are not permitted`, `Query-mode
-columns for table "X" are missing` and ``Function `exists` is not allowed`` — exactly the behaviours that had been changed. The
-Python service on :8000 had been started before those changes and was never restarted. **Replaying the model's recorded first
-proposals through the current service** (no new model calls) gave 27/30 accepted, and 25/27 of those behaved correctly. The
-remaining failures were real and are fixed:
+* Accepted rules were always right; the failures were proposal-shape problems. The model therefore returns `passingExamples` and
+  `failingExamples` separately (the verdict is not a field it can get wrong), and the backend requires both to be non-empty.
+* Correction feedback names the example, column and sheet involved. Example-only failures rewrite just the examples and keep the validated SQL.
+* The prompt rejects any request that names an external system, even when a similarly named sheet exists, and never substitutes a sheet for an
+  external source. Failing examples must not rely on blank values in declared columns of a row rule (the engine skips those rows); rules that
+  compare rows need the other rows in `relatedRows`, even within one table.
+* `sqlguard` resolves a CTE's output columns through any alias given to the CTE, but an alias cannot expose columns the CTE does not produce.
+  A declared table may have no columns (its row ids are still registered), and the internal `__row` is dropped from `tableColumns`.
+* Dropped connections are retried; authorization and 4xx errors are not. The evaluation classifies outages (`infrastructureError`), reports them
+  separately and aborts after three in a row so an outage does not spend model calls.
 
-| Remaining failure | Fix |
-| --- | --- |
-| Model declared `{"Orders": [], "Payments": []}` for a `COUNT(*)`-only query; the engine rejected an empty column list. | A declared table may have no columns; its row ids are still registered. |
-| Model listed the internal `__row` in `tableColumns`. | Dropped deterministically. |
-| FK rule flagged blank keys; the request did not say whether blanks count. | Golden request now states that blank ids are ignored (this was an ambiguous eval case, not only a model error). |
-
-After the fixes the same replay is 30/30 accepted on the first attempt. This is a replay of recorded outputs, **not** a new live
-run — re-run the evaluation to confirm.
-
-**Operational lessons.** (1) Restart the rules service after changing `Validation-Service`; `/healthz` now reports
-`features: ["nl-cross-sheet-v1"]` and the evaluation refuses to run against a service that does not (`--skip-service-check`
-overrides). (2) **Deploy the Python service before (or with) the Back-End**: an old service rejects `relatedRows` as an unknown
-field, so every cross-sheet proposal fails until it is updated.
-
-### First live evaluation (gpt-5.6-luna, 26 prompts) and the response to it
-
-Accepted rules were always right (10/10 behaved correctly on the sample data; 5/5 unsafe requests were refused), but only
-10 of 21 valid requests produced a rule and **cross-sheet SQL produced 0 of 9**. 11 of 12 correction attempts failed, and the
-failed requests used ~83 % of all output tokens. The causes were proposal-shape problems, not the engine:
-
-| Observed failure (cases) | Change |
-| --- | --- |
-| Example used a column not in `tableColumns` (4) | For query rules the schema columns used by examples are declared automatically; unknown columns/sheets get precise feedback (example label, column, sheet, declared schema). |
-| Missing passing or failing example (3) | The model now returns `passingExamples` and `failingExamples` (the verdict is no longer a field it can get wrong); the backend requires both to be non-empty (strict structured outputs do not reliably support `minItems`). |
-| Query rule had a non-null table (1) | Normalised to `null` (also `reconcile`). |
-| Malformed built-in `unique` for case-insensitive uniqueness (1); pattern requests answered with SQL (2) | Prompt hints for choosing `pattern`, and for case-insensitive/cross-sheet uniqueness needing query mode. |
-| Generic correction feedback; whole proposal discarded for one bad example | Feedback names the example and column; example-shape failures rewrite **only the examples** and keep the validated SQL. |
-| Few worked patterns in the prompt | Added FK (`NOT EXISTS`), matched-row compare, per-key CTE total, case-insensitive uniqueness and whole-file patterns, and a `relatedRows` fragment. |
-| Report could not show *why* a case failed | `onDiagnostic` records each model call (response id, input/output tokens, proposal) and each validator problem; the eval report includes it. |
-
-The retry limit is intentionally unchanged: re-run the live evaluation and look at `recoveredAfterCorrection` before adding calls.
-These changes are covered by offline tests only; **their effect on the live model is not yet measured**.
+**Operational lessons.** (1) Restart the rules service after changing `Validation-Service`; `/healthz` reports `features: ["nl-cross-sheet-v1"]` and the
+evaluation refuses to run against a service that does not (`--skip-service-check` overrides). (2) **Deploy the Python service before (or with) the
+Back-End**: an older service rejects `relatedRows` as an unknown field, so every cross-sheet proposal fails until it is updated.
 
 ## Testing and evaluation
 

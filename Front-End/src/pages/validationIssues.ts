@@ -19,12 +19,6 @@ export const mapValidationCheckStatus = (status: string): ValidationCheckStatus 
   return statuses[status] ?? 'Unknown';
 };
 
-export const getValidationIssueCount = (
-  status: ValidationCheckStatus,
-  errorCount: number | null | undefined,
-  warningCount: number | null | undefined,
-): number => status === 'Warning' ? warningCount ?? 0 : errorCount ?? 0;
-
 const asDisplayText = (value: unknown): string => {
   if (value === null || value === undefined) {
     return '';
@@ -50,7 +44,7 @@ export const parseValidationIssues = (failedRows: unknown): ValidationIssue[] =>
       }
 
       const record = issue as Record<string, unknown>;
-      const rawRowNumber = record.row ?? record.row_num ?? record.RowNumber;
+      const rawRowNumber = record.row;
       const rowNumber = typeof rawRowNumber === 'number'
         ? rawRowNumber
         : typeof rawRowNumber === 'string' && rawRowNumber.trim() !== ''
@@ -59,7 +53,7 @@ export const parseValidationIssues = (failedRows: unknown): ValidationIssue[] =>
 
       return [{
         column: asDisplayText(record.column),
-        error: asDisplayText(record.message ?? record.error),
+        error: asDisplayText(record.message),
         rowNumber: rowNumber !== undefined && Number.isInteger(rowNumber) && rowNumber > 0 ? rowNumber : undefined,
         value: asDisplayText(record.value),
       }];

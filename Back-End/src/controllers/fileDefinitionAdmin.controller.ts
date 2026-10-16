@@ -78,11 +78,7 @@ export const addUsersToFileDefinition = async (req: AuthRequest, res: Response, 
             });
         }
 
-        const updatedUsers = await FileDefinitionService.addUsersToDefinition(
-            definitionId, 
-            userIds, 
-            adminUserId
-        );
+        const updatedUsers = await FileDefinitionService.addUsersToDefinition(definitionId, userIds);
 
         res.json({
             success: true,

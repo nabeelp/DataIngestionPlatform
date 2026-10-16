@@ -460,9 +460,9 @@ def test_removed_rule_types_are_rejected_by_rule_validation(rule: dict[str, obje
     assert examples["results"] == []
 
 
-def test_contract_publish_validation_rejects_removed_rule_types_but_runtime_loading_drops_them() -> None:
+def test_contracts_with_removed_rule_types_are_rejected() -> None:
     contract = _contract([_table(None, "Amount")], deepcopy(REMOVED_RULES))
 
-    # Publishing is held to the current rule schema; contracts published earlier still load and run.
     assert validate_contract_payload(contract)["ok"] is False
-    assert DefinitionContract.model_validate(contract).rules == []
+    with pytest.raises(ValueError):
+        DefinitionContract.model_validate(contract)

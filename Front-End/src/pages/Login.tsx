@@ -31,7 +31,8 @@ export default function Login() {
   //#endregion
 
   //#region EFFECTS
-  // Handle SSO callback from Microsoft redirect
+  // Handle SSO callback from Microsoft redirect. The authorization code is single-use, so this must run only
+  // when the callback parameters change, not whenever the (unmemoised) auth handlers change.
   useEffect(() => {
     if (code) {
       handleSsoCallback(code, returnedState);
@@ -39,6 +40,7 @@ export default function Login() {
     if (errorParam) {
       setError(decodeURIComponent(errorDescription || errorParam));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, returnedState, errorParam, errorDescription]);
   //#endregion
 

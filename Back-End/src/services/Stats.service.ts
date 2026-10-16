@@ -95,8 +95,4 @@ export class StatsService {
         `);
         return Number(result.recordset[0]?.Failed) || 0;
     }
-
-    static async invalidateCache(): Promise<void> {
-        await cacheService.delete(CACHE_KEY);
-    }
 }

@@ -1,6 +1,6 @@
 // =============================================================================
-// Template Storage - stores admin-uploaded definition templates via the configured provider
-// Azure Blob Storage when STORAGE_PROVIDER=azure, otherwise a local folder.
+// Template Storage - stores admin-uploaded definition templates in Azure Blob Storage
+// (or Azurite) when a storage connection string/account URL is configured, otherwise in a local folder.
 // =============================================================================
 
 import fs from 'fs';
@@ -61,9 +61,9 @@ let containerClient: ContainerClient | null = null;
 const getContainerClient = async (): Promise<ContainerClient> => {
     if (containerClient) return containerClient;
 
-    const containerName = process.env.AZURE_STORAGE_TEMPLATES_CONTAINER || 'templates';
+    const containerName = appConfig.azure.storage.templatesContainerName;
     const connectionString = appConfig.azure.storage.connectionString;
-    const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+    const accountUrl = appConfig.azure.storage.accountUrl;
 
     let serviceClient: BlobServiceClient;
     if (connectionString) {
@@ -80,7 +80,7 @@ const getContainerClient = async (): Promise<ContainerClient> => {
     return client;
 };
 
-const useAzure = (): boolean => appConfig.storage.provider === 'azure';
+const useAzure = (): boolean => Boolean(appConfig.azure.storage.connectionString || appConfig.azure.storage.accountUrl);
 
 export const TemplateStorage = {
     /**

@@ -9,13 +9,11 @@ import type {
     IFileDefinition, 
     ICreateFileDefinitionDto, 
     IUpdateFileDefinitionDto,
-    IColumn,
     IFileDefinitionUser 
 } from '../interfaces/fileDefinition.interface';
 import { logger } from '../utils/logger';
 import {
     contractFromLegacyColumns,
-    emptyDefinitionContract,
     legacyColumnsFromContract,
     legacyTablesFromContract,
     parseDefinitionContract,
@@ -326,50 +324,6 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
             `);
 
         return result.recordset;
-    }
-
-    /**
-     * Get definition stats for a user (total and active counts)
-     */
-    static async getStatsForUser(userId: string): Promise<{ totalDefinitions: number; activeDefinitions: number }> {
-        const pool = await getConnection();
-        
-        // Check if user is admin
-        const userResult = await pool.request()
-            .input('UserId', userId)
-            .query(`SELECT Role FROM Users WHERE Id = @UserId`);
-
-        let query: string;
-
-        if (userResult.recordset[0]?.Role === 'admin') {
-            // Admin sees all definitions
-            query = `
-                SELECT 
-                    COUNT(*) as totalDefinitions,
-                    SUM(CASE WHEN Status = 'Active' THEN 1 ELSE 0 END) as activeDefinitions
-                FROM ${this.TABLE_NAME}
-            `;
-        } else {
-            // Regular user sees only their accessible definitions
-            query = `
-                SELECT 
-                    COUNT(*) as totalDefinitions,
-                    SUM(CASE WHEN fd.Status = 'Active' THEN 1 ELSE 0 END) as activeDefinitions
-                FROM ${this.TABLE_NAME} fd
-                INNER JOIN ${this.USER_ACCESS_TABLE} ua ON fd.Id = ua.FileDefinitionId
-                WHERE ua.UserId = @UserId
-            `;
-        }
-
-        const result = await pool.request()
-            .input('UserId', userId)
-            .query(query);
-
-        const row = result.recordset[0];
-        return {
-            totalDefinitions: row?.totalDefinitions || 0,
-            activeDefinitions: row?.activeDefinitions || 0
-        };
     }
 
     /**

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ContractModel(BaseModel):
@@ -357,9 +357,8 @@ type RuleConfig = Annotated[
 ]
 
 
-# Required columns, required values and data types are enforced by the column definitions. Contracts published before
-# these rule types were removed may still carry them; they are ignored.
-REMOVED_RULE_TYPES = frozenset({"columnsPresent", "required", "type"})
+# Required columns, required values and data types are enforced by the column definitions, so there are no
+# rule types for them.
 
 
 class DefinitionContract(ContractModel):
@@ -370,17 +369,6 @@ class DefinitionContract(ContractModel):
     tables: list[TableDefinition] = Field(min_length=1)
     rules: list[RuleConfig]
     lookups: dict[str, LookupDefinition]
-
-    @model_validator(mode="before")
-    @classmethod
-    def _ignore_removed_rule_types(cls, data: object) -> object:
-        if isinstance(data, dict) and isinstance(data.get("rules"), list):
-            kept = [
-                rule for rule in data["rules"]
-                if not (isinstance(rule, dict) and rule.get("type") in REMOVED_RULE_TYPES)
-            ]
-            return {**data, "rules": kept}
-        return data
 
 
 class BlobReference(ContractModel):

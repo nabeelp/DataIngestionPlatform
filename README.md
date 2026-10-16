@@ -2,6 +2,8 @@
 
 Users upload CSV/TSV/TXT or Excel files against **file definitions**. The Node API and React UI use a Python + Polars validation service, Azure Blob Storage, and Azure Service Bus. Local dependencies run in Docker Compose: SQL Server, Azurite, and the Azure Service Bus emulator.
 
+**Documentation:** [architecture](docs/architecture.md) · [Azure deployment](docs/deployment.md) · [natural-language and cross-sheet rules](docs/natural-language-rules.md) · [contracts](contracts/README.md) · [validation service](Validation-Service/README.md) · [sample files](samples/README.md) · [backlog](TODO.md).
+
 ## Local development
 
 Prerequisites: Docker Desktop with its engine running, Python 3.12 with `uv`, and Node.js 24 with npm. Docker needs at least 2 GB of memory and 5 GB of free disk for the Service Bus emulator and its SQL Server dependency.
@@ -22,8 +24,8 @@ Local runs keep using the `.env`-based emulator settings and shared development 
 
 Every upload is streamed from Blob Storage to the Python service, parsed (including all Excel sheets), and checked in one pass:
 
-- **File definition columns** (always): required columns must exist, required values must not be empty, and non-empty values must match the column type (`string`, `integer`, `decimal`, `datetime`, `boolean`).
-- **Rules** (optional, per definition) add business logic on top of the column checks and are stored and exchanged as versioned `RuleConfig` JSON. There are no rule types for required columns, required values or data types: set those on the column definitions instead. Rules of those removed types that were saved earlier are ignored when a definition is read and are dropped the next time it is saved. The editor's common built-in checks use a simple declarative syntax:
+- **File definition columns** (always): required columns must exist, required values must not be empty, and non-empty values must match the column type (`string`, `integer`, `decimal`, `date`, `datetime`, `boolean`).
+- **Rules** (optional, per definition) add business logic on top of the column checks and are stored and exchanged as versioned `RuleConfig` JSON. There are no rule types for required columns, required values or data types: set those on the column definitions instead, and a definition that still carries such a rule is rejected. The editor's common built-in checks use a simple declarative syntax:
 
 | Rule type | Expression example | Checks |
 |---|---|---|
@@ -60,13 +62,13 @@ A reviewed rule is only a proposal until you choose **Add to definition**; it th
 
 **Cross-sheet rules.** In a sheet-layout definition, describe a check that names the sheets (for example "Every order's customer id must exist in the Customers sheet"). Totals across sheets map to the built-in `reconcile` type; everything else relating rows of different sheets becomes a query-mode Natural Language rule that joins the sheets and reports offending rows against their own sheet. Examples can seed rows in other sheets (`relatedRows`). See [docs/natural-language-rules.md](docs/natural-language-rules.md) for the contract, limits, review findings, the golden test corpus and the opt-in live model evaluation (`npm run eval:nl-rules`).
 
-Set `AZURE_FOUNDRY_RESOURCE`, `AZURE_FOUNDRY_PROJECT`, and `AZURE_FOUNDRY_MODEL` in `Back-End/.env` (defaults: `aif-zlyway6g7icoy-0`, `citadel-governance-project`, `gpt-5.3-codex`). The named model **deployment** must be available in that project. The backend uses `DefaultAzureCredential`: use a signed-in Azure developer identity locally or a managed identity in Azure, with permission to invoke the project model (for example, Azure AI User on the Foundry project/resource). A `403 ... agents/write` error means that the identity lacks that permission, or that `DefaultAzureCredential` picked a sign-in from another tenant. Locally, it tries the Azure CLI before the Azure Developer CLI; to use another sign-in without changing code, set `AZURE_TOKEN_CREDENTIALS` (for example, `AzureDeveloperCliCredential`) before starting the backend. No model key is sent to the browser or stored in the app. Each review usually makes one billable inference call and at most three (typically 5–25 s in total) and sends the entered request and draft schema names to Foundry; do not enter sensitive values in rule text. In production, assess regional availability and data-handling policies for the deployment, monitor latency/errors and model usage, and keep the rule-publishing approval step.
+Set `AZURE_FOUNDRY_RESOURCE` and `AZURE_FOUNDRY_PROJECT` in `Back-End/.env` (no defaults), and `AZURE_FOUNDRY_MODEL` (defaults to `gpt-5.3-codex`). The named model **deployment** must be available in that project. The backend uses `DefaultAzureCredential`: use a signed-in Azure developer identity locally or a managed identity in Azure, with permission to invoke the project model (for example, Azure AI User on the Foundry project/resource). A `403 ... agents/write` error means that the identity lacks that permission, or that `DefaultAzureCredential` picked a sign-in from another tenant. Locally, it tries the Azure CLI before the Azure Developer CLI; to use another sign-in without changing code, set `AZURE_TOKEN_CREDENTIALS` (for example, `AzureDeveloperCliCredential`) before starting the backend. No model key is sent to the browser or stored in the app. Each review usually makes one billable inference call and at most three (typically 5–25 s in total) and sends the entered request and draft schema names to Foundry; do not enter sensitive values in rule text. In production, assess regional availability and data-handling policies for the deployment, monitor latency/errors and model usage, and keep the rule-publishing approval step.
 
 ## Tables and workbook sheets
 
 A definition has one of two layouts (Admin → File Definitions → **Layout**):
 
-- **One table** (the default, and every definition created before this option existed): the columns apply to a CSV file and to **every** sheet of an Excel workbook.
+- **One table** (the default): the columns apply to a CSV file and to **every** sheet of an Excel workbook.
 - **One table per workbook sheet**: each table has a **sheet name** (up to 31 characters, without `[ ] : * ? / \`) and its own columns. An uploaded workbook's sheets are matched to tables by name, ignoring case and surrounding spaces:
   - Each table is checked as its own **Sheet "Name" columns** check. A missing sheet fails that check.
   - Sheets without a table are ignored and not validated.
@@ -83,9 +85,9 @@ A definition's **tables (columns) and enabled rules** form its versioned contrac
 - Creating a definition publishes **version 1**.
 - Editing a definition uses the same **Details → Tables and columns → Rules → Review** flow as clean-slate creation (saved definitions can jump between these sections). Details include name, description, status, delivery folder, and reusable-template replacement or removal. The final Review step accepts an optional change note and publishes a new version containing those details, the validation contract, and enabled rules.
 - Rule changes made in the definition workspace are saved with the definition as draft changes until it is published. Admin → File Definitions labels definitions with any unpublished metadata, template, column, contract, or rule changes as **Unpublished changes**. The Versions workspace shows those changes and the complete history. Publishing supersedes the previous version; each definition has exactly one active version. Publishing is refused when nothing has changed or an enabled rule is invalid, and each publish is recorded in the audit log.
-- Each upload is **pinned** to the version active when it arrives. Validation and retries use that version, even after later publishes. Upload details show it as **Definition Version**. The migration pins existing uploads to version 1; any upload still without a pin is pinned to the active version when it is next validated. Unpublished draft edits never apply to uploads.
+- Each upload is **pinned** to the version active when it arrives. Validation and retries use that version, even after later publishes. Upload details show it as **Definition Version**. Unpublished draft edits never apply to uploads.
 - Standard users see the active version's columns and rules under **My Files**. Admins edit the draft in the definition workspace.
-- Deleting a definition keeps the versions that uploads reference.
+- Deleting a definition that uploads still reference is not yet reliable: the intended policy (archive, reject or transactional delete) is an open decision tracked as FUN-02 in [TODO.md](TODO.md).
 
 ## Creating a file definition
 
@@ -111,7 +113,7 @@ The example-file path reads the example the same way uploads are validated, so t
 
   The reason for each suggestion is shown next to it. Pick suggestions individually or with **Select all suggested rules**. Selected suggestions from included sheets are created with the definition and published in version 1.
 
-After reviewing the detected structure, **Next** applies the included columns, sheet tables, and selected rules and continues to metadata. Nothing is saved until the final review is published. The example-file assistant is available only while creating a definition; the example file is deleted as soon as it has been analyzed and is never stored.
+After reviewing the detected structure, **Next** applies the included columns, sheet tables, and selected rules and continues to metadata. Nothing is saved until the final review is published. The example-file assistant is available only while creating a definition. The example file is staged in Blob storage only for the analysis and deleted as soon as it has been analyzed; it is never retained.
 
 Rules are stored as versioned JSON configurations in `Rules.Config`; indexed listing fields are persisted computed columns. Database schema changes are applied in the fixed order by `Back-End/database/apply.ps1`.
 
@@ -121,11 +123,11 @@ Delivery is optional. A file definition may set a **delivery folder** (Admin →
 
 In Azure, `DELIVERY_PROVIDER=azure` stores each output in the private `deliveries` Blob container (configurable with `AZURE_STORAGE_DELIVERIES_CONTAINER`). The definition's folder is a relative Blob name prefix; the final name is deterministic for the upload and sanitized source filename, so a replay replaces the same output. The API managed identity has Blob Data Contributor access scoped to this container. On Upload Details, an authorized user can download a completed output; the API checks access to the upload before streaming it and does not expose a public URL or SAS token. Explicitly deleting an upload also deletes its delivery output. Delivery outputs have no age-based expiry; the storage account's existing seven-day Blob soft-delete setting provides recovery after deletion.
 
-Local development continues to use filesystem copies. Outputs created by older deployments are not migrated automatically; only outputs recorded and delivered after enabling the Azure provider use the durable Blob destination.
+Local development continues to use filesystem copies.
 
 ## Storage
 
-Uploads and issues reports are stored in Azure Blob Storage; locally, Azurite provides the compatible emulator. The Node API streams uploads to `uploads/{uploadId}/{safeName}` and computes SHA-256 while streaming. Definition templates may still use the configured local template store or a Blob container. Azure Blob Storage in production requires an account and managed identity (or another approved credential) and may incur charges; no Azure provisioning is required for the local setup.
+Uploads and issues reports are stored in Azure Blob Storage; locally, Azurite provides the compatible emulator. The Node API streams uploads to `uploads/{uploadId}/{safeName}` and computes SHA-256 while streaming. Definition templates use the Blob `templates` container when a storage connection string or account URL is configured, otherwise the local folder `TEMPLATE_STORAGE_PATH`. Azure Blob Storage in production requires an account and managed identity (or another approved credential) and may incur charges; no Azure provisioning is required for the local setup.
 
 ## Authentication
 
@@ -136,10 +138,13 @@ Uploads and issues reports are stored in Azure Blob Storage; locally, Azurite pr
 
 ## Testing
 
-- **Unit tests:** run `npm test` in `Back-End` and `Front-End`.
+CI (GitHub Actions) runs zero-warning lint, type checks, unit tests and builds for all three components, verifies the generated TypeScript contracts are current,
+and compiles the Bicep templates. The suites below that need the running stack are manual acceptance gates to run before a release.
+
+- **Unit tests:** run `npm test` in `Back-End` and `Front-End`, and `uv run pytest` in `Validation-Service`.
 - **Database functional tests** (`Back-End/tests/*.integration.test.ts`) run against a disposable SQL Server database. They are skipped unless `TEST_DB_CONNECTION_STRING` is set. Create the database (for example `FileValidationPlatform_Test`), apply every script in `Back-End/database` including `seed_local_users.sql`, and run, for example: `$env:TEST_DB_CONNECTION_STRING='Server=(localdb)\MSSQLLocalDB;Database=FileValidationPlatform_Test;Integrated Security=true'; npm test`. Never point this at a database containing real data; the tests create and delete records.
 - **UI tests** (Playwright, `Front-End/e2e`) drive the running app. Start it with `.\start.ps1` using the seeded mock-login demo (both bypass flags enabled), then run `npm run test:e2e` in `Front-End`. They use the installed Microsoft Edge by default; set `E2E_BROWSER_CHANNEL=chromium` after `npx playwright install chromium` to use Playwright's browser. They create and then delete their own definition and uploads.
-- **Sample files** ([samples/](samples/README.md)) cover every upload and definition scenario: delimiters, encodings, one-table and per-sheet definitions (with used and ignored sheets), every rule type and severity, example-file proposals, rejected and corrupt files, and very large files. `samples/definitions/sample_definitions.sql` creates the matching definitions. The Python golden suite compares upload fixtures with captured WP0 Node baselines; run it with `uv run pytest tests/golden/test_node_baseline.py -q` in `Validation-Service`. With the local stack running, `npm run test:e2e:samples` in `Front-End` sends every sample through the UI/API and checks outcomes, counts, reports, and delivery. Files over 10 MB are git-ignored; regenerate them with `python samples\tools\generate_samples.py`.
+- **Sample files** ([samples/](samples/README.md)) cover every upload and definition scenario: delimiters, encodings, one-table and per-sheet definitions (with used and ignored sheets), every rule type and severity, example-file proposals, rejected and corrupt files, and very large files. `samples/definitions/sample_definitions.sql` creates the matching definitions. The Python golden suite compares every upload fixture with a reviewed snapshot; run it with `uv run pytest tests/golden -q` in `Validation-Service` (`UPDATE_GOLDEN=1` regenerates the snapshot after an intended change). With the local stack running, `npm run test:e2e:samples` in `Front-End` sends every sample through the UI/API and checks outcomes, counts, reports, and delivery. Files over 10 MB are git-ignored; regenerate them with `python samples\tools\generate_samples.py`.
 
 ## Azure deployment
 

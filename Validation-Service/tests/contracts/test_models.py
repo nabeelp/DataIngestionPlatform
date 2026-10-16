@@ -10,13 +10,13 @@ from pydantic import TypeAdapter, ValidationError
 from referencing import Registry, Resource
 
 from dq_engine.contracts.models import (
-    REMOVED_RULE_TYPES,
     DefinitionContract,
     DeliveryRequest,
     RuleConfig,
     ValidationEvent,
     ValidationRequest,
 )
+from dq_engine.engine import _RULE_MODULES
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACTS = ROOT / "contracts"
@@ -91,18 +91,22 @@ REMOVED_RULES = [
 ]
 
 
-def test_removed_rule_types_are_dropped_when_a_contract_loads() -> None:
-    payload = load_json(EXAMPLES / "definition-contract.json")
-    kept = [rule for rule in payload["rules"] if rule["type"] not in REMOVED_RULE_TYPES]
-    payload["rules"] = [*REMOVED_RULES, *kept]
-
-    contract = DefinitionContract.model_validate(payload)
-
-    assert [rule.id for rule in contract.rules] == [rule["id"] for rule in kept]
-    assert {rule.type for rule in contract.rules}.isdisjoint(REMOVED_RULE_TYPES)
-
-
 @pytest.mark.parametrize("rule", REMOVED_RULES, ids=lambda rule: rule["type"])
 def test_removed_rule_types_are_rejected_as_rule_config(rule: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         TypeAdapter(RuleConfig).validate_python(rule)
+
+
+def test_contract_with_a_removed_rule_type_is_rejected() -> None:
+    payload = load_json(EXAMPLES / "definition-contract.json")
+    payload["rules"] = [*REMOVED_RULES, *payload["rules"]]
+
+    with pytest.raises(ValidationError):
+        DefinitionContract.model_validate(payload)
+
+
+def test_every_rule_type_in_the_schema_has_an_engine_implementation() -> None:
+    schema = load_json(CONTRACTS / "rule-config.schema.json")
+    schema_types = set(schema["properties"]["type"]["enum"])
+
+    assert schema_types == set(_RULE_MODULES)

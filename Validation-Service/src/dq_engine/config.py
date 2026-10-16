@@ -27,7 +27,6 @@ class Settings:
     api_port: int
     worker_mode: str
     worker_max_messages: int
-    query_temp_directory: str | None
 
 
 def get_settings() -> Settings:
@@ -54,5 +53,4 @@ def get_settings() -> Settings:
         api_port=int(os.getenv("RULES_SERVICE_PORT", "8000")),
         worker_mode=os.getenv("WORKER_MODE", "local"),
         worker_max_messages=int(max_messages) if max_messages else 1,
-        query_temp_directory=os.getenv("DQ_QUERY_TEMP_DIRECTORY") or None,
     )

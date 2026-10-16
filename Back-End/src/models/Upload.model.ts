@@ -151,7 +151,6 @@ export class Upload {
                 ORDER BY UploadedAt DESC
             `;
         } else {
-            const pool = await getConnection();
             // Regular user sees their uploads and shared uploads
             query = `
                 SELECT DISTINCT TOP (@Limit) u.* FROM ${this.TABLE_NAME} u
@@ -196,8 +195,6 @@ export class Upload {
             .input('AzureBlobUrl', dto.AzureBlobUrl || null)
             .input('FileSize', dto.FileSize)
             .input('FileType', dto.FileType)
-            .input('CompressedFileSize', dto.CompressedFileSize || null)
-            .input('CompressedBlobUrl', dto.CompressedBlobUrl || null)
             .input('RetryCount', dto.RetryCount || 0)
             .input('RowCountNo', dto.RowCountNo || 0)
             .input('SheetCount', dto.SheetCount || 1)
@@ -205,9 +202,9 @@ export class Upload {
             .input('UploadedAt', now)
             .query(`
                 INSERT INTO ${this.TABLE_NAME} 
-                                    (Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, BlobContainer, BlobName, FileSha256, DetectedEncoding, ValidationDate, EngineVersion, ReportBlobName, ParquetPrefix, AzureBlobUrl, FileSize, FileType, CompressedFileSize, CompressedBlobUrl, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
+                                    (Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, BlobContainer, BlobName, FileSha256, DetectedEncoding, ValidationDate, EngineVersion, ReportBlobName, ParquetPrefix, AzureBlobUrl,                                     FileSize, FileType, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
                 VALUES 
-                                    (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @BlobContainer, @BlobName, @FileSha256, @DetectedEncoding, @ValidationDate, @EngineVersion, @ReportBlobName, @ParquetPrefix, @AzureBlobUrl, @FileSize, @FileType, @CompressedFileSize, @CompressedBlobUrl, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
+                                                                        (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @BlobContainer, @BlobName, @FileSha256, @DetectedEncoding, @ValidationDate, @EngineVersion, @ReportBlobName, @ParquetPrefix, @AzureBlobUrl, @FileSize, @FileType, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
             `);
 
 
@@ -280,10 +277,6 @@ export class Upload {
         if (updates.AzureBlobUrl !== undefined) {
             setClauses.push('AzureBlobUrl = @AzureBlobUrl');
             request.input('AzureBlobUrl', updates.AzureBlobUrl);
-        }
-        if (updates.CompressedBlobUrl !== undefined) {
-            setClauses.push('CompressedBlobUrl = @CompressedBlobUrl');
-            request.input('CompressedBlobUrl', updates.CompressedBlobUrl);
         }
         if (updates.DeliveredTo !== undefined) {
             setClauses.push('DeliveredTo = @DeliveredTo');
@@ -398,47 +391,6 @@ export class Upload {
     }
 
     /**
-     * Grant access to an upload
-     */
-    static async grantAccess(uploadId: string, userId: string, grantedBy: string, accessLevel: string = 'READ'): Promise<void> {
-        const pool = await getConnection();
-        const id = uuidv4();
-
-        await pool.request()
-            .input('Id', id)
-            .input('UploadId', uploadId)
-            .input('UserId', userId)
-            .input('AccessLevel', accessLevel)
-            .input('GrantedAt', new Date())
-            .input('GrantedBy', grantedBy)
-            .query(`
-                IF NOT EXISTS (
-                    SELECT 1 FROM ${this.ACCESS_TABLE} 
-                    WHERE UploadId = @UploadId AND UserId = @UserId
-                )
-                BEGIN
-                    INSERT INTO ${this.ACCESS_TABLE} (Id, UploadId, UserId, AccessLevel, GrantedAt, GrantedBy)
-                    VALUES (@Id, @UploadId, @UserId, @AccessLevel, @GrantedAt, @GrantedBy)
-                END
-            `);
-    }
-
-    /**
-     * Revoke access from an upload
-     */
-    static async revokeAccess(uploadId: string, userId: string): Promise<void> {
-        const pool = await getConnection();
-
-        await pool.request()
-            .input('UploadId', uploadId)
-            .input('UserId', userId)
-            .query(`
-                DELETE FROM ${this.ACCESS_TABLE} 
-                WHERE UploadId = @UploadId AND UserId = @UserId
-            `);
-    }
-
-    /**
      * Get count of uploads from today
      */
     static async getTodayCount(): Promise<number> {
@@ -449,26 +401,6 @@ export class Upload {
         const result = await pool.request()
             .input('Today', today)
             .query(`SELECT COUNT(*) as count FROM ${this.TABLE_NAME} WHERE UploadedAt >= @Today`);
-        return result.recordset[0]?.count || 0;
-    }
-
-    /**
-     * Get count of uploads by status
-     */
-    static async getCountByStatus(statuses: string[]): Promise<number> {
-        if (statuses.length === 0) return 0;
-        
-        const pool = await getConnection();
-        const statusList = statuses.map((s, i) => `@Status${i}`).join(', ');
-        
-        const query = `SELECT COUNT(*) as count FROM ${this.TABLE_NAME} WHERE Status IN (${statusList})`;
-        
-        const request = pool.request();
-        statuses.forEach((status, i) => {
-            request.input(`Status${i}`, status);
-        });
-        
-        const result = await request.query(query);
         return result.recordset[0]?.count || 0;
     }
 

@@ -1,6 +1,5 @@
 import {
     proposeNaturalLanguageRule,
-    type RuleDiagnosticEvent,
 } from '../src/services/NaturalLanguageRule.service';
 import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { RulesService } from '../src/services/RulesService.service';
@@ -45,10 +44,6 @@ const streamOf = (proposal: object) => {
 };
 /** What the model returns for a reference proposal: separate passing and failing example lists. */
 const modelStream = (proposal: GoldenCase['referenceProposal']) => streamOf(modelOutput(proposal));
-const examplesOnly = (proposal: GoldenCase['referenceProposal']) => {
-    const { passingExamples, failingExamples } = modelOutput(proposal);
-    return streamOf({ passingExamples, failingExamples });
-};
 
 const corpus = loadGoldenCorpus();
 const byId = (id: string): GoldenCase => corpus.cases.find(item => item.id === id) as GoldenCase;

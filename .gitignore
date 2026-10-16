@@ -26,12 +26,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 uploads/
-desktop-uploads/
 deliveries/
 # Live natural-language evaluation reports contain raw model output
 Back-End/eval-results/
-Back-End/sharepoint/uploads/
-Back-End/sharepoint/compressed/
 Back-End/temp/*
 !Back-End/temp/.gitkeep
 

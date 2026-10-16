@@ -247,26 +247,27 @@ def test_column_type_mismatch_is_reported_for_the_offending_row(tmp_path: Path) 
     assert check.issues[0].message == "Value is not a valid integer"
 
 
-def test_removed_rule_types_are_ignored_and_covered_by_column_definitions(tmp_path: Path) -> None:
+def test_removed_rule_types_are_rejected_and_covered_by_column_definitions(tmp_path: Path) -> None:
     path = tmp_path / "legacy.csv"
     path.write_text("Id,Amount\n1,10\n,abc\n", encoding="utf-8")
     columns: list[dict[str, object]] = [
         {"name": "Id", "type": "integer", "mustExist": True, "nullable": False},
         {"name": "Amount", "type": "integer", "mustExist": True, "nullable": True},
     ]
-    removed_rules = [
+
+    for removed in (
         _rule("columnsPresent", {"columns": ["Id", "Missing"]}),
-        {**_rule("required", {"columns": ["Missing"]}), "id": "rule-required-2"},
+        _rule("required", {"columns": ["Missing"]}),
         _rule("type", {"column": "Id", "dataType": "date"}),
-    ]
+    ):
+        with pytest.raises(ValueError, match="rules"):
+            _contract(columns=columns, rules=[removed])
 
-    with_removed = _validate(path, _contract(columns=columns, rules=removed_rules))
-    without = _validate(path, _contract(columns=columns))
+    outcome = _validate(path, _contract(columns=columns))
 
-    assert _contract(columns=columns, rules=removed_rules).rules == []
-    assert [check.id for check in with_removed.checks] == [check.id for check in without.checks] == ["columns:"]
-    assert with_removed.status == without.status == "FAILED"
-    assert with_removed.checks[0].issue_count == without.checks[0].issue_count == 2
+    assert [check.id for check in outcome.checks] == ["columns:"]
+    assert outcome.status == "FAILED"
+    assert outcome.checks[0].issue_count == 2
 
 
 @pytest.mark.parametrize(

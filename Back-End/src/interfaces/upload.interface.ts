@@ -90,8 +90,6 @@ export interface IUpload {
     AzureBlobUrl: string | null;
     FileSize: number;
     FileType: string;
-    CompressedFileSize: number | null;
-    CompressedBlobUrl: string | null;
     RetryCount: number;
     RowCountNo: number | null;
     SheetCount: number | null;
@@ -101,7 +99,6 @@ export interface IUpload {
     ValidationCompletedAt: Date | null;
     DeliveryStartedAt: Date | null;
     DeliveryCompletedAt: Date | null;
-    ProcessingNode: string | null;
     DeliveredTo: string | null;
     DeliveredAt: Date | null;
     ErrorMessage: string | null;
@@ -167,12 +164,6 @@ export interface IValidationRuleDetail {
     IssueCount: number;
     Issues: string;
     ElapsedMs: number;
-    ExecutionTimeMs: number | null;
-    ErrorCount: number;
-    WarningCount: number;
-    FailedRows: string | null;
-    FailedRowsCount: number;
-    SampleErrorValue: string | null;
     StartedAt: Date | null;
     CompletedAt: Date | null;
     /** Sheet the check applies to (null: every sheet or the CSV). Only set on upload details responses. */
@@ -242,8 +233,6 @@ export interface ICreateUploadDto {
     AzureBlobUrl?: string;
     FileSize: number;
     FileType: string;
-    CompressedFileSize?: number;
-    CompressedBlobUrl?: string;
     RetryCount?: number;
     RowCountNo?: number;
     SheetCount?: number;
@@ -268,7 +257,6 @@ export interface IUpdateUploadDto {
     RowCountNo?: number;
     SheetCount?: number;
     AzureBlobUrl?: string;
-    CompressedBlobUrl?: string;
     DeliveredTo?: string;
     DeliveredAt?: Date | null;
     ErrorMessage?: string | null;
@@ -278,16 +266,6 @@ export interface IUpdateUploadDto {
     DeliveryCompletedAt?: Date | null;
 }
 
-
-/**
- * Create upload sheet DTO
- */
-export interface ICreateUploadSheetDto {
-    UploadId: string;
-    SheetIndex: number;
-    SheetName: string;
-    RowCountNo?: number;
-}
 
 /**
  * Update upload sheet DTO
@@ -340,25 +318,6 @@ export interface ICreateValidationRuleDetailDto {
     RuleType: string;
     RuleSeverity: string;
     ExecutionOrder: number;
-}
-
-/**
- * Update validation rule detail DTO
- */
-export interface IUpdateValidationRuleDetailDto {
-    Status?: ValidationStatus;
-    IssueCount?: number;
-    Issues?: string;
-    ElapsedMs?: number;
-    Sheet?: string | null;
-    ExecutionTimeMs?: number;
-    ErrorCount?: number;
-    WarningCount?: number;
-    FailedRows?: string;
-    FailedRowsCount?: number;
-    SampleErrorValue?: string;
-    StartedAt?: Date;
-    CompletedAt?: Date;
 }
 
 /**

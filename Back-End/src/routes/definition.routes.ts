@@ -45,17 +45,6 @@ router.get(
 );
 
 /**
- * GET /api/definitions/stats
- * Get definition stats for dashboard (total and active counts)
- * All authenticated users can access this
- */
-router.get(
-    '/stats',
-    authenticate,
-    DefinitionController.getDefinitionStats
-);
-
-/**
  * GET /api/definitions/:id
  * Get a single definition by ID
  * Requires access to the definition

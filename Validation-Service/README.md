@@ -1,183 +1,94 @@
 # Validation Service
 
-The Python validation service provides the shared contracts in `src/dq_engine/contracts/`, the Polars
-validation engine, an internal FastAPI authoring service, and the Azure Service Bus validation worker.
+Python 3.12 service with three entry points sharing one package (`src/dq_engine/`):
 
-## CSV structural-check spike (WP3)
+| Command | Purpose |
+|---|---|
+| `uv run dq-engine api` | Internal FastAPI rules service (rule compile/test, contract validation, dry run, example analysis) |
+| `uv run dq-engine worker` | Azure Service Bus validation worker (Polars engine, writes reports, Parquet and SQL results) |
+| `uv run dq-engine validate <file> --contract <contract.json> [--json] [--output-dir <dir>]` | Validate one file locally; `--output-dir` writes a Zstandard Parquet file per table and a streamed issues CSV |
+| `uv run dq-engine bench` | Run the CSV, XLSX and Natural Language performance workloads |
 
-Before implementing the CSV reader, the two planned structural-check approaches were measured against a
-deterministic, synthetic 1,000,000-row CSV (110,576,998 bytes; 12 columns). Timings below are medians of three
-runs on the local Windows development host with Python 3.12, Polars 1.44.2, and PyArrow 25.0.1. These are
-comparative spike results, not the strict §9 performance-gate measurement on a 4-vCPU/8-GiB host.
+The container image (`Dockerfile`) starts `dq-engine api` by default; the worker is the same image run as an event-triggered Container Apps job.
+See [the architecture](../docs/architecture.md) for where it fits and [natural-language-rules.md](../docs/natural-language-rules.md) for SQL rules.
 
-| Measurement | Result |
-|---|---:|
-| Polars strict CSV load, structurally valid input | 0.0693 s |
-| PyArrow CSV load, structurally valid input | 0.0536 s |
-| Python `csv.reader` full structural scan, valid input | 1.5931 s (23.0× Polars load) |
-| Polars strict read until a ragged row at physical line 500,001 | 0.0783 s; `ComputeError` has no usable physical line |
-| Targeted `csv.reader` re-scan of the malformed 110.6-MB file | 1.5814 s; reports physical line 500,001 exactly |
-| PyArrow read with `invalid_row_handler` on the same malformed file | 0.2559 s; callback `InvalidRow.number` is `null` |
-| Quoted multiline record line-map check | Correctly reports the following ragged record at physical line 5 |
+## Package layout
 
-**Initial spike decision:** use Polars' strict read as the normal path. Only after a strict parse error, re-scan with Python's
-`csv.reader` to identify every ragged logical record and its exact starting physical line; use the resulting
-structural findings to exclude malformed records while retaining valid rows for evaluation. Do not run a
-standalone Python structural scan on valid input: its measured 1.5931 s cost is 23× the Polars load and would
-violate the 50% overhead allowance. PyArrow's callback is faster on malformed input but does not provide a
-physical line number, so it cannot satisfy A4 by itself.
+| Module | Responsibility |
+|---|---|
+| `contracts/` | Pydantic models for the definition, rule and message contracts. The JSON Schemas in [`../contracts`](../contracts/README.md) are the source of truth |
+| `io/` | Blob access and CSV/Excel/Parquet readers (encoding sniffing, sheet and table detection) |
+| `rules/` | One module per rule type, the SQL guard (`sqlguard.py`) and example execution |
+| `engine.py` | Orchestrates structural checks, rule evaluation, issue limits and outputs |
+| `api/` | FastAPI app, authentication and request validation |
+| `messaging/` | Service Bus worker (validation requests in, events out) |
+| `persist/` | SQL persistence of results (one idempotent transaction per upload) |
+| `analyze/` | Example-file analysis that proposes tables, columns and suggested rules |
+| `telemetry.py` | Azure Monitor OpenTelemetry setup with redaction |
 
-**Final WP3 decision:** validation against Polars 1.44 showed its strict CSV reader accepts short rows
-by padding missing fields with nulls; the accepted record could not reliably trigger the planned error-path
-rescan or be distinguished from an explicitly empty cell. The owner approved a narrow WP3 deviation: PyArrow
-now performs CSV structural parsing (with its invalid-row callback), the Python `csv.reader` exact-line rescan
-runs only when the callback detects malformed records, and Polars remains responsible for all rule expressions.
-This preserves blank cells and catches both short and long rows. The existing spike measured PyArrow's valid
-CSV load faster than Polars on this host; the full engine benchmark is measured separately below.
+## Rules API
 
-## WP3 engine benchmark
-
-The deterministic 18-rule, one-million-row CSV workload completed three consecutive runs in **0.8195, 0.9814,
-and 0.6455 seconds** (median **0.8195 seconds**). The largest measured peak working set was **890,183,680 bytes**.
-Each run met the 1.5-second and 1.5-GiB budgets on this Windows development host. This is not the prescribed
-4-vCPU/8-GiB performance-gate host measurement. Reproduce with
-`uv run dq-engine bench`; the command reports runtime, peak memory, rule count and whether the CSV budget passed.
-The test workload returns expected validation failures; the benchmark exit status indicates budget compliance,
-not data validity.
-
-## WP4 Natural Language SQL
-
-The SQL guard validates the AST with `sqlglot` before row predicates become Polars expressions or query-mode SQL
-is run. Its table-driven test executes every allow-listed function in Polars SQL; the deny-list covers file
-readers, DDL/DML, session commands, nondeterministic functions, undeclared columns and unregistered tables.
-Examples are run independently: each example populates its named table with the primary row, plus any
-`relatedRows` it lists (query-mode rules only, for cross-sheet checks); all other declared tables are empty. This
-keeps an example deterministic. Query mode registers only the tables a rule declares, normalises blank cells to
-`NULL`, and allows joins, CTEs, subqueries and `[NOT] EXISTS`. See `docs/natural-language-rules.md`.
-
-To score generated rules against the golden corpus after a live model run, use
-`uv run python scripts/score_nl_eval.py <report.json>` (see the doc for the full flow).
-
-The `dq-engine bench` command also measures the incremental cost of one guarded Natural Language row predicate
-over the same parsed 1,000,000-row frame as the 18-rule baseline. On the local Windows development host:
-
-| Measurement | Result |
-|---|---:|
-| 18-rule CSV engine time | 0.8363 s |
-| Peak working set during the benchmark | 1,131,642,880 bytes |
-| Baseline rule evaluation median | 471.1756 ms |
-| Evaluation median with one Natural Language row rule | 509.5585 ms |
-| Incremental Natural Language row-rule cost | 38.3829 ms |
-| §9 incremental budget | 100 ms |
-
-The CSV and Natural Language row-rule budgets passed. As with the WP3 figures, these measurements are from the
-development host, not the prescribed 4-vCPU/8-GiB performance-gate host.
-
-## WP8 Golden equivalence and §9 performance benchmarks
-
-The Python engine was compared with the WP0 Node baselines for all 109 upload fixtures. The golden suite
-passed **110 tests** (109 upload fixtures plus sample-definition translation coverage), with no unexplained
-differences; reviewed deviations are listed in `tests/golden/INTENTIONAL_DIFFERENCES.md`.
-
-Decimal `precision` follows standard DECIMAL semantics (total digits); `scale` limits fractional digits.
-
-`uv run dq-engine bench` now measures the CSV, XLSX, and Natural Language workloads. It generates inputs
-outside the timed interval, runs each file workload three times in its own process, and reports median
-engine time and peak working set. The Natural Language overhead compares three rule-evaluation runs over
-the already-parsed 1,000,000-row CSV.
-
-| Workload | Rows | File bytes | Median engine time (runs) | Peak working set | §9 result |
-|---|---:|---:|---:|---:|---|
-| CSV, 18 rules | 1,000,000 | 110,576,998 | 1.2061 s (1.2061, 1.2000, 1.2273 s) | 1,140,047,872 bytes | Pass: ≤1.5 s and ≤1.5 GiB |
-| XLSX, 18 rules | 300,000 | 42,462,151 | 2.5242 s (2.8148, 2.5242, 2.4702 s) | 652,070,912 bytes | Pass: ≤3.0 s and ≤1.5 GiB |
-| Natural Language row rule | 1,000,000 | — | 17.1197 ms extra (427.6734 ms baseline; 444.7931 ms with the rule) | Included in CSV process | Pass: ≤100 ms |
-
-These figures were measured on the local Windows development host, **not** the prescribed 4-vCPU/8-GiB
-performance-gate host. The generated XLSX contains 300,000 rows and is 42.5 MB, about 18% below the plan's
-approximate 52 MB file size; deterministic high-entropy customer identifiers are used to calibrate the
-workbook size without adding columns or changing the 18-rule contract. Re-measure on the specified host
-before treating these local results as the final deployment performance gate.
-
-Use `uv run dq-engine validate <file> --contract <contract.json> --json` for local validation. Add
-`--output-dir <directory>` to write a Zstandard Parquet file per table and a streamed issues CSV.
-
-## Python API and worker (WP5)
-
-Run `uv run dq-engine api` from this directory to start the internal API on `RULES_SERVICE_HOST` and
-`RULES_SERVICE_PORT` (defaults: `0.0.0.0:8000`). `/healthz` is public; all `/v1` routes require the
-`X-Rules-Service-Key` header matching `RULES_SERVICE_DEV_KEY`. Configure these local-only settings in
-`Back-End/.env`; the root `start.ps1` loads that file for both Python processes. Never put the development
-key in source control.
+`/healthz` is public. Every `/v1` route requires authentication: locally the `X-Rules-Service-Key` header must match `RULES_SERVICE_DEV_KEY`
+(`RULES_SERVICE_AUTH_MODE=shared-key`, the default); in Azure `RULES_SERVICE_AUTH_MODE=entra` makes the service accept only the API managed identity, whose principal
+ID (`RULES_SERVICE_API_PRINCIPAL_ID`) Container Apps Easy Auth forwards (see [deployment](../docs/deployment.md)).
+Keep the development key in `Back-End/.env`, which the root `start.ps1` loads for both processes.
 
 | Route | Purpose |
 |---|---|
 | `GET /v1/schemas/{name}` | Return a shared contract schema |
-| `POST /v1/rules/validate` and `/v1/rules/test` | Compile a rule and run its examples |
-| `POST /v1/contracts/validate` | Validate a publishable definition contract |
-| `POST /v1/dry-run` | Preview checks for an upload or blob; uses matching stored Parquet tables for upload IDs when available, otherwise reads the source blob; limited to 60 seconds |
-| `POST /v1/examples/analyze` | Propose tables, columns, and candidate Enum/Range rules from an example blob |
+| `POST /v1/rules/validate`, `/v1/rules/test` | Compile a candidate rule and run its examples |
+| `POST /v1/contracts/validate` | Validate a publishable definition contract (every rule and example) |
+| `POST /v1/dry-run` | Preview checks for an upload or blob (uses stored Parquet for upload IDs when available; 60-second limit) |
+| `POST /v1/examples/analyze` | Propose tables, columns and candidate Enum/Range rules from an example blob |
 
-Single-rule validation and example testing use the definition's tables, columns, layout, and lookups,
-but do not validate or execute other rules in its draft `rules` array. This allows creating, editing,
-and regenerating a candidate while another draft rule needs repair. The contract envelope must still
-be valid (including a `rules` array), and the candidate must pass reference checks, SQL restrictions,
-compilation, and example testing. The supplied draft is not modified.
+Single-rule validation and example testing use the definition's tables, columns, layout and lookups but ignore the other draft rules, so a candidate can
+be created or regenerated while another rule needs repair. Publication validation (`/v1/contracts/validate`) still validates every rule. Failures return
+`ok: false` with `errors[]` containing a `path` and an actionable `message`; diagnostics never echo raw schema errors, SQL, requests or example values.
 
-Publication through `/v1/contracts/validate` still validates every existing rule and its examples.
-Creating a valid candidate does not make an otherwise invalid draft publishable.
+## Worker
 
-Backend authoring failures emit `[NATURAL_LANGUAGE_RULE_VALIDATION]` warning records containing the
-model response ID, attempt, phase, sanitized validation paths, failing example indices, and safe
-explanations. The UI activity and final rejection explain known failures (unsupported SQL, invalid
-syntax, undeclared columns/tables, invalid configuration, and example mismatches) and provide a next
-step. For example, "Example 1 was expected to pass but the rule rejected it" asks the author to clarify
-passing/failing cases. Service timeouts and authentication/connectivity failures recommend retrying
-or contacting an administrator rather than changing the rule request. Final validation rejections
-include a response reference for support. An invalid definition or existing-rule failure stops
-immediately without asking the model to repair unrelated configuration.
+The worker uses `SERVICEBUS_CONNECTION_STRING` with the local emulator, or `SERVICEBUS_NAMESPACE` and managed identity in Azure.
+`WORKER_MODE=local` receives continuously; `WORKER_MODE=job` processes up to `WORKER_MAX_MESSAGES` (default 1) and exits when the queue is empty.
+Successful SQL writes replace any earlier result rows for the same upload in one transaction, so redelivery is idempotent.
 
-These diagnostics omit raw schema error messages, SQL, requests, and example values; unrecognized
-errors are explicitly identified as such and directed to an administrator, not guessed. Existing opt-in
-`NATURAL_LANGUAGE_RULE_DEBUG=true` model-response logging contains proposal content; use it only with
-non-sensitive test data and disable it during normal operation.
+## Parsing decisions
 
-The local Azurite service uses `--skipApiVersionCheck` so its pinned emulator can accept the API version
-sent by the installed Azure Storage SDK. This flag applies only to local Docker; Azure requests use the
-SDK's configured service API version.
+- CSV structure is checked with PyArrow's invalid-row callback; Polars' strict reader pads short rows with nulls, which cannot be told apart from empty cells.
+  Python's `csv.reader` rescans only a file that the callback reports as malformed, to give exact physical line numbers.
+- Excel is read with `fastexcel` (calamine). Decimal `precision` is total digits and `scale` limits fractional digits.
 
-The local Service Bus emulator is pinned to `1.1.2`: the current `latest` (2.0.0) image has a known
-`BufferQueue-1` initialization failure that prevents queue sends. The configured duplicate-detection
-window is capped at the emulator's five-minute limit.
+## Performance
 
-The worker uses `SERVICEBUS_CONNECTION_STRING` with the local emulator, or `SERVICEBUS_NAMESPACE` and
-managed identity in Azure. `WORKER_MODE=local` receives continuously. `WORKER_MODE=job` processes up to
-`WORKER_MAX_MESSAGES` (default 1) and exits if the queue is empty. Successful SQL writes replace any prior
-result rows for the same upload in the same transaction, so a redelivered request is idempotent.
+`uv run dq-engine bench` generates its inputs outside the timed interval, runs each file workload three times in its own process and reports the median
+engine time and peak working set. Last measured on a local Windows development host (not the 4 vCPU / 8 GiB reference host; re-measure there before go-live):
 
-The API and worker initialize Azure Monitor OpenTelemetry before loading FastAPI or starting work. Their
-default service names are `data-ingestion-rules` and `data-ingestion-worker`; `OTEL_SERVICE_NAME` overrides
-either default. `LOG_LEVEL` controls Python log forwarding (default `INFO`). When
-`APPLICATIONINSIGHTS_CONNECTION_STRING` is unset, telemetry is explicitly reported as disabled and local
-operation continues; empty or whitespace-only connection strings are treated as unset. `APPLICATIONINSIGHTS_SAMPLING_RATIO` selects fixed-percentage trace sampling, defaults
-to `1`, and must be in `[0, 1]`; the Python distro's rate-limited sampler is explicitly disabled. Metrics,
-including validation counters and stage attributes, aren't affected by trace sampling. Before export, custom
-processors remove URL/query, SQL, GenAI payload, and exception-message attributes from spans and logs.
-Log export is limited to safe worker lifecycle summaries and validation counts/status; other log bodies are
-redacted and arbitrary log attributes are not forwarded. Shutdown force-flushes each signal with a 5-second
-provider timeout, then bounds the combined flush-and-shutdown phase to 10 seconds across all providers.
-Shutdown failures are surfaced, while an existing application exception remains the primary exception.
-No connection string or validation payload is included in telemetry startup diagnostics.
+| Workload | Rows | Median engine time | Peak working set | Budget |
+|---|---:|---:|---:|---|
+| CSV, 18 rules | 1,000,000 | 1.21 s | 1.14 GB | ≤ 1.5 s, ≤ 1.5 GiB |
+| XLSX, 18 rules | 300,000 | 2.52 s | 0.65 GB | ≤ 3.0 s, ≤ 1.5 GiB |
+| Natural Language row rule (extra) | 1,000,000 | +17 ms | in the CSV process | ≤ 100 ms |
 
-Run unit tests with `uv run pytest`. The worker integration test targets the local SQL Server, Azurite, and
-Service Bus emulator and creates/deletes uniquely identified test rows and blobs; enable it explicitly with
-`$env:RUN_DQ_INTEGRATION_TESTS = '1'` after the local services and database schema are ready, then run
-`uv run pytest tests/integration -q`. It publishes to the isolated
-`validation-events-wp5-test/worker-tests` entity and drains only that test subscription.
+## Telemetry
 
-Reproduce the comparison from `Validation-Service/` with:
+The API and worker initialise Azure Monitor OpenTelemetry before loading FastAPI or starting work. Default service names are `data-ingestion-rules` and
+`data-ingestion-worker` (`OTEL_SERVICE_NAME` overrides). Without `APPLICATIONINSIGHTS_CONNECTION_STRING` telemetry is reported as disabled and local
+operation continues. `APPLICATIONINSIGHTS_SAMPLING_RATIO` (0 to 1, default 1) controls trace sampling; metrics are unaffected. Processors remove URL/query,
+SQL, GenAI payload and exception-message attributes before export, and only safe worker lifecycle summaries are logged. Shutdown flushes each signal with a
+5-second timeout and bounds the whole phase to 10 seconds. `LOG_LEVEL` controls log forwarding (default `INFO`).
 
-```powershell
-uv run python tests\bench\csv_structural_spike.py --rows 1000000 --repetitions 3
-```
+## Local emulators
 
-The spike writes only aggregate counts and timings to stdout; it does not print CSV contents or cell values.
+Azurite runs with `--skipApiVersionCheck` so its pinned emulator accepts the API version sent by the installed Storage SDK (local Docker only). The Service Bus
+emulator is pinned to `1.1.2` because `latest` (2.0.0) has a known `BufferQueue-1` initialization failure; its duplicate-detection window is capped at the
+emulator's five-minute limit.
+
+## Tests
+
+- `uv run ruff check src tests`, `uv run mypy src` and `uv run pytest` (unit and contract tests).
+- **Sample-corpus golden suite** (`tests/golden`): validates every upload sample in `samples/manifest.json` and compares status, failing/warning checks and row
+  count with the reviewed snapshot `tests/golden/expected_outcomes.json`. After an intended behaviour change run `$env:UPDATE_GOLDEN='1'; uv run pytest tests/golden -q`
+  and review the diff. Large samples that are not generated locally are skipped.
+- **Worker integration test** (`tests/integration`) needs the local SQL Server, Azurite and Service Bus emulator with the schema applied. Enable it with
+  `$env:RUN_DQ_INTEGRATION_TESTS = '1'` and run `uv run pytest tests/integration -q`; it publishes to the isolated `validation-events-wp5-test/worker-tests`
+  entity and removes its own rows and blobs.
+- `uv run python scripts/score_nl_eval.py <report.json>` scores a live natural-language evaluation report against the golden corpus (see the NL guide).

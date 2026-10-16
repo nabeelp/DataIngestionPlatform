@@ -1,6 +1,0 @@
-{
-  "file": "05-large/orders_xlsx_excel_max_rows.xlsx",
-  "definition": "orders",
-  "outcome": "READ_ERROR",
-  "checks": []
-}

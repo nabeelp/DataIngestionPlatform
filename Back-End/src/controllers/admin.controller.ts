@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { Request, Response, NextFunction } from 'express';
-import * as bcrypt from 'bcryptjs';
+import { hashPassword } from '../utils/password';
 import { User } from '../models/User.model';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { AuditLog } from '../models/AuditLog.model';
@@ -104,44 +104,6 @@ const result: GetUsersResult = await UserService.getUsers(page, limit, search);
 };
 
 /**
- * Get user by ID
- */
-export const getUserById = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
-        
-        const user = await User.findById(id);
-        
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            user: {
-                id: user.Id,
-                email: user.Email,
-                username: user.Username,
-                firstName: user.FirstName,
-                lastName: user.LastName,
-                role: user.Role,
-                isActive: user.IsActive,
-                createdAt: user.CreatedAt,
-                lastLoginAt: user.LastLoginAt,
-                failedLoginAttempts: user.FailedLoginAttempts,
-                lockedUntil: user.LockedUntil
-            }
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting user:', error);
-        next(error);
-    }
-};
-
-/**
  * Create new user
  */
 export const createUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -158,7 +120,7 @@ export const createUser = async (req: AuthRequest, res: Response, next: NextFunc
         }
 
         // Hash password
-        const passwordHash = await bcrypt.hash(password, 10);
+        const passwordHash = await hashPassword(password);
 
         // Create user
         const user = await User.create({
@@ -376,25 +338,6 @@ export const getAuditLogs = async (req: AuthRequest, res: Response, next: NextFu
         });
     } catch (error) {
         logger.error('[ADMIN_CONTROLLER] Error getting audit logs:', error);
-        next(error);
-    }
-};
-
-/**
- * Get recent audit logs (for dashboard)
- */
-export const getRecentAuditLogs = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const limit = parseInt(req.query.limit as string) || 20;
-        
-        const logs = await AuditLog.findRecent(limit);
-
-        res.json({
-            success: true,
-            logs
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting recent audit logs:', error);
         next(error);
     }
 };

@@ -1,7 +1,0 @@
-{
-  "file": "02-sheet-tables/finance/finance_rejected_csv_upload.csv",
-  "definition": "finance",
-  "outcome": "UPLOAD_REJECTED",
-  "reason": "sheet_tables_require_workbook",
-  "checks": []
-}

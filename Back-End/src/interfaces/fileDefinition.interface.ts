@@ -85,13 +85,6 @@ export interface IUpdateFileDefinitionDto {
 }
 
 /**
- * Add users to file definition DTO
- */
-export interface IAddUsersToDefinitionDto {
-    UserIds: string[];
-}
-
-/**
  * Immutable snapshot of a definition's columns and enabled rules.
  */
 export interface IFileDefinitionVersion {
