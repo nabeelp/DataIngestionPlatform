@@ -42,8 +42,6 @@ $sqlServerName = Get-AzdValue 'SQL_SERVER_NAME'
 $sqlBootstrapJobName = Get-AzdValue 'SQL_BOOTSTRAP_JOB_NAME'
 $sqlBootstrapIdentityName = Get-AzdValue 'SQL_BOOTSTRAP_IDENTITY_NAME'
 $sqlBootstrapIdentityPrincipalId = Get-AzdValue 'SQL_BOOTSTRAP_IDENTITY_PRINCIPAL_ID'
-$sqlAdminObjectId = Get-AzdValue 'SQL_ADMIN_OBJECT_ID'
-$sqlAdminLogin = Get-AzdValue 'SQL_ADMIN_LOGIN'
 $workerJobName = Get-AzdValue 'WORKER_JOB_NAME'
 $environmentName = Get-AzdValue 'AZURE_ENV_NAME'
 $subscriptionId = Get-AzdValue 'AZURE_SUBSCRIPTION_ID'
@@ -55,7 +53,7 @@ if ($activeSubscription -ne $subscriptionId) {
 if ($imageTag -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') {
     throw 'IMAGE_TAG must use only letters, numbers, underscores, periods, and hyphens.'
 }
-foreach ($id in @($sqlBootstrapIdentityPrincipalId, $sqlAdminObjectId)) {
+foreach ($id in @($sqlBootstrapIdentityPrincipalId)) {
     if ($id -notmatch '^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
         throw 'SQL administrator object IDs must be valid Microsoft Entra object IDs.'
     }
@@ -102,7 +100,9 @@ $originalAdmin = @((
     Invoke-AzChecked @('sql', 'server', 'ad-admin', 'list', '--server', $sqlServerName,
         '--resource-group', $resourceGroup, '--output', 'json', '--only-show-errors')
 ) | ConvertFrom-Json)
-if ($originalAdmin.Count -ne 1 -or -not $originalAdmin[0].sid -or -not $originalAdmin[0].login) {
+if ($originalAdmin.Count -ne 1 -or
+    $originalAdmin[0].sid -notmatch '^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$' -or
+    [string]::IsNullOrWhiteSpace($originalAdmin[0].login)) {
     throw 'Cannot capture the existing SQL administrator; refusing bootstrap.'
 }
 
