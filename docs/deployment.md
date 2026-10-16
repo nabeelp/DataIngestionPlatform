@@ -251,6 +251,95 @@ Infrastructure provisioning remains a separate, explicitly approved step.
 
 ## Post-deployment checks
 
+### Resetting a disposable environment while retaining users
+
+Use an in-place reset when the deployed database already has JSON
+`FileDefinitions.Contract`, `Rules.Config` and `Uploads.BlobContainer`.
+The current scripts add `FileDefinitionVersions.DefinitionMetadata` and remove
+four obsolete upload columns; that does not require deleting the database.
+An older incompatible schema requires a separate reviewed procedure, never an
+automatic database replacement.
+
+The reset removes every non-user application row and all live objects in
+`uploads`, `reports`, `templates`, `staging` and `deliveries`. It preserves
+every persisted Users field, SQL managed-identity principals, containers,
+secrets and retention policies. Soft-deleted blobs, SQL backups and operational
+logs remain subject to existing platform retention. There is no business-data
+rollback unless a separate backup/restore procedure was explicitly arranged.
+
+Before execution, obtain explicit deletion and deployment approval, ensure
+there are no users or active jobs, and verify every queue/subscription message
+counter is zero. The preparation script refuses non-empty messaging: it does
+not silently discard pending, scheduled or dead-letter work. It also refuses
+unexpected tables, foreign-key dependencies, or a changed user count.
+
+Build the approved API image in the existing ACR with a new, never-reused
+`IMAGE_TAG` **before** deleting data. The same release must be deployed
+afterwards. Use the staged image through the existing private-network bootstrap
+job to inspect the exact reset inventory:
+
+```powershell
+pwsh -NoProfile -File scripts/postdeploy.ps1 -Prepare `
+  -ConfirmEnvironment sbfracent -ExpectedUsers 2 `
+  -BootstrapImage "<acr-login-server>/<api-repository>:<IMAGE_TAG>"
+```
+
+Preparation defaults to inspection. It temporarily grants the bootstrap
+identity container-scoped Blob Data Reader, temporarily switches the SQL
+administrator and runs a one-shot job. Review that execution's sanitized
+table/blob count logs; no user records are exported. Use the current observed
+user count, not an assumed constant.
+
+Only after reviewing the inventory and confirming deletion, repeat the command
+with **`-ExecuteReset`**. This uses temporary container-scoped Blob Data
+Contributor. SQL row deletion and compatible schema updates run transactionally
+with a byte-for-byte user comparison; Blob deletion is a separate, explicitly
+verified phase. A partial blob failure is reported and requires a reviewed
+rerun. Temporary role assignments, job retry settings and the actual previous
+SQL administrator are restored on success or failure. Reset arguments are
+execution overrides, never persistent job settings. Preparation copies the
+existing full execution template into a temporary JSON/YAML input to retain
+environment variables, resources and container names; Azure CLI's individual
+image/argument flags replace rather than merge the container. The temporary
+file is removed during cleanup. Retry-limit changes are read back because
+some CLI versions ignore a numeric zero passed through the job update flag.
+
+Next reconcile missing telemetry without reprovisioning:
+
+```powershell
+pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment sbfracent
+# After reviewing the target and approving configuration changes:
+pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment sbfracent -Execute
+azd deploy --all --environment sbfracent --no-prompt
+```
+
+The telemetry helper restores the documented full-development sampling
+settings; review ingestion costs before execution. It adds only monitoring
+settings and preserves Foundry model overrides, CORS, callbacks, identities
+and other runtime settings. Do not run blanket `azd provision` merely to repair
+telemetry: provisioning uses placeholder images and does not model all manual
+runtime overrides. In particular, preserve the intended `AZURE_FOUNDRY_MODEL`
+instead of unintentionally reverting to the code default.
+
+Normal postdeploy remains non-destructive: it reapplies idempotent schema and
+managed-identity grants and updates the worker image. Preparing the schema
+**before** rollout avoids starting the new API without its metadata column.
+Deploy the API, Python rules API, frontend and worker together when shared
+contracts change; frontend-only and worker-only deployments are insufficient.
+
+The manual GitHub workflow is an alternative after the complete feature branch
+is published, CI passes, and the `azure-deployment` environment/OIDC identity
+is configured. A PR or merge alone does not deploy. Perform the same separately
+approved reset preparation before dispatching `deployment_target=all`; never
+attach destructive reset to an automatic PR/push trigger.
+
+Capture prior image digests/configuration before rollout. Old tags may have
+been overwritten, and old binaries may still query columns removed by this
+release; do not assume image-only rollback is schema-compatible. Verify retained
+users, authentication, definition publication, representative synthetic
+uploads, reports, delivery/replay and telemetry. Remove acceptance-test data
+and verify the final intended empty state before handoff.
+
 - Check `API_URL` (which must end in `/api/v1`) and `FRONTEND_URL` outputs;
   verify both Container Apps health endpoints and open the frontend.
 - Confirm the frontend runtime configuration points to the API URL, API CORS

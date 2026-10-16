@@ -19,3 +19,8 @@ uploads
 deliveries
 logs
 *.log
+**/temp
+**/uploads
+**/deliveries
+**/logs
+**/eval-results

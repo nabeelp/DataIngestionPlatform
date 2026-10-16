@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import sql from 'mssql';
 import { logger } from '../utils/logger';
+import { inspectResetDatabase, parseResetOptions, resetBlobClient, resetBlobs, resetDatabase } from './resetApplicationData';
 
 const schemaScripts = [
     '001_users.sql',
@@ -66,17 +67,24 @@ function requireGuid(name: string): string {
     return value;
 }
 
-async function executeScript(pool: sql.ConnectionPool, filePath: string): Promise<void> {
+async function executeScript(request: () => sql.Request, filePath: string): Promise<void> {
     const source = await readFile(filePath, 'utf8');
     for (const [index, batch] of splitSqlBatches(source).entries()) {
         try {
-            await pool.request().batch(batch);
+            await request().batch(batch);
         } catch (error) {
             throw errorWithCause(
                 `Failed to execute SQL batch ${index + 1} in ${path.basename(filePath)}.`,
                 error,
             );
         }
+    }
+}
+
+export async function applySchemaScripts(request: () => sql.Request): Promise<void> {
+    const directory = path.resolve(__dirname, '../../database');
+    for (const name of schemaScripts) {
+        await executeScript(request, path.join(directory, name));
     }
 }
 
@@ -120,10 +128,20 @@ async function connectToDatabase(): Promise<sql.ConnectionPool> {
 
 async function bootstrapDatabase(): Promise<void> {
     const databaseDirectory = path.resolve(__dirname, '../../database');
+    const reset = parseResetOptions(process.argv.slice(2), requiredEnvironment('DB_DATABASE'));
     const pool = await connectToDatabase();
     try {
-        for (const scriptName of schemaScripts) {
-            await executeScript(pool, path.join(databaseDirectory, scriptName));
+        if (reset) {
+            const counts = await inspectResetDatabase(() => pool.request(), reset.expectedUsers);
+            const blobs = resetBlobClient(reset.storageAccountUrl);
+            const blobCounts = await resetBlobs(blobs, false);
+            logger.info(`Reset inventory (no user data): ${JSON.stringify({ tables: counts, containers: blobCounts })}`);
+            if (!reset.execute) return;
+            await resetDatabase(pool, reset.expectedUsers, applySchemaScripts);
+            await resetBlobs(blobs, true);
+            logger.info('Application data reset verified; Users preserved.');
+        } else {
+            await applySchemaScripts(() => pool.request());
         }
 
         const grantScript = await readFile(
