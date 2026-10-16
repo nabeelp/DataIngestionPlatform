@@ -4,32 +4,25 @@
 
 import type { ConnectionPool, Request, Transaction } from 'mssql';
 import { v4 as uuidv4 } from 'uuid';
-import { buildContractSnapshot, type ContractSnapshot } from '../services/validation/DefinitionContract';
-import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import { legacySnapshotFromContract, parseDefinitionContract } from './contractMapper';
 
 type Queryable = ConnectionPool | Transaction;
 
-const parseJson = (value: unknown): any[] => {
-    if (Array.isArray(value)) return value;
-    if (typeof value !== 'string' || !value.trim()) return [];
-    try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-};
-
 export function mapVersionRow(row: any): IFileDefinitionVersion {
-    const contract = buildContractSnapshot(parseJson(row.Columns), parseJson(row.Rules), parseJson(row.Tables));
+    const definitionContract = parseDefinitionContract(row.Contract);
+    const contract = legacySnapshotFromContract(definitionContract);
     return {
         Id: row.Id,
         FileDefinitionId: row.FileDefinitionId,
         VersionNumber: row.VersionNumber,
         Status: row.Status,
+        Contract: definitionContract,
         Columns: contract.columns,
         Tables: contract.tables,
         Rules: contract.rules,
+        DefinitionMetadata: row.DefinitionMetadata ? JSON.parse(row.DefinitionMetadata) as IDefinitionMetadataSnapshot : null,
         ChangeNote: row.ChangeNote ?? null,
         CreatedBy: row.CreatedBy ?? null,
         CreatedByName: row.CreatedByName ?? null,
@@ -77,7 +70,8 @@ export class FileDefinitionVersion {
     static async activate(
         tx: Transaction,
         fileDefinitionId: string,
-        contract: ContractSnapshot,
+        contract: DefinitionContract,
+        definitionMetadata: IDefinitionMetadataSnapshot,
         createdBy: string | null,
         changeNote: string | null,
     ): Promise<string> {
@@ -98,16 +92,15 @@ export class FileDefinitionVersion {
         await request()
             .input('Id', id)
             .input('VersionNumber', next.recordset[0].VersionNumber)
-            .input('Columns', JSON.stringify(contract.columns))
-            .input('Tables', contract.tables.length > 0 ? JSON.stringify(contract.tables) : null)
-            .input('Rules', JSON.stringify(contract.rules))
+            .input('Contract', JSON.stringify(contract))
+            .input('DefinitionMetadata', JSON.stringify(definitionMetadata))
             .input('ChangeNote', changeNote)
             .input('CreatedBy', createdBy)
             .query(`
                 INSERT INTO FileDefinitionVersions
-                    (Id, FileDefinitionId, VersionNumber, Status, Columns, Tables, Rules, ChangeNote, CreatedBy, ActivatedAt)
+                    (Id, FileDefinitionId, VersionNumber, Status, Contract, DefinitionMetadata, ChangeNote, CreatedBy, ActivatedAt)
                 VALUES
-                    (@Id, @FileDefinitionId, @VersionNumber, 'Active', @Columns, @Tables, @Rules, @ChangeNote, @CreatedBy, @Now)
+                    (@Id, @FileDefinitionId, @VersionNumber, 'Active', @Contract, @DefinitionMetadata, @ChangeNote, @CreatedBy, @Now)
             `);
 
         return id;

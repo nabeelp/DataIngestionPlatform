@@ -10,9 +10,24 @@ import * as XLSX from 'xlsx';
 const JWT_SECRET = 'example-analysis-test-secret';
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'example-route-test-'));
 process.env.JWT_SECRET = JWT_SECRET;
-process.env.REDIS_ENABLED = 'false';
 process.env.LOG_LEVEL = 'error';
 process.env.UPLOAD_TEMP_DIR = tempDir;
+
+const mockUploadFile = jest.fn();
+const mockDeleteBlob = jest.fn();
+const mockAnalyzeExample = jest.fn();
+class TestRulesServiceError extends Error {
+    constructor(readonly statusCode: number) {
+        super('Rules service rejected the example.');
+    }
+}
+jest.mock('../src/services/AzureStorage.service', () => ({
+    azureStorage: { uploadFile: mockUploadFile, deleteBlob: mockDeleteBlob },
+}));
+jest.mock('../src/services/RulesService.service', () => ({
+    RulesService: { analyzeExample: mockAnalyzeExample },
+    RulesServiceError: TestRulesServiceError,
+}));
 
 // Required after the environment is set so appConfig picks it up.
 const adminRoutes: express.Router = require('../src/routes/admin.routes').default;
@@ -48,7 +63,26 @@ describe('POST /api/admin/file-definitions/analyze-example', () => {
     const examplesLeftOnDisk = () => fs.readdirSync(tempDir).filter(name => name.startsWith('example-'));
 
     afterEach(() => {
+        jest.clearAllMocks();
         for (const name of examplesLeftOnDisk()) fs.rmSync(path.join(tempDir, name), { force: true });
+    });
+
+    beforeEach(() => {
+        mockUploadFile.mockImplementation(async (_path: string, blobName: string) => ({
+            blobName,
+            containerName: 'uploads',
+        }));
+        mockDeleteBlob.mockResolvedValue(undefined);
+        mockAnalyzeExample.mockResolvedValue({
+            fileType: 'csv',
+            sheets: [{
+                name: null,
+                headerRow: 1,
+                rowsAnalyzed: 4,
+                columns: [{ name: 'Id', type: 'integer', required: true }, { name: 'Status', type: 'string', required: true }],
+                suggestedRules: [{ expression: 'Status: Closed, Open' }],
+            }],
+        });
     });
 
     it('analyzes a CSV example and does not keep the file', async () => {
@@ -62,6 +96,14 @@ describe('POST /api/admin/file-definitions/analyze-example', () => {
             sheets: [{ name: null, headerRow: 1, rowsAnalyzed: 4, columns: [{ name: 'Id', type: 'integer', required: true }, { name: 'Status', type: 'string', required: true }] }],
         });
         expect(res.body.sheets[0].suggestedRules[0].expression).toBe('Status: Closed, Open');
+        expect(mockAnalyzeExample).toHaveBeenCalledWith({
+            container: 'uploads',
+            name: expect.stringMatching(/^examples\/[^/]+\/orders\.csv$/),
+        });
+        expect(mockDeleteBlob).toHaveBeenCalledWith(
+            expect.stringMatching(/^examples\/[^/]+\/orders\.csv$/),
+            'uploads',
+        );
         expect(examplesLeftOnDisk()).toEqual([]);
     });
 
@@ -71,6 +113,13 @@ describe('POST /api/admin/file-definitions/analyze-example', () => {
         XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Amount'], [1.5]]), 'Amounts');
         const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 
+        mockAnalyzeExample.mockResolvedValue({
+            fileType: 'xlsx',
+            sheets: [
+                { name: 'Codes', columns: [{ name: 'Code', type: 'string' }] },
+                { name: 'Amounts', columns: [{ name: 'Amount', type: 'decimal' }] },
+            ],
+        });
         const res = await post('admin', 'book.xlsx', buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
         expect(res.status).toBe(200);
@@ -82,11 +131,13 @@ describe('POST /api/admin/file-definitions/analyze-example', () => {
     });
 
     it('rejects unsupported types, fake workbooks and oversized files', async () => {
+        mockAnalyzeExample.mockRejectedValueOnce(new TestRulesServiceError(400));
         const xls = await post('admin', 'old.xls', 'Id\n1\n', 'application/vnd.ms-excel');
         expect(xls).toMatchObject({ status: 400, body: { message: expect.stringContaining('.csv') } });
 
+        mockAnalyzeExample.mockRejectedValueOnce(new TestRulesServiceError(400));
         const fake = await post('admin', 'fake.xlsx', 'Id\n1\n', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        expect(fake).toMatchObject({ status: 400, body: { message: 'The example file is not a valid XLSX workbook' } });
+        expect(fake).toMatchObject({ status: 400, body: { message: 'The example file could not be analyzed.' } });
 
         const big = await post('admin', 'big.csv', Buffer.alloc(10 * 1024 * 1024 + 1, 'a'), 'text/csv');
         expect(big).toMatchObject({ status: 400, body: { message: 'Example files are limited to 10 MB' } });

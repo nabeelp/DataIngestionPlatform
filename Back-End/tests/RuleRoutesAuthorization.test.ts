@@ -12,11 +12,9 @@ jest.mock('../src/controllers/rule.controller', () => {
     return {
         getRules: ok,
         getRuleById: ok,
-        createRule: ok,
-        createRuleFromDescription: ok,
-        updateRule: ok,
-        deleteRule: ok,
-        toggleRule: ok,
+        proposeRuleFromDescription: ok,
+        validateRuleConfiguration: ok,
+        testRuleConfiguration: ok,
     };
 });
 
@@ -33,9 +31,30 @@ const tokenFor = (role: 'admin' | 'user') =>
 
 const validRule = {
     FileDefinitionId: DEFINITION_ID,
-    Name: 'Amount range',
-    RuleType: 'Range Check',
-    SqlQuery: 'Amount: 0..100',
+    Config: {
+        id: 'd318c2a1-d431-44e3-9f28-cdf7de845707',
+        name: 'Amount range',
+        description: 'Amount must be between 0 and 100',
+        severity: 'Error',
+        executionOrder: 1,
+        enabled: true,
+        table: null,
+        type: 'range',
+        params: { column: 'Amount', min: 0, max: 100 },
+    },
+};
+
+const workspaceDraft = {
+    Contract: {
+        schemaVersion: 1,
+        layout: 'single',
+        ignoredSheets: [],
+        encoding: 'auto',
+        tables: [{ sheet: null, headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null, columns: [] }],
+        rules: [],
+        lookups: {},
+    },
+    Rules: [],
 };
 
 describe('rule routes authorization', () => {
@@ -64,9 +83,18 @@ describe('rule routes authorization', () => {
         });
 
     const mutations: Array<[string, string, unknown]> = [
+        ['POST', '/natural-language/propose', { ...workspaceDraft, Request: 'Amount must be positive' }],
+        ['POST', '/validate', validRule],
+        ['POST', '/validate', { ...workspaceDraft, Config: validRule.Config }],
+        ['POST', '/test', { ...validRule, examples: [] }],
+        ['POST', '/test', { ...workspaceDraft, Config: validRule.Config, examples: [] }],
+    ];
+
+    const removedRoutes: Array<[string, string, unknown]> = [
         ['POST', '', validRule],
         ['POST', '/natural-language', { FileDefinitionId: DEFINITION_ID, Request: 'Amount must be positive' }],
-        ['PUT', `/${RULE_ID}`, { Name: 'Renamed' }],
+        ['POST', `/${RULE_ID}/regenerate`, { Request: 'Amount must be positive' }],
+        ['PUT', `/${RULE_ID}`, { Config: { ...validRule.Config, id: RULE_ID } }],
         ['DELETE', `/${RULE_ID}`, null],
         ['PATCH', `/${RULE_ID}/toggle`, null],
     ];
@@ -81,13 +109,28 @@ describe('rule routes authorization', () => {
         expect(res.status).toBe(200);
     });
 
+    it.each(removedRoutes)('no longer exposes %s %s', async (method, path, body) => {
+        const res = await call('admin', method, path, body);
+        expect(res.status).toBe(404);
+    });
+
     it.each(['admin', 'user'] as const)('allows %s to read rules', async role => {
         expect((await call(role, 'GET', `/definitions/${DEFINITION_ID}`)).status).toBe(200);
         expect((await call(role, 'GET', `/${RULE_ID}`)).status).toBe(200);
     });
 
     it('rejects an empty natural-language request', async () => {
-        const res = await call('admin', 'POST', '/natural-language', { FileDefinitionId: DEFINITION_ID, Request: '  ' });
+        const res = await call('admin', 'POST', '/natural-language/propose', { ...workspaceDraft, Request: '  ' });
+        expect(res.status).toBe(400);
+    });
+
+    it('requires a contract or definition id to validate a rule', async () => {
+        const res = await call('admin', 'POST', '/validate', { Config: validRule.Config });
+        expect(res.status).toBe(400);
+    });
+
+    it('requires a workspace contract to propose a natural-language rule', async () => {
+        const res = await call('admin', 'POST', '/natural-language/propose', { Request: 'Amount must be positive' });
         expect(res.status).toBe(400);
     });
 });

@@ -201,13 +201,11 @@
       "file": "01-single-table/customers/customers_warning_optional_columns_missing.csv",
       "kind": "upload",
       "definition": "customers",
-      "purpose": "Only required columns present: definition passes; the Warning rule on Phone reports the missing column.",
+      "purpose": "Optional columns (Phone, DateOfBirth, Address, City, State, ZipCode) may be absent from the file: only the required columns are present, so every check passes.",
       "expected": {
-        "status": "WARNING",
+        "status": "PASSED",
         "failedChecks": [],
-        "warningChecks": [
-          "Phone number provided"
-        ],
+        "warningChecks": [],
         "rows": 50
       },
       "sizeBytes": 3210
@@ -216,18 +214,16 @@
       "file": "01-single-table/customers/customers_warning_unsupported_country_and_missing_phone.csv",
       "kind": "upload",
       "definition": "customers",
-      "purpose": "Only Warning-severity rules fail (unsupported/lower-case country, missing phone), so the upload is accepted.",
+      "purpose": "Only a Warning-severity rule fails (unsupported/lower-case country); the blank optional Phone values pass, so the upload is accepted.",
       "expected": {
         "status": "WARNING",
         "failedChecks": [],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ],
         "rows": 50,
         "errorCounts": {
-          "Country is a supported market": 3,
-          "Phone number provided": 2
+          "Country is a supported market": 3
         }
       },
       "sizeBytes": 6300
@@ -236,12 +232,11 @@
       "file": "01-single-table/customers/customers_invalid_missing_required_column.csv",
       "kind": "upload",
       "definition": "customers",
-      "purpose": "Required Email column is absent: definition columns and the schema rule fail.",
+      "purpose": "Required Email column is absent: the definition columns check fails.",
       "expected": {
         "status": "FAILED",
         "failedChecks": [
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": []
       },
@@ -307,12 +302,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ]
       },
       "sizeBytes": 704
@@ -373,12 +366,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ],
         "rows": 0
       },
@@ -438,12 +429,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ]
       },
       "sizeBytes": 8714
@@ -470,12 +459,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ]
       },
       "sizeBytes": 10913
@@ -596,14 +583,12 @@
           "Unit price range"
         ],
         "warningChecks": [
-          "Reorder level ceiling",
-          "Reorder level is a whole number"
+          "Reorder level ceiling"
         ],
         "errorCounts": {
           "File definition columns": 8,
           "Unit price range": 2,
-          "Reorder level ceiling": 1,
-          "Reorder level is a whole number": 1
+          "Reorder level ceiling": 1
         }
       },
       "sizeBytes": 1149
@@ -962,18 +947,11 @@
       "file": "02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx",
       "kind": "upload",
       "definition": "finance",
-      "purpose": "Optional PONumber/Reason missing: only the Warning rules for those sheets fail.",
+      "purpose": "Blank values in the optional (nullable) PONumber and Reason columns do not fail any check.",
       "expected": {
-        "status": "WARNING",
+        "status": "PASSED",
         "failedChecks": [],
-        "warningChecks": [
-          "Credit note reason provided",
-          "Invoice has a PO number"
-        ],
-        "errorCounts": {
-          "Invoice has a PO number": 2,
-          "Credit note reason provided": 1
-        }
+        "warningChecks": []
       },
       "sizeBytes": 18479
     },
@@ -1165,18 +1143,14 @@
       "file": "02-sheet-tables/hr/hr_warning_cost_relationship_alt_phone.xlsx",
       "kind": "upload",
       "definition": "hr",
-      "purpose": "Only Warning rules in two sheets fail.",
+      "purpose": "Only Warning rules in two sheets fail (monthly cost, relationship); blank optional AltPhone values pass.",
       "expected": {
         "status": "WARNING",
         "failedChecks": [],
         "warningChecks": [
-          "Alternate phone provided",
           "Monthly cost within budget",
           "Relationship allowed values"
-        ],
-        "errorCounts": {
-          "Alternate phone provided": 2
-        }
+        ]
       },
       "sizeBytes": 12494
     },
@@ -1724,12 +1698,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ]
       },
       "sizeBytes": 4096
@@ -1756,12 +1728,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ]
       },
       "sizeBytes": 6486
@@ -1814,12 +1784,10 @@
         "status": "FAILED",
         "failedChecks": [
           "Customer status allowed values",
-          "File definition columns",
-          "Key customer columns present"
+          "File definition columns"
         ],
         "warningChecks": [
-          "Country is a supported market",
-          "Phone number provided"
+          "Country is a supported market"
         ]
       },
       "sizeBytes": 311

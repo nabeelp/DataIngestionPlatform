@@ -9,9 +9,10 @@ import { appConfig } from '../config/appConfig';
 import { sanitizeFilename } from './TemplateStorage.service';
 
 export const FILE_COPY_DELIVERY = 'FileCopy';
+export const AZURE_BLOB_DELIVERY = 'AzureBlob';
 
 export interface DeliveryTarget {
-    type: typeof FILE_COPY_DELIVERY;
+    type: typeof FILE_COPY_DELIVERY | typeof AZURE_BLOB_DELIVERY;
     folder: string;
     name: string;
 }
@@ -41,17 +42,36 @@ export function normalizeDeliveryFolder(input: unknown): string | null {
  */
 export function getDeliveryTargets(fileDefinition: { DeliveryFolder?: string | null }): DeliveryTarget[] {
     const folder = fileDefinition.DeliveryFolder ? normalizeDeliveryFolder(fileDefinition.DeliveryFolder) : null;
-    return folder ? [{ type: FILE_COPY_DELIVERY, folder, name: folder }] : [];
+    if (!folder) return [];
+    return [{
+        type: appConfig.delivery.provider === 'azure' ? AZURE_BLOB_DELIVERY : FILE_COPY_DELIVERY,
+        folder,
+        name: folder,
+    }];
 }
 
-/**
- * Absolute destination for a delivered file, guaranteed to stay inside the delivery root.
- */
+/** Resolve a local path or deterministic blob key from a validated delivery folder. */
 export function resolveDeliveryDestination(folder: string, uploadId: string, originalFilename: string): string {
+    const filename = `${sanitizeFilename(uploadId)}_${sanitizeFilename(originalFilename)}`;
+    if (appConfig.delivery.provider === 'azure') {
+        return path.posix.join(folder, filename);
+    }
+
     const root = getDeliveryRoot();
-    const destination = path.resolve(root, folder, `${uploadId}_${sanitizeFilename(originalFilename)}`);
+    const destination = path.resolve(root, folder, filename);
     assertInsideDeliveryRoot(destination);
     return destination;
+}
+
+export function assertSafeDeliveryBlobName(blobName: string): void {
+    const segments = blobName.split('/');
+    if (
+        !blobName ||
+        blobName.startsWith('/') ||
+        segments.some(segment => !segment || segment === '.' || segment === '..')
+    ) {
+        throw new Error('Delivery blob name must be a relative path without empty or traversal segments');
+    }
 }
 
 export function assertInsideDeliveryRoot(destination: string): void {

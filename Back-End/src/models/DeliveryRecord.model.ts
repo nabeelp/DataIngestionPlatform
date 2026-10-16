@@ -46,28 +46,11 @@ export class DeliveryRecord {
     }
 
     /**
-     * Find delivery record by upload sheet ID
-     */
-    static async findByUploadSheetId(uploadSheetId: string): Promise<IDeliveryRecord | null> {
-        const pool = await getConnection();
-        const result = await pool.request()
-            .input('UploadSheetId', uploadSheetId)
-            .query(`SELECT * FROM ${this.TABLE_NAME} WHERE UploadSheetId = @UploadSheetId`);
-        
-        if (!result.recordset[0]) {
-            return null;
-        }
-
-        return result.recordset[0];
-    }
-
-    /**
      * Create new delivery record
      */
     static async create(dto: ICreateDeliveryRecordDto): Promise<IDeliveryRecord> {
         const pool = await getConnection();
         const id = uuidv4();
-        const now = new Date();
 
         await pool.request()
             .input('Id', id)
@@ -90,30 +73,6 @@ export class DeliveryRecord {
             `);
 
         return (await this.findById(id))!;
-    }
-
-    /**
-     * Create multiple delivery records for a file definition's delivery targets
-     */
-    static async createForDeliveryTargets(
-        uploadId: string, 
-        uploadSheetId: string | null,
-        deliveryTargets: Array<{ type: string; path: string; name?: string }>
-    ): Promise<IDeliveryRecord[]> {
-        const records: IDeliveryRecord[] = [];
-        
-        for (const target of deliveryTargets) {
-            const record = await this.create({
-                UploadId: uploadId,
-                UploadSheetId: uploadSheetId || undefined,
-                DeliveryType: target.type as any,
-                DestinationPath: target.path,
-                DestinationName: target.name
-            });
-            records.push(record);
-        }
-        
-        return records;
     }
 
     /**
@@ -208,17 +167,6 @@ export class DeliveryRecord {
             updates.RecordsDelivered = recordsDelivered;
         }
         await this.update(id, updates);
-    }
-
-    /**
-     * Delete delivery record
-     */
-    static async delete(id: string): Promise<void> {
-        const pool = await getConnection();
-        
-        await pool.request()
-            .input('Id', id)
-            .query(`DELETE FROM ${this.TABLE_NAME} WHERE Id = @Id`);
     }
 
     /**

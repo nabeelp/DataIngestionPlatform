@@ -3,14 +3,12 @@
 // =============================================================================
 
 /**
- * Rule type options. Expressions are stored in the SqlQuery column for backward compatibility:
- * - Schema Validation / Required Values: "ColumnA, ColumnB"
- * - Type Check: "Column: integer|decimal|datetime|boolean|string"
+ * Rule type options. SqlQuery is retained for backward-compatible API responses:
  * - Enum Check: "Column: ValueA, ValueB"
  * - Range Check: "Column: min..max" (either bound may be omitted)
- * - Natural Language: "ColumnA, ColumnB" (the columns its generated code reads)
+ * - Natural Language: the request text, also available as NaturalLanguageText
  */
-export type RuleType = 'Schema Validation' | 'Required Values' | 'Type Check' | 'Enum Check' | 'Range Check' | 'Natural Language';
+export type RuleType = 'Schema Validation' | 'Enum Check' | 'Range Check' | 'Natural Language';
 
 /**
  * Severity options for rules
@@ -20,9 +18,13 @@ export type RuleSeverity = 'Error' | 'Warning';
 /**
  * Rule entity interface
  */
+import type { RuleConfig } from '../contracts/rule-config';
+
 export interface IRule {
     Id: string;
     FileDefinitionId: string;
+    Config: RuleConfig;
+    ConfigSchemaVersion: number;
     Name: string;
     Description: string;
     RuleType: RuleType;
@@ -30,14 +32,10 @@ export interface IRule {
     ExecutionOrder: number;
     SqlQuery: string;
     IsEnabled: boolean;
-    /** Sheet table the rule applies to (definitions with one table per sheet); null otherwise. */
+    /** One target sheet, or null when the rule is not scoped to a sheet. */
     TableName?: string | null;
     /** Natural Language rules only: the request the rule was created from. */
     NaturalLanguageText?: string | null;
-    /** Natural Language rules only: model-generated pseudocode of the implementation. */
-    Pseudocode?: string | null;
-    /** Natural Language rules only: model-generated TypeScript run by the validation engine. */
-    GeneratedCode?: string | null;
     CreatedBy: string | null;
     CreatedAt: Date;
     UpdatedAt: Date;
@@ -48,6 +46,7 @@ export interface IRule {
  */
 export interface ICreateRuleDto {
     FileDefinitionId: string;
+    Config?: RuleConfig;
     Name: string;
     Description?: string;
     RuleType: RuleType;
@@ -57,14 +56,13 @@ export interface ICreateRuleDto {
     IsEnabled?: boolean;
     TableName?: string | null;
     NaturalLanguageText?: string | null;
-    Pseudocode?: string | null;
-    GeneratedCode?: string | null;
 }
 
 /**
  * Update Rule DTO
  */
 export interface IUpdateRuleDto {
+    Config?: RuleConfig;
     Name?: string;
     Description?: string;
     RuleType?: RuleType;
@@ -74,8 +72,6 @@ export interface IUpdateRuleDto {
     IsEnabled?: boolean;
     TableName?: string | null;
     NaturalLanguageText?: string | null;
-    Pseudocode?: string | null;
-    GeneratedCode?: string | null;
 }
 
 /**

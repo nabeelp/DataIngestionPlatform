@@ -1,39 +1,44 @@
 // =============================================================================
-// Upload Service - Complete Upload Management with Queue Integration
+// Upload Service - Upload lifecycle and Service Bus integration
 // =============================================================================
 
 import { v4 as uuidv4 } from 'uuid';
-import { getConnection } from '../config/database';
 import { Upload } from '../models/Upload.model';
 import { UploadSheet } from '../models/UploadSheet.model';
 import { ValidationResult } from '../models/ValidationResult.model';
 import { ValidationRuleDetail } from '../models/ValidationRuleDetail.model';
 import { DeliveryRecord } from '../models/DeliveryRecord.model';
 import { FileDefinition } from '../models/FileDefinition.model';
-import { addValidationJob, addDeliveryJob, QUEUE_NAMES } from './Queue.service';
-import { azureStorage } from './AzureStorage.service';
-import { appConfig } from '../config/appConfig';
-import { sharePointStorage } from './SharePointStorage.service';
-import { cacheService } from './Cache.service';
+import { serviceBusService } from './ServiceBus.service';
+import { cacheService } from './MemoryCache.service';
 import { logger } from '../utils/logger';
 import { emitUploadEvent } from '../websocket/socketServer';
-import { DEFINITION_SCHEMA_RULE_TYPE } from './validation/ValidationEngine';
-import { schemaCheckName, validationTables } from './validation/DefinitionContract';
+import { DEFINITION_SCHEMA_RULE_TYPE, schemaCheckName, validationTables } from './validation/DefinitionContract';
 import { getDeliveryTargets, resolveDeliveryDestination } from './DeliveryTargets.service';
 import { DefinitionVersionService, toVersionSummary } from './DefinitionVersion.service';
 import type { 
     IUpload, 
-    IUploadSheet,
-    IValidationResult,
     IValidationRuleDetail,
-    IDeliveryRecord,
     ICreateUploadDto,
-    IValidationJobData,
-    IDeliveryJobData,
     UploadStatus,
     IUploadDetailResponse
 } from '../interfaces/upload.interface';
 import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import type { ValidationEvent } from '../contracts/validation-event';
+import type { ValidationRequest } from '../contracts/validation-request';
+import type { DeliveryRequest } from '../contracts/delivery-request';
+
+const VALIDATION_FILE_TYPES = new Set<ValidationRequest['fileType']>([
+    'csv', 'tsv', 'txt', 'xlsx', 'xlsm', 'xls', 'xlsb',
+]);
+
+function validationFileType(fileType: string): ValidationRequest['fileType'] {
+    const normalized = fileType.toLowerCase() as ValidationRequest['fileType'];
+    if (!VALIDATION_FILE_TYPES.has(normalized)) {
+        throw new Error(`Unsupported validation file type: ${fileType}`);
+    }
+    return normalized;
+}
 
 /**
  * Attach the sheet each check applies to, from the version the upload was validated against:
@@ -61,15 +66,19 @@ export class UploadService {
         userId: string
     ): Promise<IUpload> {
         // Pin the upload to the version active now, so later definition changes cannot alter its outcome.
-        const version = await DefinitionVersionService.ensureActiveVersion(dto.FileDefinitionId, userId);
+        const version = dto.FileDefinitionVersionId
+            ? await DefinitionVersionService.findVersion(dto.FileDefinitionVersionId)
+            : await DefinitionVersionService.ensureActiveVersion(dto.FileDefinitionId, userId);
+        if (!version || version.FileDefinitionId !== dto.FileDefinitionId) {
+            throw new Error('The selected file definition version is not valid for this definition.');
+        }
         const upload = await Upload.create({ ...dto, FileDefinitionVersionId: version.Id }, userId);
         
-        logger.info(`[SERVICE-CREATE] UploadId: ${upload.Id}, FileDef: ${dto.FileDefinitionId} v${version.VersionNumber}, User: ${userId}, Filename: ${dto.OriginalFilename}`);
+        logger.info(`[SERVICE-CREATE] UploadId: ${upload.Id}, DefinitionId: ${dto.FileDefinitionId}, Version: ${version.VersionNumber}, UserId: ${userId}`);
         
         // Invalidate cache
         await cacheService.invalidateUploadProgress(upload.Id);
         
-        logger.info(`Upload created: ${upload.Id} by user ${userId}`);
         return upload;
     }
 
@@ -105,7 +114,7 @@ export class UploadService {
             await Upload.update(uploadId, { FileDefinitionVersionId: contract.version.Id });
         }
         const versionLabel = `v${contract.version.VersionNumber}`;
-        logger.info(`[SERVICE-STARTVAL] UploadId: ${uploadId}, FileDef: ${fileDefinition.Name || fileDefinition.Id} (${upload.FileDefinitionId}) ${versionLabel}, Size: ${upload.FileSize}B, RowCount: ${upload.RowCountNo}`);
+        logger.info(`[SERVICE-STARTVAL] UploadId: ${uploadId}, DefinitionId: ${upload.FileDefinitionId}, Version: ${versionLabel}, Bytes: ${upload.FileSize}, Rows: ${upload.RowCountNo}`);
 
         const rules = contract.rules;
         // One columns check per table: the single table, or each sheet table of a workbook definition.
@@ -155,143 +164,131 @@ export class UploadService {
             }
         }
 
-        // Queue validation job
-        const jobData: IValidationJobData = {
+        const request: ValidationRequest = {
+            schemaVersion: 1,
             uploadId: upload.Id,
-            fileDefinitionId: upload.FileDefinitionId,
-            fileUrl: upload.AzureBlobUrl || upload.CompressedBlobUrl || '',
-            userId: upload.UploadedBy
-        };
-
-        const job = await addValidationJob(jobData);
-
-        logger.info(`[SERVICE-QUEUEVAL] UploadId: ${uploadId}, ValidationJobId: ${job.id}, Rules: ${rules.length}`);
-        
-        // Update upload with validation job ID
-        await Upload.update(uploadId, {
-            ValidationJobId: job.id
-        });
-
-        // Update status to VALIDATION_IN_PROGRESS
-        await Upload.updateStatus(uploadId, 'VALIDATION_IN_PROGRESS');
-
-        // Update validation result started
-        await ValidationResult.markStarted(validationResult.Id);
-
-        await cacheService.cacheUploadProgress(uploadId, {
-            uploadId,
-            status: 'VALIDATION_IN_PROGRESS',
-            validation: {
-                percent: 0,
-                currentRule: '',
-                passedRules: 0,
-                totalRules: rules.length,
-                status: 'IN_PROGRESS'
+            definitionVersionId: contract.version.Id,
+            blob: {
+                container: upload.BlobContainer,
+                name: upload.BlobName,
             },
-            delivery: null
+            fileType: validationFileType(upload.FileType),
+            requestedAt: new Date().toISOString(),
+            correlationId: uuidv4(),
+        };
+        await Upload.update(uploadId, {
+            Status: 'VALIDATION_QUEUED',
+            ValidationStartedAt: new Date(),
         });
+        try {
+            await Upload.update(uploadId, { Status: 'VALIDATION_IN_PROGRESS' });
+            await ValidationResult.markStarted(validationResult.Id);
+            await cacheService.cacheUploadProgress(uploadId, {
+                uploadId,
+                status: 'VALIDATION_IN_PROGRESS',
+                validation: {
+                    percent: 0,
+                    currentRule: '',
+                    passedRules: 0,
+                    totalRules: totalChecks,
+                    status: 'IN_PROGRESS'
+                },
+                delivery: null
+            });
+            await serviceBusService.sendValidationRequest(request);
+        } catch (error) {
+            await Upload.update(uploadId, {
+                Status: 'VALIDATION_FAILED',
+                ErrorMessage: 'Validation could not be queued. Retry the upload validation.',
+                ValidationCompletedAt: new Date(),
+            });
+            await cacheService.invalidateUploadProgress(uploadId);
+            throw error;
+        }
 
-        logger.info(`Validation started for upload: ${uploadId}, job: ${job.id}`);
+        logger.info(`Validation request sent for upload ${uploadId}; checks=${totalChecks}`);
     }
 
-    /**
-     * Update validation progress
-     */
-    static async updateValidationProgress(
-        uploadId: string,
-        ruleId: string,
-        status: 'PASSED' | 'FAILED' | 'WARNING',
-        executionTimeMs: number,
-        errorCount: number = 0,
-        errors: any[] = []
-    ): Promise<void> {
-        // Get validation result
-        const validationResult = await ValidationResult.findByUploadId(uploadId);
-        if (!validationResult) {
-            logger.error(`Validation result not found for upload: ${uploadId}`);
+    static async handleValidationEvent(event: ValidationEvent): Promise<void> {
+        const upload = await Upload.findById(event.uploadId);
+        if (!upload) throw new Error(`Upload not found for validation event ${event.uploadId}.`);
+
+        if (event.type === 'progress') {
+            if (upload.Status === 'VALIDATION_QUEUED') {
+                if (!await Upload.transitionStatus(event.uploadId, 'VALIDATION_QUEUED', 'VALIDATION_IN_PROGRESS')) return;
+            } else if (upload.Status !== 'VALIDATION_IN_PROGRESS') {
+                return;
+            }
+
+            await cacheService.cacheUploadProgress(event.uploadId, {
+                uploadId: event.uploadId,
+                status: 'VALIDATION_IN_PROGRESS',
+                validation: {
+                    percent: event.percent,
+                    currentRule: event.stage,
+                    totalRules: (await ValidationResult.findByUploadId(event.uploadId))?.TotalRules ?? 0,
+                    status: 'IN_PROGRESS',
+                },
+                delivery: null,
+            });
+            const latestUpload = await Upload.findById(event.uploadId);
+            if (!latestUpload || latestUpload.Status !== 'VALIDATION_IN_PROGRESS') {
+                await cacheService.invalidateUploadProgress(event.uploadId);
+                return;
+            }
+
+            void emitUploadEvent(event.uploadId, {
+                uploadId: event.uploadId,
+                type: 'VALIDATION_UPDATE',
+                stage: event.stage,
+                percent: event.percent,
+            });
             return;
         }
 
-        // Update rule detail
-        const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
-        const ruleDetail = ruleDetails.find(r => r.RuleId === ruleId);
-        
-        if (ruleDetail) {
-            if (status === 'PASSED') {
-                await ValidationRuleDetail.markPassed(ruleDetail.Id, executionTimeMs);
-            } else if (status === 'FAILED') {
-                await ValidationRuleDetail.markFailed(ruleDetail.Id, executionTimeMs, errorCount, errors);
-            } else if (status === 'WARNING') {
-                await ValidationRuleDetail.markWarning(ruleDetail.Id, executionTimeMs, errorCount, errors);
-            }
-        }
-
-        // Update validation result progress
-        const updatedDetails = await ValidationRuleDetail.findByUploadId(uploadId);
-        const passedRules = updatedDetails.filter(r => r.Status === 'PASSED').length;
-        const failedRules = updatedDetails.filter(r => r.Status === 'FAILED').length;
-        const warningRules = updatedDetails.filter(r => r.Status === 'WARNING').length;
-
-        const currentRule = ruleDetail?.RuleName || '';
-        await ValidationResult.updateProgress(
-            validationResult.Id,
-            passedRules,
-            failedRules,
-            warningRules,
-            currentRule,
-            validationResult.TotalRules
-        );
-
-        // Update sheet progress if applicable
-        const sheets = await UploadSheet.findByUploadId(uploadId);
-        if (sheets.length > 0) {
-            const validatedRules = passedRules + failedRules + warningRules;
-            await UploadSheet.updateValidationProgress(
-                sheets[0].Id,
-                validatedRules,
-                validationResult.TotalRules
-            );
-        }
-
-        // Cache progress for real-time updates
-        await cacheService.cacheUploadProgress(uploadId, {
-            uploadId,
-            status: 'VALIDATION_IN_PROGRESS',
-            validation: {
-                percent: validationResult.TotalRules > 0
-                    ? Math.round(((passedRules + failedRules + warningRules) / validationResult.TotalRules) * 100)
-                    : 100,
-                currentRule,
-                passedRules,
-                failedRules,
-                warningRules,
-                totalRules: validationResult.TotalRules,
-                status: 'IN_PROGRESS'
-            },
-            delivery: null
+        const completedAt = new Date();
+        const failed = event.type === 'failed' || event.summary?.status === 'FAILED';
+        const validationStates: UploadStatus[] = ['VALIDATION_QUEUED', 'VALIDATION_IN_PROGRESS', 'VALIDATION_PASSED', 'VALIDATION_FAILED'];
+        if (!validationStates.includes(upload.Status)) return;
+        if (!failed && upload.Status === 'VALIDATION_FAILED') return;
+        const status: UploadStatus = failed ? 'VALIDATION_FAILED' : 'VALIDATION_PASSED';
+        const errorMessage = failed ? event.error || 'Validation failed.' : null;
+        await Upload.update(event.uploadId, {
+            ...(failed ? { Status: status } : {}),
+            ErrorMessage: errorMessage,
+            ValidationCompletedAt: completedAt,
+            RowCountNo: event.summary?.rowCount,
         });
 
-        void emitUploadEvent(uploadId, {
-            type: 'VALIDATION_UPDATE'
+        const sheets = await UploadSheet.findByUploadId(event.uploadId);
+        for (const sheet of sheets) {
+            await UploadSheet.update(sheet.Id, {
+                Status: failed ? 'FAILED' : 'VALIDATED',
+                ErrorMessage: errorMessage ?? undefined,
+            });
+        }
+
+        await cacheService.invalidateUploadProgress(event.uploadId);
+        if (failed) {
+            void emitUploadEvent(event.uploadId, {
+                uploadId: event.uploadId,
+                type: 'VALIDATION_FAILED',
+                details: { error: errorMessage },
+            });
+            logger.warn(`Validation failed for upload ${event.uploadId} at stage ${event.stage}`);
+            return;
+        }
+
+        void emitUploadEvent(event.uploadId, {
+            uploadId: event.uploadId,
+            type: 'VALIDATION_UPDATE',
+            stage: event.stage,
+            percent: 100,
+            status: event.summary?.status,
         });
+        await this.startDelivery(event.uploadId);
     }
 
-    /**
-     * Get validation status from rule results (helper)
-     */
-    static async getValidationStatusFromRules(uploadId: string): Promise<'PASSED' | 'FAILED' | 'WARNING'> {
-        const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
-        const failedRules = ruleDetails.filter(r => r.Status === 'FAILED').length;
-        const warningRules = ruleDetails.filter(r => r.Status === 'WARNING').length;
-        
-        if (failedRules > 0) return 'FAILED';
-        if (warningRules > 0) return 'WARNING';
-        return 'PASSED';
-    }
-
-
-
-    
     /**
      * Start delivery process. Definitions without a delivery target finish as VALIDATED.
      */
@@ -312,32 +309,29 @@ export class UploadService {
             return;
         }
 
-        await Upload.updateStatus(uploadId, 'DELIVERY_QUEUED');
+        const claimed = await Upload.transitionStatus(uploadId, 'VALIDATION_PASSED', 'DELIVERY_IN_PROGRESS');
+        if (!claimed) return;
 
-        // One delivery per target: the whole validated file is delivered once, regardless of sheet count.
-        const deliveryJobs: IDeliveryJobData[] = [];
-        for (const target of deliveryTargets) {
-            const destinationPath = resolveDeliveryDestination(target.folder, upload.Id, upload.OriginalFilename);
-            await DeliveryRecord.create({
-                UploadId: uploadId,
-                DeliveryType: target.type,
-                DestinationPath: destinationPath,
-                DestinationName: target.name
-            });
-            deliveryJobs.push({
-                uploadId: upload.Id,
-                deliveryType: target.type,
-                destinationPath,
-                azureBlobUrl: upload.CompressedBlobUrl || upload.AzureBlobUrl || '',
-                userId: upload.UploadedBy
-            });
+        // One delivery request processes every configured target; completed targets are skipped on retries.
+        try {
+            await Upload.update(uploadId, { DeliveryStartedAt: new Date() });
+            for (const target of deliveryTargets) {
+                const destinationPath = resolveDeliveryDestination(target.folder, upload.Id, upload.OriginalFilename);
+                await DeliveryRecord.create({
+                    UploadId: uploadId,
+                    DeliveryType: target.type,
+                    DestinationPath: destinationPath,
+                    DestinationName: target.name
+                });
+            }
+
+            const deliveryRequest: DeliveryRequest = { schemaVersion: 1, uploadId: upload.Id, attempt: 1 };
+            await serviceBusService.sendDeliveryRequest(deliveryRequest);
+        } catch (error) {
+            await DeliveryRecord.deleteByUploadId(uploadId);
+            await Upload.transitionStatus(uploadId, 'DELIVERY_IN_PROGRESS', 'VALIDATION_PASSED');
+            throw error;
         }
-
-        for (const jobData of deliveryJobs) {
-            await addDeliveryJob(jobData);
-        }
-
-        await Upload.update(uploadId, { Status: 'DELIVERY_IN_PROGRESS', DeliveryStartedAt: new Date() });
 
         const uploadSheets = await UploadSheet.findByUploadId(uploadId);
         for (const sheet of uploadSheets) {
@@ -351,20 +345,21 @@ export class UploadService {
             delivery: {
                 percent: 0,
                 recordsDelivered: 0,
-                totalRecords: deliveryJobs.length,
+                totalRecords: deliveryTargets.length,
                 status: 'IN_PROGRESS'
             }
         });
 
         void emitUploadEvent(uploadId, { uploadId, type: 'DELIVERY_UPDATE' });
-        logger.info(`Delivery started for upload: ${uploadId}, targets: ${deliveryTargets.length}`);
+        logger.info(`Delivery request sent for upload ${uploadId}; targets=${deliveryTargets.length}`);
     }
 
     /**
      * Finish an upload that passed validation and has no delivery target configured.
      */
     static async completeWithoutDelivery(uploadId: string): Promise<void> {
-        await Upload.update(uploadId, { Status: 'VALIDATED' });
+        const claimed = await Upload.transitionStatus(uploadId, 'VALIDATION_PASSED', 'VALIDATED');
+        if (!claimed) return;
 
         const sheets = await UploadSheet.findByUploadId(uploadId);
         for (const sheet of sheets) {
@@ -469,7 +464,7 @@ export class UploadService {
         await cacheService.invalidateUploadProgress(uploadId);
         void emitUploadEvent(uploadId, { type: 'DELIVERY_FAILED', details: { error: errorMessage } });
 
-        logger.error(`Delivery failed for upload: ${uploadId}, error: ${errorMessage}`);
+        logger.error(`Delivery failed for upload: ${uploadId}`);
     }
 
     /**
@@ -485,13 +480,18 @@ export class UploadService {
         const validationResult = await ValidationResult.findByUploadId(uploadId);
         const ruleDetails = await ValidationRuleDetail.findByUploadId(uploadId);
         const deliveryRecords = await DeliveryRecord.findByUploadId(uploadId);
+        const definition = await FileDefinition.findById(upload.FileDefinitionId);
         const version = upload.FileDefinitionVersionId
             ? await DefinitionVersionService.findVersion(upload.FileDefinitionVersionId)
             : null;
 
         return {
             success: true,
-            upload,
+            upload: {
+                ...upload,
+                DefinitionName: definition?.Name,
+                DefinitionVersionNumber: version?.VersionNumber ?? null,
+            },
             definitionVersion: toVersionSummary(version),
             sheets,
             validationResult,
@@ -558,70 +558,4 @@ export class UploadService {
 
         return await Upload.findForUser(userId, { page, pageSize, status });
     }
-
-    /**
-     * Handle upload failure
-     */
-    static async handleUploadFailure(uploadId: string, errorMessage: string): Promise<void> {
-        await Upload.update(uploadId, {
-            Status: 'DELIVERY_FAILED',
-            ErrorMessage: errorMessage
-        });
-
-        // Invalidate cache
-        await cacheService.invalidateUploadProgress(uploadId);
-
-        logger.error(`Upload failed: ${uploadId}, error: ${errorMessage}`);
-    }
-
-    /**
-     * Handle timeout failure for stuck jobs
-     * Updates the upload status when a job times out
-     */
-    static async handleTimeoutFailure(uploadId: string, jobType: 'VALIDATION' | 'DELIVERY', stuckDurationMs: number): Promise<void> {
-        const timeoutSeconds = Math.round(stuckDurationMs / 1000);
-        const errorMessage = `Job timed out after ${timeoutSeconds} seconds - process was stuck`;
-        
-        // Get current upload to determine what status to set
-        const upload = await Upload.findById(uploadId);
-        if (!upload) {
-            logger.error(`Cannot handle timeout: Upload not found: ${uploadId}`);
-            return;
-        }
-
-        // Determine the appropriate failure status based on current status
-        let newStatus: 'VALIDATION_FAILED' | 'DELIVERY_FAILED';
-        
-        if (upload.Status === 'VALIDATION_IN_PROGRESS' || upload.Status === 'VALIDATION_QUEUED') {
-            newStatus = 'VALIDATION_FAILED';
-        } else if (upload.Status === 'DELIVERY_IN_PROGRESS' || upload.Status === 'DELIVERY_QUEUED') {
-            newStatus = 'DELIVERY_FAILED';
-        } else {
-            // Default to DELIVERY_FAILED if in unknown state
-            newStatus = 'DELIVERY_FAILED';
-        }
-
-        // Update the upload status
-        await Upload.update(uploadId, {
-            Status: newStatus,
-            ErrorMessage: errorMessage,
-            ValidationCompletedAt: newStatus === 'VALIDATION_FAILED' ? new Date() : upload.ValidationCompletedAt,
-            DeliveryCompletedAt: newStatus === 'DELIVERY_FAILED' ? new Date() : upload.DeliveryCompletedAt
-        });
-
-        // Update sheet statuses
-        const sheets = await UploadSheet.findByUploadId(uploadId);
-        for (const sheet of sheets) {
-            await UploadSheet.update(sheet.Id, {
-                Status: 'FAILED',
-                ErrorMessage: errorMessage
-            });
-        }
-
-        // Invalidate cache
-        await cacheService.invalidateUploadProgress(uploadId);
-
-        logger.error(`Upload timeout handled: ${uploadId}, job type: ${jobType}, duration: ${timeoutSeconds}s`);
-    }
 }
-

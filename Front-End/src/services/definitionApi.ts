@@ -4,6 +4,7 @@
  */
 
 import { apiConfig } from '../config/api';
+import type { DefinitionContract } from '../contracts/definition-contract';
 
 // Reuse types from adminApi (same structure)
 export interface FileDefinitionColumn {
@@ -12,20 +13,73 @@ export interface FileDefinitionColumn {
   required: boolean;
 }
 
-export interface FileDefinitionUser {
+export interface DefinitionSummary {
   id: string;
   name: string;
   description: string;
   columns: FileDefinitionColumn[];
+  tables: { sheet: string | null; columns: FileDefinitionColumn[] }[];
+  contract: DefinitionContract | null;
   status: string;
   createdAt: string;
   updatedAt: string;
+  hasTemplate: boolean;
+  activeVersion: { id: string; versionNumber: number; activatedAt: string } | null;
+  hasUnpublishedChanges: boolean;
+  ruleCounts: {
+    total: number;
+    errors: number;
+    warnings: number;
+  };
 }
 
 export interface GetFileDefinitionsResponse {
-  definitions: FileDefinitionUser[];
+  definitions: DefinitionSummary[];
   total: number;
 }
+
+const pick = <T,>(value: T | undefined, fallback: T | undefined): T | undefined => value ?? fallback;
+
+export const mapDefinitionSummary = (raw: Record<string, unknown>): DefinitionSummary => {
+  const contract = pick(raw.Contract, raw.contract) as DefinitionContract | undefined;
+  const rawTables = (pick(raw.Tables, raw.tables) as Array<Record<string, unknown>> | undefined) ?? [];
+  const rawColumns = (pick(raw.Columns, raw.columns) as FileDefinitionColumn[] | undefined) ?? [];
+  const tables = rawTables.length > 0
+    ? rawTables.map(table => ({
+        sheet: String(pick(table.Sheet, table.sheet) ?? ''),
+        columns: (pick(table.Columns, table.columns) as FileDefinitionColumn[] | undefined) ?? [],
+      }))
+    : contract?.tables.map(table => ({
+        sheet: table.sheet,
+        columns: table.columns.map(column => ({
+          name: column.name,
+          type: column.type,
+          required: column.mustExist && !column.nullable,
+        })),
+      })) ?? [{ sheet: null, columns: rawColumns }];
+  const rules = contract?.rules ?? [];
+  const activeVersion = pick(raw.ActiveVersion, raw.activeVersion) as DefinitionSummary['activeVersion'] | undefined;
+
+  return {
+    id: String(pick(raw.Id, raw.id) ?? ''),
+    name: String(pick(raw.Name, raw.name) ?? ''),
+    description: String(pick(raw.Description, raw.description) ?? ''),
+    columns: tables.flatMap(table => table.columns),
+    tables,
+    contract: contract ?? null,
+    status: String(pick(raw.Status, raw.status) ?? ''),
+    createdAt: String(pick(raw.CreatedAt, raw.createdAt) ?? ''),
+    updatedAt: String(pick(raw.UpdatedAt, raw.updatedAt) ?? ''),
+    hasTemplate: Boolean(pick(raw.TemplateFilename, raw.templateFilename)),
+    activeVersion: activeVersion ?? null,
+    hasUnpublishedChanges: Boolean(pick(raw.HasUnpublishedChanges, raw.hasUnpublishedChanges)),
+    ruleCounts: {
+      total: rules.filter(rule => rule.enabled).length,
+      errors: rules.filter(rule => rule.enabled && rule.severity === 'Error').length,
+      warnings: rules.filter(rule => rule.enabled && rule.severity === 'Warning').length,
+    },
+  };
+};
 
 /**
  * Download template file for file definition
@@ -96,10 +150,13 @@ export const getFileDefinitions = async (): Promise<GetFileDefinitionsResponse> 
     throw new Error(data.message || 'Failed to fetch file definitions');
   }
   
-  return data;
+  const definitions = Array.isArray(data.definitions)
+    ? data.definitions.map((definition: Record<string, unknown>) => mapDefinitionSummary(definition))
+    : [];
+
+  return { definitions, total: data.total ?? definitions.length };
 };
 
 export default {
   getFileDefinitions,
 };
-

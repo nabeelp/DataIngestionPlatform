@@ -30,7 +30,7 @@ const sheetTableValidators = [
     body('tables.*.sheet').isString().isLength({ min: 1, max: 31 }),
     body('tables.*.columns').isArray({ min: 1 }),
     body('tables.*.columns.*.name').isString().isLength({ min: 1, max: 100 }),
-    body('tables.*.columns.*.type').isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
+    body('tables.*.columns.*.type').isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
     body('tables.*.columns.*.required').isBoolean(),
 ];
 
@@ -82,15 +82,6 @@ router.get(
     '/users',
     AdminController.getUsers
     
-);
-
-/**
- * GET /api/admin/users/:id
- * Get user by ID
- */
-router.get(
-    '/users/:id',
-    AdminController.getUserById
 );
 
 /**
@@ -158,15 +149,6 @@ router.get(
     AdminController.getAuditLogs
 );
 
-/**
- * GET /api/admin/audit-logs/recent
- * Get recent audit logs (for dashboard)
- */
-router.get(
-    '/audit-logs/recent',
-    AdminController.getRecentAuditLogs
-);
-
 // ============================================================================
 // Queue Monitoring
 // ============================================================================
@@ -178,15 +160,6 @@ router.get(
 router.get(
     '/queue-stats',
     AdminController.getQueueStats
-);
-
-/**
- * GET /api/admin/processing-files
- * Get files currently being processed
- */
-router.get(
-    '/processing-files',
-    AdminController.getProcessingFiles
 );
 
 // ============================================================================
@@ -213,9 +186,10 @@ router.post(
         body('description').optional().isLength({ max: 1000 }),
         body('columns').optional().isArray(),
         body('columns.*.name').isString().isLength({ min: 1, max: 100 }),
-        body('columns.*.type').isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
+        body('columns.*.type').isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
         body('columns.*.required').isBoolean(),
         ...sheetTableValidators,
+        body('contract').optional().isObject(),
         body('status').optional().isIn(['Active', 'Inactive']),
         body('rules').optional({ values: 'null' }).isArray({ max: 50 }),
         body('rules.*.name').optional().isString().isLength({ min: 1, max: 255 }),
@@ -239,13 +213,31 @@ router.put(
         body('description').optional().isLength({ max: 1000 }),
         body('columns').optional().isArray(),
         body('columns.*.name').optional().isString().isLength({ min: 1, max: 100 }),
-        body('columns.*.type').optional().isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
+        body('columns.*.type').optional().isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
         body('columns.*.required').optional().isBoolean(),
         ...sheetTableValidators,
+        body('contract').optional().isObject(),
+        body('rules').optional().isArray({ max: 50 }),
+        body('revision').optional({ values: 'null' }).isString().isLength({ max: 64 }),
         body('status').optional().isIn(['Active', 'Inactive']),
     ],
     validateRequest,
     AdminController.updateFileDefinition
+);
+
+/**
+ * POST /api/admin/file-definitions/preflight
+ * Validate an unsaved definition draft (structure and rules) and preview what publishing would change
+ */
+router.post(
+    '/file-definitions/preflight',
+    [
+        body('contract').isObject(),
+        body('rules').optional({ values: 'null' }).isArray({ max: 50 }),
+        body('definitionId').optional({ values: 'null' }).isUUID(),
+    ],
+    validateRequest,
+    AdminController.preflightFileDefinition
 );
 
 /**
@@ -262,7 +254,6 @@ router.delete(
 // ============================================================================
 
 import * as FileDefinitionAdminController from '../controllers/fileDefinitionAdmin.controller';
-import * as UserFileDefinitionController from '../controllers/userFileDefinition.controller';
 
 /**
  * GET /api/admin/file-definitions/:definitionId/users
@@ -323,6 +314,10 @@ router.post(
         });
     },
     FileDefinitionAdminController.uploadTemplate
+);
+router.delete(
+    '/file-definitions/:id/template',
+    FileDefinitionAdminController.removeTemplate
 );
 
 /**
@@ -388,44 +383,4 @@ router.post(
     FileDefinitionAdminController.publishFileDefinitionVersion
 );
 
-
-// ============================================================================
-
-// User-File Definition Assignments (symmetric)
-// ============================================================================
-
-/**
- * GET /api/admin/users/:userId/file-definitions
- * Get file definitions assigned to a specific user
- */
-router.get(
-    '/users/:userId/file-definitions',
-    UserFileDefinitionController.getUserFileDefinitions
-);
-
-/**
- * POST /api/admin/users/:userId/file-definitions
- * Assign file definitions to user
- * Body: { fileDefinitionIds: string[] }
- */
-router.post(
-    '/users/:userId/file-definitions',
-    [
-        body('fileDefinitionIds').isArray({ min: 1 }),
-        body('fileDefinitionIds.*').isString().isUUID(),
-    ],
-    validateRequest,
-    UserFileDefinitionController.assignFileDefinitionsToUser
-);
-
-/**
- * DELETE /api/admin/users/:userId/file-definitions/:definitionId
- * Remove specific file definition from user
- */
-router.delete(
-    '/users/:userId/file-definitions/:definitionId',
-    UserFileDefinitionController.removeFileDefinitionFromUser
-);
-
 export default router;
-

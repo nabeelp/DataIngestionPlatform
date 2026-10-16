@@ -2,9 +2,7 @@
 // User Service - Business logic for user management
 // =============================================================================
 
-import { getConnection } from '../config/database';
 import { User } from '../models/User.model';
-import type { IUser } from '../interfaces/user.interface';
 import { logger } from '../utils/logger';
 
 export interface AdminUserList {
@@ -72,22 +70,6 @@ static async getUsers(page: number = 1, limit: number = 20, search: string = '')
       logger.error('[USER_SERVICE] Error getting users:', error);
       throw error;
     }
-  }
-
-  /**
-   * Get user count for stats
-   */
-  static async getUserCount(): Promise<{ total: number; active: number }> {
-    const pool = await getConnection();
-    const [totalResult, activeResult] = await Promise.all([
-      pool.request().query('SELECT COUNT(*) as total FROM Users'),
-      pool.request().query('SELECT COUNT(*) as total FROM Users WHERE IsActive = 1')
-    ]);
-
-    return {
-      total: Number(totalResult.recordset[0].total),
-      active: Number(activeResult.recordset[0].total)
-    };
   }
 }
 

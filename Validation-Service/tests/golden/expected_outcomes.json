@@ -1,0 +1,768 @@
+{
+  "01-single-table/customers/customers_empty_file.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Country is a supported market",
+      "Customer status allowed values",
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "01-single-table/customers/customers_header_only.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "01-single-table/customers/customers_invalid_dates.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_invalid_duplicate_headers.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 10
+  },
+  "01-single-table/customers/customers_invalid_empty_required_values.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_invalid_header_case_mismatch.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Country is a supported market",
+      "Customer status allowed values",
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "01-single-table/customers/customers_invalid_many_errors_5000_rows.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Customer status allowed values",
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 5000
+  },
+  "01-single-table/customers/customers_invalid_missing_required_column.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_invalid_ragged_rows.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 6
+  },
+  "01-single-table/customers/customers_invalid_status_values.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Customer status allowed values"
+    ],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_invalid_unclosed_quote.csv": {
+    "status": "READ_ERROR"
+  },
+  "01-single-table/customers/customers_valid.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid.tsv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid.xls": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid_blank_lines_and_whitespace.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 20
+  },
+  "01-single-table/customers/customers_valid_crlf_line_endings.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid_mixed_date_formats.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 30
+  },
+  "01-single-table/customers/customers_valid_padded_headers.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 15
+  },
+  "01-single-table/customers/customers_valid_pipe_delimited.txt": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid_quoted_fields_multiline.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 10
+  },
+  "01-single-table/customers/customers_valid_reordered_and_extra_columns.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid_semicolon_delimited.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid_tab_delimited.txt": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_valid_unicode.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 40
+  },
+  "01-single-table/customers/customers_valid_utf8_bom_unicode.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 40
+  },
+  "01-single-table/customers/customers_warning_optional_columns_missing.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_warning_unsupported_country_and_missing_phone.csv": {
+    "status": "WARNING",
+    "failedChecks": [],
+    "warningChecks": [
+      "Country is a supported market"
+    ],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_xlsx_blank_rows_above_header.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 30
+  },
+  "01-single-table/customers/customers_xlsx_excel_table_object.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Country is a supported market",
+      "Customer status allowed values",
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 52
+  },
+  "01-single-table/customers/customers_xlsx_multi_sheet_same_columns.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 200
+  },
+  "01-single-table/customers/customers_xlsx_native_types_and_formulas.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_xlsx_protected_sheet.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/customers/customers_xlsx_title_row_above_header.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Country is a supported market",
+      "Customer status allowed values",
+      "File definition columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 31
+  },
+  "01-single-table/customers/customers_xlsx_with_empty_sheet.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 50
+  },
+  "01-single-table/products/products_invalid_category.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Category allowed values"
+    ],
+    "warningChecks": [],
+    "rows": 20
+  },
+  "01-single-table/products/products_invalid_number_formats.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns",
+      "Unit price range"
+    ],
+    "warningChecks": [
+      "Reorder level ceiling"
+    ],
+    "rows": 8
+  },
+  "01-single-table/products/products_invalid_range_violations.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Stock quantity range",
+      "Unit price range"
+    ],
+    "warningChecks": [
+      "Reorder level ceiling",
+      "Weight is not negative"
+    ],
+    "rows": 20
+  },
+  "01-single-table/products/products_valid.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 80
+  },
+  "01-single-table/products/products_valid.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 80
+  },
+  "01-single-table/products/products_valid_boolean_variants.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 20
+  },
+  "01-single-table/products/products_valid_numeric_boundaries.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 5
+  },
+  "01-single-table/products/products_warning_only_ranges.csv": {
+    "status": "WARNING",
+    "failedChecks": [],
+    "warningChecks": [
+      "Reorder level ceiling",
+      "Weight is not negative"
+    ],
+    "rows": 20
+  },
+  "01-single-table/products/products_xlsx_formulas_with_cached_values.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 80
+  },
+  "01-single-table/products/products_xlsx_max_cell_length.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 10
+  },
+  "01-single-table/products/products_xlsx_numbers_stored_as_text.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 80
+  },
+  "01-single-table/sales-orders/orders_invalid_currency_and_payment_status.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Currency allowed values",
+      "Payment status allowed values"
+    ],
+    "warningChecks": [],
+    "rows": 40
+  },
+  "01-single-table/sales-orders/orders_invalid_dates.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 40
+  },
+  "01-single-table/sales-orders/orders_invalid_long_text_values.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns",
+      "Order total range"
+    ],
+    "warningChecks": [],
+    "rows": 10
+  },
+  "01-single-table/sales-orders/orders_quirk_impossible_dates_accepted.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 10
+  },
+  "01-single-table/sales-orders/orders_valid.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 500
+  },
+  "01-single-table/sales-orders/orders_valid.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 500
+  },
+  "01-single-table/sales-orders/orders_valid_date_format_variants.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 40
+  },
+  "01-single-table/sales-orders/orders_valid_datetimes.xls": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 20
+  },
+  "01-single-table/sales-orders/orders_warning_negative_discount.csv": {
+    "status": "WARNING",
+    "failedChecks": [],
+    "warningChecks": [
+      "Discount is not negative"
+    ],
+    "rows": 40
+  },
+  "01-single-table/sales-orders/orders_xlsx_dates_as_serial_numbers.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 20
+  },
+  "01-single-table/sales-orders/orders_xlsx_one_sheet_per_month.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 1200
+  },
+  "02-sheet-tables/finance/finance_invalid_empty_payments_sheet.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Payment amount range",
+      "Payment method allowed values",
+      "Sheet \"Payments\" columns"
+    ],
+    "warningChecks": [],
+    "rows": 135
+  },
+  "02-sheet-tables/finance/finance_invalid_errors_in_every_sheet.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Credit note amount range",
+      "Invoice amount is positive",
+      "Invoice currency allowed values",
+      "Invoice status allowed values",
+      "Payment amount range",
+      "Payment method allowed values",
+      "Sheet \"Credit Notes\" columns",
+      "Sheet \"Invoices\" columns",
+      "Sheet \"Payments\" columns"
+    ],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_invalid_missing_credit_notes_sheet.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Sheet \"Credit Notes\" columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 210
+  },
+  "02-sheet-tables/finance/finance_invalid_missing_required_column.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Payment method allowed values",
+      "Sheet \"Payments\" columns"
+    ],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_invalid_similar_sheet_names_only.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Sheet \"Credit Notes\" columns",
+      "Sheet \"Invoices\" columns",
+      "Sheet \"Payments\" columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "02-sheet-tables/finance/finance_invalid_unrelated_workbook.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Sheet \"Credit Notes\" columns",
+      "Sheet \"Invoices\" columns",
+      "Sheet \"Payments\" columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "02-sheet-tables/finance/finance_rejected_csv_upload.csv": {
+    "status": "UPLOAD_REJECTED"
+  },
+  "02-sheet-tables/finance/finance_valid.xls": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid_20_ignored_sheets.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid_excel_tables_and_formulas.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid_header_only_credit_notes.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 210
+  },
+  "02-sheet-tables/finance/finance_valid_hidden_table_sheet.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid_sheet_names_case_and_spacing.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid_similar_named_ignored_sheets.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_valid_values_stored_as_text.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 225
+  },
+  "02-sheet-tables/hr/hr_invalid_boolean_integer_and_date_types.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Dependents range",
+      "Sheet \"Benefits (2026)\" columns",
+      "Sheet \"Employees\" columns"
+    ],
+    "warningChecks": [],
+    "rows": 120
+  },
+  "02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Sheet \"Benefits (2026)\" columns",
+      "Sheet \"Employees\" columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 40
+  },
+  "02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Sheet \"Employee Emergency Contacts '26\" columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 80
+  },
+  "02-sheet-tables/hr/hr_invalid_values.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Benefit plan allowed values",
+      "Department allowed values",
+      "Dependents range",
+      "Salary range"
+    ],
+    "warningChecks": [],
+    "rows": 120
+  },
+  "02-sheet-tables/hr/hr_valid.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 120
+  },
+  "02-sheet-tables/hr/hr_valid_unicode_and_emoji.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 90
+  },
+  "02-sheet-tables/hr/hr_warning_cost_relationship_alt_phone.xlsx": {
+    "status": "WARNING",
+    "failedChecks": [],
+    "warningChecks": [
+      "Monthly cost within budget",
+      "Relationship allowed values"
+    ],
+    "rows": 120
+  },
+  "04-file-handling/CUSTOMERS_UPPERCASE_EXTENSION.XLSX": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers export (Q3) – José & Zoë.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers_corrupt_truncated.xlsx": {
+    "status": "READ_ERROR"
+  },
+  "04-file-handling/customers_cr_only_line_endings.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers_csv_renamed_to_xlsx.xlsx": {
+    "status": "READ_ERROR"
+  },
+  "04-file-handling/customers_macro_enabled.xlsm": {
+    "status": "UPLOAD_REJECTED"
+  },
+  "04-file-handling/customers_no_trailing_newline.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers_random_binary.csv": {
+    "status": "READ_ERROR"
+  },
+  "04-file-handling/customers_single_column_no_delimiter.txt": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Country is a supported market",
+      "Customer status allowed values",
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers_unsupported_extension.json": {
+    "status": "UPLOAD_REJECTED"
+  },
+  "04-file-handling/customers_utf16le_bom_encoded.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers_utf16le_no_bom.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 25
+  },
+  "04-file-handling/customers_windows1252_encoded.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 20
+  },
+  "04-file-handling/customers_zero_bytes.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Country is a supported market",
+      "Customer status allowed values",
+      "File definition columns"
+    ],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "04-file-handling/customers_zipped_archive.zip": {
+    "status": "UPLOAD_REJECTED"
+  },
+  "04-file-handling/finance_zero_bytes.xlsx": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Credit note amount range",
+      "Invoice amount is positive",
+      "Invoice currency allowed values",
+      "Invoice status allowed values",
+      "Payment amount range",
+      "Payment method allowed values",
+      "Sheet \"Credit Notes\" columns",
+      "Sheet \"Invoices\" columns",
+      "Sheet \"Payments\" columns",
+      "Structural validation"
+    ],
+    "warningChecks": [],
+    "rows": 0
+  },
+  "05-large/customers_wide_500_columns.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 2000
+  },
+  "05-large/customers_xlsx_excel_max_columns.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 200
+  },
+  "05-large/finance_large_used_and_ignored_sheets.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 290000
+  },
+  "05-large/orders_large_200k_rows_with_errors.csv": {
+    "status": "FAILED",
+    "failedChecks": [
+      "Currency allowed values",
+      "Order total range"
+    ],
+    "warningChecks": [],
+    "rows": 200000
+  },
+  "05-large/orders_large_250k_rows.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 250000
+  },
+  "05-large/orders_large_250k_rows.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 250000
+  },
+  "05-large/orders_large_500k_rows.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 500000
+  },
+  "05-large/orders_large_near_100mb_limit.csv": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 859000
+  },
+  "05-large/orders_large_over_100mb_limit.csv": {
+    "status": "UPLOAD_REJECTED"
+  },
+  "05-large/orders_xlsx_excel_max_rows.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 1048575
+  },
+  "05-large/products_xlsx_2k_rows_max_length_cells.xlsx": {
+    "status": "PASSED",
+    "failedChecks": [],
+    "warningChecks": [],
+    "rows": 2000
+  }
+}

@@ -1,0 +1,55 @@
+name: data-ingestion-platform
+resourceGroup: rg-data-ingestion-${AZURE_ENV_NAME}
+
+infra:
+  provider: bicep
+  path: infra
+
+services:
+  api:
+    host: containerapp
+    language: docker
+    project: .
+    docker:
+      path: ./Back-End/Dockerfile
+      context: .
+      registry: ${ACR_LOGIN_SERVER}
+      remoteBuild: true
+      tag: ${IMAGE_TAG}
+    resourceName: ${API_CONTAINER_APP_NAME}
+    resourceGroup: ${AZURE_RESOURCE_GROUP}
+  rules-service:
+    host: containerapp
+    language: docker
+    project: .
+    docker:
+      path: ./Validation-Service/Dockerfile
+      context: .
+      registry: ${ACR_LOGIN_SERVER}
+      remoteBuild: true
+      tag: ${IMAGE_TAG}
+    resourceName: ${RULES_SERVICE_CONTAINER_APP_NAME}
+    resourceGroup: ${AZURE_RESOURCE_GROUP}
+  frontend:
+    host: containerapp
+    language: docker
+    project: .
+    docker:
+      path: ./Front-End/Dockerfile
+      context: .
+      registry: ${ACR_LOGIN_SERVER}
+      remoteBuild: true
+      tag: ${IMAGE_TAG}
+    resourceName: ${FRONTEND_CONTAINER_APP_NAME}
+    resourceGroup: ${AZURE_RESOURCE_GROUP}
+
+hooks:
+  postprovision:
+    shell: pwsh
+    run: pwsh -NoProfile -File scripts/postprovision.ps1
+  predeploy:
+    shell: pwsh
+    run: pwsh -NoProfile -File scripts/predeploy.ps1
+  postdeploy:
+    shell: pwsh
+    run: pwsh -NoProfile -File scripts/postdeploy.ps1

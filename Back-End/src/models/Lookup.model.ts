@@ -63,14 +63,6 @@ export class Lookup {
         return result.recordset[0] ? mapRow(result.recordset[0]) : null;
     }
 
-    static async findByName(name: string): Promise<ILookup | null> {
-        const pool = await getConnection();
-        const result = await pool.request()
-            .input('Name', name)
-            .query(`SELECT * FROM ${this.TABLE_NAME} WHERE Name = @Name`);
-        return result.recordset[0] ? mapRow(result.recordset[0]) : null;
-    }
-
     static async create(input: ILookupInput, createdBy: string): Promise<ILookup> {
         const pool = await getConnection();
         const id = uuidv4();

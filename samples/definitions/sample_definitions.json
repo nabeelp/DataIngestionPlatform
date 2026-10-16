@@ -1,7 +1,7 @@
 {
   "customers": {
     "name": "Sample - Customers",
-    "description": "Sample single-table definition (same columns as \"Customer Data\") with enum, required-value and schema rules.",
+    "description": "Sample single-table definition (same columns as \"Customer Data\") with enum rules.",
     "columns": [
       {
         "name": "CustomerId",
@@ -81,28 +81,12 @@
         "severity": "Warning",
         "table": null,
         "description": ""
-      },
-      {
-        "name": "Phone number provided",
-        "ruleType": "Required Values",
-        "expression": "Phone",
-        "severity": "Warning",
-        "table": null,
-        "description": ""
-      },
-      {
-        "name": "Key customer columns present",
-        "ruleType": "Schema Validation",
-        "expression": "CustomerId, Email",
-        "severity": "Error",
-        "table": null,
-        "description": ""
       }
     ]
   },
   "products": {
     "name": "Sample - Products",
-    "description": "Sample single-table definition (same columns as \"Product Catalog\") with range, enum and type rules.",
+    "description": "Sample single-table definition (same columns as \"Product Catalog\") with range and enum rules.",
     "columns": [
       {
         "name": "SKU",
@@ -206,14 +190,6 @@
         "severity": "Error",
         "table": null,
         "description": ""
-      },
-      {
-        "name": "Reorder level is a whole number",
-        "ruleType": "Type Check",
-        "expression": "ReorderLevel: integer",
-        "severity": "Warning",
-        "table": null,
-        "description": ""
       }
     ]
   },
@@ -308,14 +284,6 @@
         "ruleType": "Range Check",
         "expression": "DiscountAmount: 0..",
         "severity": "Warning",
-        "table": null,
-        "description": ""
-      },
-      {
-        "name": "Order and customer identifiers present",
-        "ruleType": "Required Values",
-        "expression": "OrderId, CustomerId",
-        "severity": "Error",
         "table": null,
         "description": ""
       }
@@ -463,14 +431,6 @@
         "description": ""
       },
       {
-        "name": "Invoice has a PO number",
-        "ruleType": "Required Values",
-        "expression": "PONumber",
-        "severity": "Warning",
-        "table": "Invoices",
-        "description": ""
-      },
-      {
         "name": "Payment method allowed values",
         "ruleType": "Enum Check",
         "expression": "Method: Card, Cash, Cheque, EFT",
@@ -491,14 +451,6 @@
         "ruleType": "Range Check",
         "expression": "Amount: 0.01..50000",
         "severity": "Error",
-        "table": "Credit Notes",
-        "description": ""
-      },
-      {
-        "name": "Credit note reason provided",
-        "ruleType": "Required Values",
-        "expression": "Reason",
-        "severity": "Warning",
         "table": "Credit Notes",
         "description": ""
       }
@@ -643,14 +595,6 @@
         "description": ""
       },
       {
-        "name": "Employee key columns present",
-        "ruleType": "Schema Validation",
-        "expression": "EmployeeId, Email",
-        "severity": "Error",
-        "table": "Employees",
-        "description": ""
-      },
-      {
         "name": "Benefit plan allowed values",
         "ruleType": "Enum Check",
         "expression": "Plan: Basic, Premium, Standard",
@@ -678,14 +622,6 @@
         "name": "Relationship allowed values",
         "ruleType": "Enum Check",
         "expression": "Relationship: Child, Friend, Other, Parent, Partner, Sibling, Spouse",
-        "severity": "Warning",
-        "table": "Employee Emergency Contacts '26",
-        "description": ""
-      },
-      {
-        "name": "Alternate phone provided",
-        "ruleType": "Required Values",
-        "expression": "AltPhone",
         "severity": "Warning",
         "table": "Employee Emergency Contacts '26",
         "description": ""

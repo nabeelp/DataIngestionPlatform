@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { apiConfig } from '../config/api';
-import { io, Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
 import type { Socket as SocketType } from 'socket.io-client';
 
 const devBypassAuth = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true';

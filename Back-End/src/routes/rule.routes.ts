@@ -6,7 +6,6 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import * as RuleController from '../controllers/rule.controller';
-import { SUPPORTED_RULE_TYPES } from '../services/validation/ValidationEngine';
 
 const router = Router();
 
@@ -42,97 +41,46 @@ router.get(
 );
 
 router.post(
-    '/natural-language',
-    authenticate,
-    authorize('admin'),
-    [
-        body('FileDefinitionId').isUUID(),
-        body('Request').isString().trim().isLength({ min: 1, max: 1000 }),
-    ],
-    validateRequest,
-    RuleController.createRuleFromDescription
-);
-
-router.post(
-    '/:id/regenerate',
+    '/natural-language/propose',
     authenticate,
     authorize('admin'),
     [
         body('Request').isString().trim().isLength({ min: 1, max: 1000 }),
+        body('Contract').isObject(),
+        body('Rules').optional({ values: 'null' }).isArray({ max: 50 }),
+        body('Config').optional({ values: 'null' }).isObject(),
     ],
     validateRequest,
-    RuleController.regenerateRuleFromDescription
+    RuleController.proposeRuleFromDescription
 );
 
-/**
- * POST /api/rules
- * Create a new rule
- * Admin only
- */
+const authoringContext = [
+    body('FileDefinitionId').optional({ values: 'null' }).isUUID(),
+    body('Contract').optional({ values: 'null' }).isObject(),
+    body('Rules').optional({ values: 'null' }).isArray({ max: 50 }),
+    body('Config').isObject(),
+    body().custom(value => {
+        if (!value?.Contract && !value?.FileDefinitionId) throw new Error('Contract or FileDefinitionId is required');
+        return true;
+    }),
+];
+
 router.post(
-    '/',
+    '/validate',
     authenticate,
     authorize('admin'),
-    [
-        body('FileDefinitionId').isUUID(),
-        body('Name').isLength({ min: 1, max: 200 }).trim(),
-        body('Description').optional().isLength({ max: 1000 }),
-        body('RuleType').isIn([...SUPPORTED_RULE_TYPES]),
-        body('Severity').optional().isIn(['Error', 'Warning']),
-        body('ExecutionOrder').optional().isInt({ min: 1 }),
-        body('SqlQuery').isString().isLength({ min: 1, max: 4000 }),
-        body('IsEnabled').optional().isBoolean(),
-        body('TableName').optional({ values: 'null' }).isString().isLength({ max: 255 }),
-    ],
+    authoringContext,
     validateRequest,
-    RuleController.createRule
+    RuleController.validateRuleConfiguration,
 );
 
-/**
- * PUT /api/rules/:id
- * Update a rule
- * Admin only
- */
-router.put(
-    '/:id',
+router.post(
+    '/test',
     authenticate,
     authorize('admin'),
-    [
-        body('Name').optional().isLength({ min: 1, max: 200 }).trim(),
-        body('Description').optional().isLength({ max: 1000 }),
-        body('RuleType').optional().isIn([...SUPPORTED_RULE_TYPES]),
-        body('Severity').optional().isIn(['Error', 'Warning']),
-        body('ExecutionOrder').optional().isInt({ min: 1 }),
-        body('SqlQuery').optional().isString().isLength({ min: 1, max: 4000 }),
-        body('IsEnabled').optional().isBoolean(),
-        body('TableName').optional({ values: 'null' }).isString().isLength({ max: 255 }),
-    ],
+    [...authoringContext, body('examples').optional().isArray()],
     validateRequest,
-    RuleController.updateRule
-);
-
-/**
- * DELETE /api/rules/:id
- * Delete a rule
- * Admin only
- */
-router.delete(
-    '/:id',
-    authenticate,
-    authorize('admin'),
-    RuleController.deleteRule
-);
-
-/**
- * PATCH /api/rules/:id/toggle
- * Toggle rule enabled/disabled status
- * Admin only
- */
-router.patch(
-    '/:id/toggle',
-    authenticate,
-    authorize('admin'),
-    RuleController.toggleRule
+    RuleController.testRuleConfiguration,
 );
 
 export default router;

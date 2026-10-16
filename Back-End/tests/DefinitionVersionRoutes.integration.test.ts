@@ -13,7 +13,6 @@ const JWT_SECRET = 'versioning-routes-test-secret';
 if (TEST_DB) {
     process.env.DB_CONNECTION_STRING = TEST_DB;
     process.env.JWT_SECRET = JWT_SECRET;
-    process.env.REDIS_ENABLED = 'false';
     process.env.LOG_LEVEL = 'error';
 }
 
@@ -23,6 +22,7 @@ describeDb('definition version routes', () => {
     let server: Server;
     let baseUrl: string;
     let db: typeof import('../src/config/database');
+    let ruleModel: typeof import('../src/models/Rule.model');
     const users: Record<'admin' | 'user', string> = { admin: '', user: '' };
     const createdDefinitions: string[] = [];
 
@@ -38,6 +38,7 @@ describeDb('definition version routes', () => {
 
     beforeAll(async () => {
         db = require('../src/config/database');
+        ruleModel = require('../src/models/Rule.model');
         const app = express();
         app.use(express.json());
         app.use('/api/admin', require('../src/routes/admin.routes').default);
@@ -84,10 +85,10 @@ describeDb('definition version routes', () => {
 
         // Draft edits: a column type change and a new rule.
         await call('admin', 'PUT', `/admin/file-definitions/${id}`, { columns: [{ name: 'Amount', type: 'integer', required: true }] });
-        const rule = await call('admin', 'POST', '/rules', {
+        const rule = await ruleModel.Rule.create({
             FileDefinitionId: id, Name: 'Amount range', RuleType: 'Range Check', SqlQuery: 'Amount: 0..10',
-        });
-        expect(rule.status).toBe(201);
+        }, users.admin);
+        expect(rule.Name).toBe('Amount range');
 
         const draft = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
         expect(draft.status).toBe(200);
@@ -142,6 +143,48 @@ describeDb('definition version routes', () => {
         expect(res.body.message).toContain('version 1 is already active');
     });
 
+    it('publishes metadata-only changes and returns them in history', async () => {
+        const created = await call('admin', 'POST', '/admin/file-definitions', {
+            name: `Metadata routes ${Date.now()}`,
+            columns: [{ name: 'Code', type: 'string', required: true }],
+        });
+        const id = created.body.definition.id;
+        createdDefinitions.push(id);
+
+        const updatedName = `${created.body.definition.name} updated`;
+        const updated = await call('admin', 'PUT', `/admin/file-definitions/${id}`, {
+            name: updatedName,
+            description: 'Metadata-only update',
+            status: 'Inactive',
+            deliveryFolder: 'archive/codes',
+        });
+        expect(updated.status).toBe(200);
+
+        const draft = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
+        expect(draft.body).toMatchObject({
+            hasUnpublishedChanges: true,
+            changes: {
+                metadata: { added: [], removed: [], changed: ['Name', 'Description', 'Status', 'Delivery folder'] },
+                columns: { added: [], removed: [], changed: [] },
+                rules: { added: [], removed: [], changed: [] },
+            },
+        });
+
+        const published = await call('admin', 'POST', `/admin/file-definitions/${id}/versions`, { changeNote: 'Metadata-only publish' });
+        expect(published.status).toBe(201);
+        expect(published.body.version).toMatchObject({
+            versionNumber: 2,
+            changeNote: 'Metadata-only publish',
+            definitionMetadata: {
+                name: updatedName,
+                description: 'Metadata-only update',
+                status: 'Inactive',
+                deliveryFolder: 'archive/codes',
+                templateFilename: null,
+            },
+        });
+    });
+
     it('publishes rules accepted at creation in version 1', async () => {
         const created = await call('admin', 'POST', '/admin/file-definitions', {
             name: `Routes ${Date.now()}`,
@@ -159,6 +202,61 @@ describeDb('definition version routes', () => {
             versionNumber: 1,
             rules: [expect.objectContaining({ name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', executionOrder: 1 })],
         });
+    });
+
+    it('creates and updates full sheet contracts while converting supported example suggestions', async () => {
+        const contract = {
+            schemaVersion: 1,
+            layout: 'sheets',
+            ignoredSheets: ['Notes'],
+            encoding: 'auto',
+            tables: [{
+                sheet: 'Summary',
+                headerRow: 2,
+                allowExtraColumns: false,
+                minRows: 1,
+                maxRows: 500,
+                columns: [{ name: 'Status', type: 'string', mustExist: true, nullable: false }],
+            }],
+            rules: [],
+            lookups: {},
+        };
+        const created = await call('admin', 'POST', '/admin/file-definitions', {
+            name: `Contract routes ${Date.now()}`,
+            columns: [],
+            tables: [{ sheet: 'Summary', columns: [{ name: 'Status', type: 'string', required: true }] }],
+            contract,
+            rules: [{
+                name: 'Status allowed values',
+                ruleType: 'Enum Check',
+                expression: 'Status: Closed, Open',
+                severity: 'Error',
+                table: 'Summary',
+            }],
+        });
+        expect(created.status).toBe(201);
+        const id = created.body.definition.id;
+        createdDefinitions.push(id);
+        expect(created.body.definition.contract).toMatchObject({
+            layout: 'sheets',
+            ignoredSheets: ['Notes'],
+            tables: [{ sheet: 'Summary', headerRow: 2, allowExtraColumns: false, minRows: 1, maxRows: 500 }],
+        });
+
+        const history = await call('admin', 'GET', `/admin/file-definitions/${id}/versions`);
+        expect(history.body.versions[0].rules).toEqual([
+            expect.objectContaining({
+                name: 'Status allowed values',
+                ruleType: 'Enum Check',
+                expression: 'Status: Closed, Open',
+                table: 'Summary',
+            }),
+        ]);
+
+        const updatedContract = { ...contract, encoding: 'utf-8' };
+        const updated = await call('admin', 'PUT', `/admin/file-definitions/${id}`, { contract: updatedContract });
+        expect(updated.status).toBe(200);
+        expect(updated.body.definition.contract).toMatchObject({ encoding: 'utf-8', layout: 'sheets' });
     });
 
     it.each([

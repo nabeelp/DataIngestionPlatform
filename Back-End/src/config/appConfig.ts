@@ -4,45 +4,30 @@
 
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
+import { parseTrustProxyHops } from './proxyTrust';
 dotenv.config();
 
-// Ensure temp directory exists at startup
-const ensureTempDirectory = (): string => {
-    const tempDir = process.env.UPLOAD_TEMP_DIR || path.join(process.cwd(), 'temp');
-    if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-    }
-    return tempDir;
-};
-
-// Initialize temp directory immediately
-const TEMP_DIR = ensureTempDirectory();
-
-const isRedisEnabled = (): boolean => {
-    const value = process.env.REDIS_ENABLED;
-    if (value === undefined) return (process.env.NODE_ENV || 'development') !== 'development';
-    if (value !== 'true' && value !== 'false') {
-        throw new Error('REDIS_ENABLED must be true or false');
-    }
-    return value === 'true';
-};
+const deliveryProvider = process.env.DELIVERY_PROVIDER ?? 'local';
+if (deliveryProvider !== 'local' && deliveryProvider !== 'azure') {
+    throw new Error('DELIVERY_PROVIDER must be either "local" or "azure".');
+}
 
 export const appConfig = {
     // Server
     port: process.env.PORT || 3000,
     nodeEnv: process.env.NODE_ENV || 'development',
+    trustProxyHops: parseTrustProxyHops(process.env.TRUST_PROXY_HOPS),
 
     // Database
     database: {
         connectionString: process.env.DB_CONNECTION_STRING || '',
+        server: process.env.DB_SERVER || '',
+        database: process.env.DB_DATABASE || '',
     },
 
     // JWT Configuration
     jwt: {
         secret: process.env.JWT_SECRET || '',
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h',
-        refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     },
 
     // Microsoft Azure AD SSO Configuration
@@ -61,9 +46,6 @@ export const appConfig = {
     // Security
     security: {
         bcryptRounds: 10,
-        maxLoginAttempts: 5,
-        lockoutDurationMinutes: 30,
-        passwordMinLength: 8,
     },
 
     // Frontend URL for CORS - allow multiple origins for development
@@ -78,69 +60,56 @@ export const appConfig = {
     rateLimit: {
         windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000)),
         maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '1000'),
-        loginMaxAttempts: 5, // limit login attempts
-    },
-
-    // Redis Configuration
-    redis: {
-        enabled: isRedisEnabled(),
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
     },
 
     // Worker Configuration
     workers: {
         validation: {
             concurrency: parseInt(process.env.VALIDATION_WORKER_CONCURRENCY || '5'),
-            maxJobsPerSecond: parseInt(process.env.VALIDATION_WORKER_MAX_JOBS || '10'),
         },
         delivery: {
             concurrency: parseInt(process.env.DELIVERY_WORKER_CONCURRENCY || '5'),
-            maxJobsPerSecond: parseInt(process.env.DELIVERY_WORKER_MAX_JOBS || '10'),
-        },
-        // Job timeout configuration (in milliseconds)
-        // Jobs running longer than this will be failed
-        jobTimeout: parseInt(process.env.JOB_TIMEOUT_MS || '60000'), // default 1 minute
-        // Sandbox limits for the generated code of each Natural Language rule, per upload.
-        ruleSandbox: {
-            timeLimitMs: parseInt(process.env.RULE_SANDBOX_TIME_LIMIT_MS || '20000'),
-            memoryLimitBytes: parseInt(process.env.RULE_SANDBOX_MEMORY_LIMIT_MB || '64') * 1024 * 1024,
         },
     },
 
-    // Azure Storage Configuration
+    // Azure Storage and Foundry Configuration
     azure: {
         foundry: {
-            resource: process.env.AZURE_FOUNDRY_RESOURCE || 'aif-zlyway6g7icoy-0',
-            project: process.env.AZURE_FOUNDRY_PROJECT || 'citadel-governance-project',
+            resource: process.env.AZURE_FOUNDRY_RESOURCE || '',
+            project: process.env.AZURE_FOUNDRY_PROJECT || '',
             model: process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.3-codex',
         },
         storage: {
             connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',
-            containerName: process.env.AZURE_STORAGE_CONTAINER || 'uploads',
-            compressedContainerName: process.env.AZURE_STORAGE_COMPRESSED_CONTAINER || 'compressed',
+            accountUrl: process.env.AZURE_STORAGE_ACCOUNT_URL || '',
+            containerName: process.env.AZURE_STORAGE_UPLOADS_CONTAINER || 'uploads',
+            reportsContainerName: process.env.AZURE_STORAGE_REPORTS_CONTAINER || 'reports',
+            stagingContainerName: process.env.AZURE_STORAGE_STAGING_CONTAINER || 'staging',
+            deliveriesContainerName: process.env.AZURE_STORAGE_DELIVERIES_CONTAINER || 'deliveries',
+            templatesContainerName: process.env.AZURE_STORAGE_TEMPLATES_CONTAINER || 'templates',
         }
     },
 
-    // SharePoint/Local Storage Configuration (Temporary replacement for Azure)
-    sharePoint: {
-        enabled: process.env.SHAREPOINT_ENABLED === 'true' || process.env.STORAGE_PROVIDER === 'sharepoint',
-        localPath: process.env.SHAREPOINT_LOCAL_PATH || path.join(process.cwd(), 'sharepoint'),
+    rulesService: {
+        url: process.env.RULES_SERVICE_URL || 'http://localhost:8000',
+        internalKey: process.env.RULES_SERVICE_DEV_KEY || '',
+        aadScope: process.env.RULES_SERVICE_AAD_SCOPE || '',
+        timeoutMs: parseInt(process.env.RULES_SERVICE_TIMEOUT_MS || '30000', 10),
     },
 
-    // Storage Provider Configuration
-    storage: {
-        provider: process.env.STORAGE_PROVIDER || 'sharepoint', // 'azure' or 'sharepoint'
+    serviceBus: {
+        connectionString: process.env.SERVICEBUS_CONNECTION_STRING || '',
+        namespace: process.env.SERVICEBUS_NAMESPACE || '',
+        validationQueue: process.env.SERVICEBUS_VALIDATION_QUEUE || 'validation-requests',
+        eventsTopic: process.env.SERVICEBUS_EVENTS_TOPIC || 'validation-events',
+        eventsSubscription: process.env.SERVICEBUS_EVENTS_SUBSCRIPTION || 'api',
+        deliveryQueue: process.env.SERVICEBUS_DELIVERY_QUEUE || 'delivery-requests',
+        deliveryRetryBaseMs: parseInt(process.env.SERVICEBUS_DELIVERY_RETRY_BASE_MS || '5000', 10),
     },
 
     // Stats Configuration
     stats: {
         cacheTtl: parseInt(process.env.STATS_CACHE_TTL || '300'), // seconds
-        healthThresholds: {
-            warning: 80,
-            critical: 50
-        }
     },
 
     // Upload Configuration
@@ -148,11 +117,12 @@ export const appConfig = {
         tempDirectory: process.env.UPLOAD_TEMP_DIR || path.join(process.cwd(), 'temp'),
         maxFileSize: parseInt(process.env.UPLOAD_MAX_FILE_SIZE || '100'), // MB
         // Only tabular formats can be validated against a file definition.
-        allowedExtensions: ['.csv', '.tsv', '.txt', '.xlsx', '.xls'],
+        allowedExtensions: ['.csv', '.tsv', '.txt', '.xlsx', '.xlsm', '.xls', '.xlsb'],
     },
 
     // Optional file-copy delivery. Definition delivery folders are resolved under this root.
     delivery: {
+        provider: deliveryProvider,
         rootPath: process.env.DELIVERY_ROOT_PATH || path.join(process.cwd(), 'deliveries'),
     }
 };

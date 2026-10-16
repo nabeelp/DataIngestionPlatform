@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Back-End
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Back-End/package-lock.json
+      - run: npm ci
+        working-directory: Back-End
+      - run: npm run lint
+        working-directory: Back-End
+      - run: npm run typecheck
+        working-directory: Back-End
+      - run: npm test -- --runInBand
+        working-directory: Back-End
+      - run: npm run build
+        working-directory: Back-End
+      - name: Generated contracts are current
+        run: test -z "$(git status --porcelain -- Back-End/src/contracts)" || (git status --short -- Back-End/src/contracts && git diff -- Back-End/src/contracts && exit 1)
+
+  validation-service:
+    name: Validation-Service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: Validation-Service/uv.lock
+      - run: uv sync --frozen --all-groups
+        working-directory: Validation-Service
+      - run: uv run ruff check src tests
+        working-directory: Validation-Service
+      - run: uv run mypy src
+        working-directory: Validation-Service
+      - run: uv run pytest
+        working-directory: Validation-Service
+
+  frontend:
+    name: Front-End
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Front-End/package-lock.json
+      - run: npm ci
+        working-directory: Front-End
+      - run: npm run lint
+        working-directory: Front-End
+      - run: npm run typecheck
+        working-directory: Front-End
+      - run: npm test
+        working-directory: Front-End
+      - run: npm run build
+        working-directory: Front-End
+      - name: Generated contracts are current
+        run: test -z "$(git status --porcelain -- Front-End/src/contracts)" || (git status --short -- Front-End/src/contracts && git diff -- Front-End/src/contracts && exit 1)
+
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Links resolve, no stale terms, documented settings exist
+        run: node scripts/check-docs.mjs
+      - name: Deployment approval and source gates
+        run: node --test .github/scripts/verify-deployment-commit.test.cjs
+
+  infrastructure:
+    name: Azure Bicep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bicep CLI
+        run: az bicep install
+      - name: Build Bicep templates and parameters
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep build --file infra/modules/apps.bicep --stdout > /dev/null
+          az bicep build-params --file infra/main.bicepparam --stdout > /dev/null

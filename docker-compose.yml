@@ -1,0 +1,98 @@
+name: data-ingestion-platform
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: data-ingestion-sql
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA:?Set ACCEPT_EULA=Y after reviewing the local SQL Server license}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in Back-End/.env}
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+      - ./Back-End/database:/var/opt/mssql/scripts:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    container_name: data-ingestion-azurite
+    command:
+      - azurite
+      - --blobHost
+      - 0.0.0.0
+      - --queueHost
+      - 0.0.0.0
+      - --skipApiVersionCheck
+      - --tableHost
+      - 0.0.0.0
+      - --location
+      - /data
+      - --loose
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const net=require('net');const s=net.connect(10000,'127.0.0.1');s.on('connect',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  servicebus-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: data-ingestion-servicebus-sql
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA:?Set ACCEPT_EULA=Y after reviewing the local SQL Server license}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in Back-End/.env}
+    volumes:
+      - servicebus-sql-data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:1.1.2
+    container_name: servicebus-emulator
+    depends_on:
+      servicebus-sql:
+        condition: service_healthy
+    environment:
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in Back-End/.env}
+      ACCEPT_EULA: ${ACCEPT_EULA:?Set ACCEPT_EULA=Y after reviewing the local emulator license}
+      EMULATOR_HTTP_PORT: ${SERVICEBUS_EMULATOR_HTTP_PORT:-5300}
+      SQL_WAIT_INTERVAL: ${SQL_WAIT_INTERVAL:-15}
+    ports:
+      - "5672:5672"
+      - "${SERVICEBUS_EMULATOR_HTTP_PORT:-5300}:${SERVICEBUS_EMULATOR_HTTP_PORT:-5300}"
+    volumes:
+      - ./servicebus-emulator/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data:
+  azurite-data:
+  servicebus-sql-data:

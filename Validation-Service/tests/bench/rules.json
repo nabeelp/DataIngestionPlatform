@@ -1,0 +1,134 @@
+[
+  {
+    "id": "amount-range",
+    "name": "Amount range",
+    "description": "Amount is between zero and one million.",
+    "severity": "Error",
+    "executionOrder": 1,
+    "enabled": true,
+    "table": null,
+    "type": "range",
+    "params": { "column": "Amount", "min": 0, "max": 1000000 }
+  },
+  {
+    "id": "discount-range",
+    "name": "Discount range",
+    "description": "Discount is between zero and one.",
+    "severity": "Error",
+    "executionOrder": 2,
+    "enabled": true,
+    "table": null,
+    "type": "range",
+    "params": { "column": "Discount", "min": 0, "max": 1 }
+  },
+  {
+    "id": "currency-enum",
+    "name": "Currency enum",
+    "description": "Currency is supported.",
+    "severity": "Error",
+    "executionOrder": 3,
+    "enabled": true,
+    "table": null,
+    "type": "enum",
+    "params": { "column": "Currency", "values": ["USD", "EUR", "GBP", "ZAR"], "caseSensitive": true, "trim": true }
+  },
+  {
+    "id": "status-enum",
+    "name": "Status enum",
+    "description": "Status is supported.",
+    "severity": "Error",
+    "executionOrder": 4,
+    "enabled": true,
+    "table": null,
+    "type": "enum",
+    "params": { "column": "Status", "values": ["Paid", "Pending", "Refunded", "Failed"] }
+  },
+  {
+    "id": "country-pattern",
+    "name": "Country pattern",
+    "description": "Country uses two uppercase letters.",
+    "severity": "Error",
+    "executionOrder": 5,
+    "enabled": true,
+    "table": null,
+    "type": "pattern",
+    "params": { "column": "Country", "pattern": "^[A-Z]{2}$" }
+  },
+  {
+    "id": "email-length",
+    "name": "Email length",
+    "description": "Email is at most 254 characters.",
+    "severity": "Error",
+    "executionOrder": 6,
+    "enabled": true,
+    "table": null,
+    "type": "length",
+    "params": { "column": "Email", "min": 3, "max": 254 }
+  },
+  {
+    "id": "id-unique",
+    "name": "Id unique",
+    "description": "Order identifiers are unique.",
+    "severity": "Error",
+    "executionOrder": 7,
+    "enabled": true,
+    "table": null,
+    "type": "unique",
+    "params": { "columns": ["Id"] }
+  },
+  {
+    "id": "country-lookup",
+    "name": "Country lookup",
+    "description": "Country is in the lookup snapshot.",
+    "severity": "Error",
+    "executionOrder": 8,
+    "enabled": true,
+    "table": null,
+    "type": "lookup",
+    "params": { "column": "Country", "lookupId": "country-codes", "caseSensitive": true }
+  },
+  {
+    "id": "ship-not-before-order",
+    "name": "Ship date ordering",
+    "description": "ShipDate is on or after OrderDate.",
+    "severity": "Error",
+    "executionOrder": 9,
+    "enabled": true,
+    "table": null,
+    "type": "compare",
+    "params": { "left": "ShipDate", "op": "ge", "right": "OrderDate", "as": "date" }
+  },
+  {
+    "id": "conditional-reference",
+    "name": "Pending reference required",
+    "description": "Pending orders require a reference.",
+    "severity": "Error",
+    "executionOrder": 10,
+    "enabled": true,
+    "table": null,
+    "type": "conditionalRequired",
+    "params": { "columns": ["Reference"], "when": { "column": "Status", "op": "eq", "value": "Pending" } }
+  },
+  {
+    "id": "row-count",
+    "name": "Minimum row count",
+    "description": "At least one data row is present.",
+    "severity": "Error",
+    "executionOrder": 11,
+    "enabled": true,
+    "table": null,
+    "type": "rowCount",
+    "params": { "min": 1 }
+  },
+  {
+    "id": "amount-total",
+    "name": "Amount total",
+    "description": "The total amount is in the expected range.",
+    "severity": "Error",
+    "executionOrder": 12,
+    "enabled": true,
+    "table": null,
+    "type": "aggregate",
+    "params": { "column": "Amount", "fn": "sum", "min": 1 }
+  }
+]

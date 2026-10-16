@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, History, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, History, UploadCloud, X } from 'lucide-react';
 import {
   getFileDefinitionVersions,
   publishFileDefinitionVersion,
@@ -13,6 +13,7 @@ interface Props {
   definitionName: string;
   onClose: () => void;
   onPublished: (version: DefinitionVersion) => void;
+  embedded?: boolean;
 }
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : '-');
@@ -46,7 +47,21 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
     ? version.tables
     : [{ sheet: null as string | null, columns: version.columns }];
   return (
-    <div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm">
+    <div className="mt-3 space-y-3 text-sm">
+      {version.definitionMetadata ? (
+        <dl className="grid gap-2 rounded border border-gray-200 bg-gray-50 p-3 sm:grid-cols-2">
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Name</dt><dd>{version.definitionMetadata.name}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Status</dt><dd>{version.definitionMetadata.status}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Delivery folder</dt><dd>{version.definitionMetadata.deliveryFolder || 'None'}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase text-gray-500">Reusable template</dt><dd>{version.definitionMetadata.templateFilename || 'None'}</dd></div>
+          {version.definitionMetadata.description && (
+            <div className="sm:col-span-2"><dt className="text-xs font-semibold uppercase text-gray-500">Description</dt><dd>{version.definitionMetadata.description}</dd></div>
+          )}
+        </dl>
+      ) : (
+        <p className="rounded border border-gray-200 bg-gray-50 p-3 text-gray-500">Metadata was not recorded for this legacy version.</p>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-2">
         {tables.map(table => (
           <div key={table.sheet ?? ''}>
@@ -82,11 +97,12 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
           </ul>
         )}
       </div>
+      </div>
     </div>
   );
 }
 
-export default function DefinitionVersionsModal({ definitionId, definitionName, onClose, onPublished }: Props) {
+export default function DefinitionVersionsModal({ definitionId, definitionName, onClose, onPublished, embedded = false }: Props) {
   const [history, setHistory] = useState<DefinitionVersionHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -128,14 +144,24 @@ export default function DefinitionVersionsModal({ definitionId, definitionName, 
   const nextVersion = (history?.versions[0]?.versionNumber ?? 0) + 1;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="versions-title" className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div className={embedded ? '' : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'}>
+      <div
+        {...(embedded ? { role: 'region' } : { role: 'dialog', 'aria-modal': true })}
+        aria-labelledby="versions-title"
+        className={embedded
+          ? 'w-full rounded-lg border border-gray-200 bg-white shadow-sm'
+          : 'bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto'}
+      >
         <div className="flex items-center justify-between p-4 border-b">
           <h2 id="versions-title" className="text-lg font-bold flex items-center gap-2">
             <History size={20} /> Versions: {definitionName}
           </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close versions">
-            <X size={24} />
+          <button
+            onClick={onClose}
+            className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            aria-label={embedded ? 'Back to definition' : 'Close versions'}
+          >
+            {embedded ? <><ArrowLeft size={18} /> Definition</> : <X size={24} />}
           </button>
         </div>
 
@@ -156,6 +182,7 @@ export default function DefinitionVersionsModal({ definitionId, definitionName, 
                       ? `Uploads are still validated against v${active}. Publish to apply these changes to new uploads.`
                       : 'This definition has not been published yet.'}
                   </p>
+                  <ChangeList label="Definition details" changes={history.changes.metadata} />
                   <ChangeList label="Columns" changes={history.changes.columns} />
                   <ChangeList label="Rules" changes={history.changes.rules} />
                   <label htmlFor="changeNote" className="block text-sm font-medium text-gray-700 mt-3 mb-1">

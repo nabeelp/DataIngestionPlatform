@@ -31,7 +31,3 @@ export interface UploadUpdateEvent {
   type: UploadEventType;
   progress?: number;
 }
-
-export type WebsocketEvents =
-  | 'uploadProgress'
-  | 'uploadUpdate';

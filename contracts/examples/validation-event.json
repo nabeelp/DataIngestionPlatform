@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "uploadId": "upload-123",
+  "type": "completed",
+  "stage": "persist",
+  "percent": 100,
+  "summary": { "status": "PASSED", "passed": 5, "failed": 0, "warnings": 0, "rowCount": 100 }
+}

@@ -1,5 +1,5 @@
--- Development only: run after users_schema.sql, seed_local_users.sql,
--- file_definitions_schema.sql, upload_system_tables.sql and sample_file_definitions.sql.
+-- Development only: run after 001_users.sql, seed_local_users.sql, 002_file_definitions.sql,
+-- 003_lookups.sql and the definition seed scripts.
 DECLARE @testUserId NVARCHAR(36) = '1C5E6A9B-BF1F-40E8-99DA-7893A8960CBA';
 DECLARE @adminUserId NVARCHAR(36) = '63BD96E4-1229-4399-8964-0795E50B3574';
 

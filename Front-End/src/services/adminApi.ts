@@ -3,6 +3,8 @@
 // =============================================================================
 
 import { apiConfig } from '../config/api';
+import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../contracts/definition-contract';
+import type { RuleConfig } from '../contracts/rule-config';
 import { apiRequest } from './http';
 
 const getBaseUrl = () => apiConfig.getBaseUrl();
@@ -21,11 +23,20 @@ export interface AdminStats {
   filesInQueue: number;
   filesValidating: number;
   filesDelivering: number;
-  queueStats: {
-    validation: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-    delivery: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-    retry: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  };
+  queueStats: QueueStats;
+  recentUploadThroughput: RecentUploadThroughput;
+}
+
+export interface QueueStats {
+  available: boolean;
+  validation: { activeMessageCount: number; deadLetterMessageCount: number } | null;
+  delivery: { activeMessageCount: number; deadLetterMessageCount: number } | null;
+}
+
+export interface RecentUploadThroughput {
+  windowMinutes: number;
+  uploads: number;
+  uploadsPerMinute: number;
 }
 
 export interface AdminUser {
@@ -52,20 +63,6 @@ export interface AuditLog {
   ipAddress: string | null;
   userAgent: string | null;
   timestamp: string;
-}
-
-export interface ProcessingFile {
-  id: string;
-  originalFilename: string;
-  status: string;
-  uploadedAt: string;
-  definitionName: string | null;
-  uploadedBy: string;
-  progress: number;
-  stage: string;
-  processingTimeMs: number;
-  processingTimeFormatted: string;
-  errorMessage: string | null;
 }
 
 // ============================================================================
@@ -130,15 +127,6 @@ export const getUsers = async (params?: { page?: number; limit?: number; search?
     throw new Error(data.message || 'Failed to fetch users');
   }
   return data;
-};
-
-export const getUserById = async (id: string): Promise<AdminUser> => {
-  const response = await fetch(`${getBaseUrl()}/admin/users/${id}`, getFetchOptions('GET'));
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch user');
-  }
-  return data.user;
 };
 
 export const createUser = async (userData: {
@@ -251,61 +239,22 @@ export const getAuditLogs = async (params?: {
   };
 };
 
-export const getRecentAuditLogs = async (limit: number = 20): Promise<AuditLog[]> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/audit-logs/recent?limit=${limit}`,
-    getFetchOptions('GET')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch recent audit logs');
-  }
-  return data.logs;
-};
-
 // ============================================================================
 // Queue Monitoring
 // ============================================================================
 
 export const getQueueStats = async (): Promise<{
-  validation: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  delivery: { waiting: number; active: number; completed: number; failed: number; delayed: number };
-  retry: { waiting: number; active: number; completed: number; failed: number; delayed: number };
+  stats: QueueStats;
+  recentUploadThroughput: RecentUploadThroughput;
 }> => {
   const response = await fetch(`${getBaseUrl()}/admin/queue-stats`, getFetchOptions('GET'));
   const data = await response.json();
   if (!data.success) {
     throw new Error(data.message || 'Failed to fetch queue stats');
   }
-  return data.stats;
-};
-
-export const getProcessingFiles = async (): Promise<{
-  files: ProcessingFile[];
-  stuckJobs: {
-    validationJobs: Array<{ jobId: string; uploadId: string; stuckDurationMs: number }>;
-    deliveryJobs: Array<{ jobId: string; uploadId: string; stuckDurationMs: number }>;
-  };
-}> => {
-  const response = await fetch(`${getBaseUrl()}/admin/processing-files`, getFetchOptions('GET'));
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch processing files');
-  }
   return {
-    ...data,
-    files: data.files.map((file: any) => ({
-      id: file.id ?? file.Id,
-      originalFilename: file.originalFilename ?? file.OriginalFilename,
-      status: file.status ?? file.Status,
-      uploadedAt: file.uploadedAt ?? file.UploadedAt,
-      definitionName: file.definitionName ?? file.DefinitionName,
-      uploadedBy: file.uploadedBy ?? file.UploadedBy,
-      progress: file.progress,
-      stage: file.stage,
-      processingTimeMs: file.processingTimeMs,
-      processingTimeFormatted: file.processingTimeFormatted,
-    })),
+    stats: data.stats,
+    recentUploadThroughput: data.recentUploadThroughput,
   };
 };
 
@@ -313,17 +262,15 @@ export const getProcessingFiles = async (): Promise<{
 // File Definitions (Admin)
 // ============================================================================
 
-export interface FileDefinitionColumn {
-  name: string;
-  type: string;
-  required: boolean;
-}
+export type FileDefinitionColumn = Pick<ContractColumn, 'name'> & { type: string }
+  & Partial<Omit<ContractColumn, 'name' | 'type'>>
+  & { required: boolean };
 
 /** A table for one workbook sheet (definitions with one table per sheet). */
-export interface FileDefinitionTable {
+export type FileDefinitionTable = Partial<Omit<ContractTable, 'sheet' | 'columns'>> & {
   sheet: string;
   columns: FileDefinitionColumn[];
-}
+};
 
 export interface FileDefinitionAdmin {
   id: string;
@@ -333,6 +280,8 @@ export interface FileDefinitionAdmin {
   columns: FileDefinitionColumn[];
   /** One table per workbook sheet; empty for single-table definitions. */
   tables?: FileDefinitionTable[];
+  /** Full validation contract. Optional while older definitions are being migrated. */
+  contract?: DefinitionContract | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -362,11 +311,21 @@ export interface DefinitionVersion {
   status: 'Active' | 'Superseded';
   columns: FileDefinitionColumn[];
   tables?: FileDefinitionTable[];
+  contract?: DefinitionContract;
   rules: DefinitionVersionRule[];
+  definitionMetadata: DefinitionMetadataSnapshot | null;
   changeNote: string | null;
   createdByName: string | null;
   activatedAt: string;
   supersededAt: string | null;
+}
+
+export interface DefinitionMetadataSnapshot {
+  name: string;
+  description: string;
+  status: 'Active' | 'Inactive';
+  deliveryFolder: string | null;
+  templateFilename: string | null;
 }
 
 export interface ContractChanges {
@@ -378,7 +337,7 @@ export interface ContractChanges {
 export interface DefinitionVersionHistory {
   activeVersionNumber: number | null;
   hasUnpublishedChanges: boolean;
-  changes: { columns: ContractChanges; rules: ContractChanges };
+  changes: { metadata: ContractChanges; columns: ContractChanges; rules: ContractChanges };
   versions: DefinitionVersion[];
 }
 
@@ -451,6 +410,13 @@ export const publishFileDefinitionVersion = async (definitionId: string, changeN
   return data.version;
 };
 
+export const removeTemplate = async (definitionId: string): Promise<void> => {
+  await apiRequest<{ success: true }>(
+    `/admin/file-definitions/${encodeURIComponent(definitionId)}/template`,
+    { method: 'DELETE' }
+  );
+};
+
 export const getFileDefinitionsAdmin = async (): Promise<{
   definitions: FileDefinitionAdmin[];
   total: number;
@@ -468,9 +434,10 @@ export const createFileDefinitionAdmin = async (defData: {
   description?: string;
   columns: FileDefinitionColumn[];
   tables?: FileDefinitionTable[];
+  contract?: DefinitionContract;
   status?: string;
   deliveryFolder?: string | null;
-  rules?: InitialRule[];
+  rules?: Array<InitialRule | RuleConfig>;
 }): Promise<FileDefinitionAdmin> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions`,
@@ -490,10 +457,15 @@ export const updateFileDefinitionAdmin = async (
     description?: string;
     columns?: FileDefinitionColumn[];
     tables?: FileDefinitionTable[];
+    contract?: DefinitionContract;
+    /** The complete rule set; rules missing from it are deleted. Requires `contract`. */
+    rules?: RuleConfig[];
+    /** The revision the editor loaded; the save fails with a conflict when the draft has changed since. */
+    revision?: string | null;
     status?: string;
     deliveryFolder?: string | null;
   }
-): Promise<FileDefinitionAdmin> => {
+): Promise<FileDefinitionAdmin & { revision?: string | null }> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions/${id}`,
     getFetchOptions('PUT', updates)
@@ -502,7 +474,7 @@ export const updateFileDefinitionAdmin = async (
   if (!data.success) {
     throw new Error(data.message || 'Failed to update file definition');
   }
-  return data.definition;
+  return { ...data.definition, revision: data.revision ?? null };
 };
 
 export const deleteFileDefinitionAdmin = async (id: string): Promise<void> => {
@@ -599,61 +571,6 @@ export const getFileDefinitionUserCounts = async (): Promise<Record<string, numb
     throw new Error(data.message || 'Failed to fetch user counts');
   }
   return data.counts;
-};
-
-// ============================================================================
-// User File Definitions Management (Admin)
-// ============================================================================
-
-/**
- * Get file definitions for specific user
- */
-export const getUserFileDefinitions = async (userId: string): Promise<{ definitions: FileDefinitionAdmin[] }> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${userId}/file-definitions`,
-    getFetchOptions('GET')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch user file definitions');
-  }
-  return data;
-};
-
-/**
- * Assign file definitions to user
- */
-export const assignFileDefinitionsToUser = async (
-  userId: string,
-  definitionIds: string[]
-): Promise<{ definitions: FileDefinitionAdmin[] }> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${userId}/file-definitions`,
-    getFetchOptions('POST', { fileDefinitionIds: definitionIds })
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to assign file definitions to user');
-  }
-  return data;
-};
-
-/**
- * Remove file definition from user
- */
-export const removeFileDefinitionFromUser = async (
-  userId: string,
-  definitionId: string
-): Promise<{ definitions: FileDefinitionAdmin[] }> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${userId}/file-definitions/${definitionId}`,
-    getFetchOptions('DELETE')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to remove file definition from user');
-  }
-  return data;
 };
 
 // ============================================================================

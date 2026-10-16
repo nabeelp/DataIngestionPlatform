@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getFileDefinitionVersions, publishFileDefinitionVersion } from './adminApi';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import { createFileDefinitionAdmin, getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion, removeTemplate } from './adminApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -11,19 +12,87 @@ const stubFetch = (status: number, body: unknown) => {
 };
 
 describe('definition version API', () => {
+  it('sends the fixed validation contract when creating a definition', async () => {
+    const fetchMock = stubFetch(201, { success: true, definition: { id: 'def-1' } });
+    const contract: DefinitionContract = {
+      schemaVersion: 1,
+      layout: 'single',
+      ignoredSheets: ['Notes'],
+      encoding: 'utf-8',
+      tables: [{
+        sheet: null,
+        headerRow: 2,
+        allowExtraColumns: false,
+        minRows: 1,
+        maxRows: 20,
+        columns: [{
+          name: 'Amount',
+          type: 'decimal' as const,
+          mustExist: true,
+          nullable: false,
+          decimalSeparator: ',',
+          thousandsSeparator: '.',
+          precision: 10,
+          scale: 2,
+          maxLength: 12,
+          unique: true,
+        }],
+      }],
+      rules: [],
+      lookups: {},
+    };
+
+    await createFileDefinitionAdmin({
+      name: 'Transactions',
+      columns: [{ name: 'Amount', type: 'decimal', required: true }],
+      contract,
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body).contract).toEqual(contract);
+  });
+
   it('loads the version history and draft changes for a definition', async () => {
     const fetchMock = stubFetch(200, {
       success: true,
       activeVersionNumber: 2,
       hasUnpublishedChanges: true,
-      changes: { columns: { added: ['Email'], removed: [], changed: [] }, rules: { added: [], removed: [], changed: [] } },
+      changes: {
+        metadata: { added: [], removed: [], changed: ['Description'] },
+        columns: { added: ['Email'], removed: [], changed: [] },
+        rules: { added: [], removed: [], changed: [] },
+      },
       versions: [{ id: 'v2', versionNumber: 2, status: 'Active' }],
+    });
+
+    describe('queue monitoring API', () => {
+      it('returns Service Bus availability and SQL upload throughput', async () => {
+        stubFetch(200, {
+          success: true,
+          stats: { available: false, validation: null, delivery: null },
+          recentUploadThroughput: { windowMinutes: 60, uploads: 12, uploadsPerMinute: 0.2 },
+        });
+
+        await expect(getQueueStats()).resolves.toEqual({
+          stats: { available: false, validation: null, delivery: null },
+          recentUploadThroughput: { windowMinutes: 60, uploads: 12, uploadsPerMinute: 0.2 },
+        });
+      });
     });
 
     const history = await getFileDefinitionVersions('def/1');
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/admin/file-definitions/def%2F1/versions');
     expect(history).toMatchObject({ activeVersionNumber: 2, hasUnpublishedChanges: true, versions: [{ versionNumber: 2 }] });
+  });
+
+  it('removes a reusable template from the definition draft', async () => {
+    const fetchMock = stubFetch(200, { success: true });
+
+    await removeTemplate('def/1');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/admin/file-definitions/def%2F1/template');
+    expect(fetchMock.mock.calls[0][1].method).toBe('DELETE');
   });
 
   it('publishes the draft with a change note', async () => {

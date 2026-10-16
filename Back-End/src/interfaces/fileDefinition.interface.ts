@@ -3,13 +3,14 @@
 // =============================================================================
 
 import type { ContractSnapshot } from '../services/validation/DefinitionContract';
+import type { DefinitionContract } from '../contracts/definition-contract';
 
 /**
  * Column definition for a file definition
  */
 export interface IColumn {
     name: string;
-    type: 'string' | 'integer' | 'decimal' | 'datetime' | 'boolean';
+    type: 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
     required: boolean;
 }
 
@@ -28,6 +29,7 @@ export interface IFileDefinition {
     Id: string;
     Name: string;
     Description: string;
+    Contract: DefinitionContract;
     /** Single-table columns; empty when the definition has sheet tables. */
     Columns: IColumn[];
     /** One table per workbook sheet; empty (or absent) for single-table definitions. */
@@ -35,7 +37,7 @@ export interface IFileDefinition {
     Status: 'Active' | 'Inactive';
     CreatedAt: Date;
     UpdatedAt: Date;
-    TemplateFilename?: string;
+    TemplateFilename?: string | null;
     /** Optional delivery folder relative to DELIVERY_ROOT_PATH */
     DeliveryFolder?: string | null;
     // User access (populated when fetching)
@@ -59,6 +61,7 @@ export interface IFileDefinitionUser {
 export interface ICreateFileDefinitionDto {
     Name: string;
     Description: string;
+    Contract?: DefinitionContract;
     Columns: IColumn[];
     Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
@@ -73,18 +76,12 @@ export interface ICreateFileDefinitionDto {
 export interface IUpdateFileDefinitionDto {
     Name?: string;
     Description?: string;
+    Contract?: DefinitionContract;
     Columns?: IColumn[];
     Tables?: ITable[];
     Status?: 'Active' | 'Inactive';
-    TemplateFilename?: string;
+    TemplateFilename?: string | null;
     DeliveryFolder?: string | null;
-}
-
-/**
- * Add users to file definition DTO
- */
-export interface IAddUsersToDefinitionDto {
-    UserIds: string[];
 }
 
 /**
@@ -95,14 +92,24 @@ export interface IFileDefinitionVersion {
     FileDefinitionId: string;
     VersionNumber: number;
     Status: 'Active' | 'Superseded';
+    Contract: DefinitionContract;
     Columns: ContractSnapshot['columns'];
     Tables: ContractSnapshot['tables'];
     Rules: ContractSnapshot['rules'];
+    DefinitionMetadata: IDefinitionMetadataSnapshot | null;
     ChangeNote: string | null;
     CreatedBy: string | null;
     CreatedByName: string | null;
     ActivatedAt: Date;
     SupersededAt: Date | null;
+}
+
+export interface IDefinitionMetadataSnapshot {
+    name: string;
+    description: string;
+    status: 'Active' | 'Inactive';
+    deliveryFolder: string | null;
+    templateFilename: string | null;
 }
 
 /**
@@ -121,4 +128,3 @@ export interface IDefinitionResponse {
     success: boolean;
     definition: IFileDefinition;
 }
-

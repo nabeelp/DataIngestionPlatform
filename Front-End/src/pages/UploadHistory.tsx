@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, History } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, History } from 'lucide-react';
 import { apiConfig } from '../config/api';
 import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
@@ -20,17 +20,19 @@ interface Upload {
   size: number;
   uploadedAt: string;
   deliveredTo: string | null;
+  definitionName: string;
+  definitionVersion: number | null;
 }
 
 // ============================================================================
 // API Functions
 // ============================================================================
 
-const fetchUploads = async (): Promise<Upload[]> => {
+const fetchUploads = async (page: number): Promise<{ uploads: Upload[]; total: number }> => {
   const baseUrl = apiConfig.getBaseUrl();
   const token = localStorage.getItem('token');
   
-  const response = await fetch(`${baseUrl}/uploads?pageSize=100`, {
+  const response = await fetch(`${baseUrl}/uploads?page=${page}&pageSize=20`, {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': token ? `Bearer ${token}` : '',
@@ -44,18 +46,23 @@ const fetchUploads = async (): Promise<Upload[]> => {
   const data = await response.json();
   
   if (data.success && data.uploads) {
-    return data.uploads.map((upload: any) => ({
-      id: upload.Id || upload.id,
-      filename: upload.OriginalFilename || upload.originalFilename,
-      status: mapStatusToDisplay(upload.Status || upload.status),
-      statusCode: upload.Status || upload.status,
-      size: upload.FileSize || upload.fileSize || 0,
-      uploadedAt: upload.UploadedAt || upload.uploadedAt,
-      deliveredTo: upload.DeliveredTo || upload.deliveredTo || null,
-    }));
+    return {
+      uploads: data.uploads.map((upload: any) => ({
+        id: upload.Id || upload.id,
+        filename: upload.OriginalFilename || upload.originalFilename,
+        status: mapStatusToDisplay(upload.Status || upload.status),
+        statusCode: upload.Status || upload.status,
+        size: upload.FileSize || upload.fileSize || 0,
+        uploadedAt: upload.UploadedAt || upload.uploadedAt,
+        deliveredTo: upload.DeliveredTo || upload.deliveredTo || null,
+        definitionName: upload.DefinitionName || upload.definitionName || 'Unknown definition',
+        definitionVersion: upload.DefinitionVersionNumber || upload.definitionVersionNumber || null,
+      })),
+      total: data.total ?? data.uploads.length,
+    };
   }
   
-  return [];
+  return { uploads: [], total: 0 };
 };
 
 // ============================================================================
@@ -88,39 +95,40 @@ export default function UploadHistory() {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // WebSocket live updates
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleUploadUpdate = (event: UploadUpdateEvent) => {
-      if (event.type === 'VALIDATION_UPDATE') return;
-      loadUploads(); // Refresh list live
-    };
-
-    socket.on('uploadUpdate', handleUploadUpdate);
-    return () => {
-      socket.off('uploadUpdate', handleUploadUpdate);
-    };
-  }, [socket]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const loadUploads = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchUploads();
-      setUploads(data);
+      const data = await fetchUploads(page);
+      setUploads(data.uploads);
+      setTotal(data.total);
     } catch (err) {
       console.error('Error fetching uploads:', err);
       setError(err instanceof Error ? err.message : 'Failed to load uploads');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     loadUploads();
   }, [loadUploads]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUploadUpdate = (event: UploadUpdateEvent) => {
+      if (event.type !== 'VALIDATION_UPDATE') loadUploads();
+    };
+
+    socket.on('uploadUpdate', handleUploadUpdate);
+    return () => {
+      socket.off('uploadUpdate', handleUploadUpdate);
+    };
+  }, [socket, loadUploads]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -232,6 +240,7 @@ export default function UploadHistory() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Filename</th>
+                  <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Definition</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Uploaded At</th>
@@ -243,6 +252,10 @@ export default function UploadHistory() {
                 {uploads.map((upload) => (
                   <tr key={upload.id} className="hover:bg-gray-50">
                     <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{upload.filename}</td>
+                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {upload.definitionName}
+                      <span className="ml-1 text-xs text-gray-400">{upload.definitionVersion ? `v${upload.definitionVersion}` : 'Unversioned'}</span>
+                    </td>
                     <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(upload.status)}`}>
                         {upload.status}
@@ -261,6 +274,29 @@ export default function UploadHistory() {
               </tbody>
             </table>
           </div>
+          {total > 20 && (
+            <nav aria-label="Upload history pages" className="flex items-center justify-between border-t border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Page {page} of {Math.ceil(total / 20)} · {total} uploads</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page === 1}
+                  onClick={() => setPage(current => Math.max(1, current - 1))}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-md border border-gray-300 px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  <ChevronLeft size={16} /> Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= Math.ceil(total / 20)}
+                  onClick={() => setPage(current => current + 1)}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-md border border-gray-300 px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  Next <ChevronRight size={16} />
+                </button>
+              </div>
+            </nav>
+          )}
         </div>
       )}
     </div>

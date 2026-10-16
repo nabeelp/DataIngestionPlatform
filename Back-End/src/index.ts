@@ -2,6 +2,7 @@
 // Main Entry Point - Express API, Socket.IO, and upload workers
 // =============================================================================
 
+import { shutdownTelemetry } from './telemetry';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -11,6 +12,7 @@ import http from 'http';
 import crypto from 'crypto';
 import client from 'prom-client';
 import { appConfig } from './config/appConfig';
+import { configureProxyTrust } from './config/proxyTrust';
 import { logger } from './utils/logger';
 import indexRoutes from './routes/index';
 import { errorHandler } from './middleware/errorHandler';
@@ -19,6 +21,7 @@ import { initSocket, closeSocket } from './websocket/socketServer';
 dotenv.config();
 
 const app: Express = express();
+configureProxyTrust(app, appConfig.trustProxyHops);
 const httpServer = http.createServer(app);
 initSocket(httpServer);
 
@@ -95,7 +98,9 @@ let shuttingDown = false;
 const startServer = async () => {
     const missingConfig = [
         !appConfig.jwt.secret.trim() && 'JWT_SECRET',
-        !appConfig.database.connectionString.trim() && 'DB_CONNECTION_STRING',
+        !appConfig.database.connectionString.trim() &&
+            (!appConfig.database.server.trim() || !appConfig.database.database.trim()) &&
+            'DB_CONNECTION_STRING or DB_SERVER and DB_DATABASE',
     ].filter(Boolean);
     if (missingConfig.length) {
         throw new Error(`Missing required configuration: ${missingConfig.join(', ')}`);
@@ -104,28 +109,14 @@ const startServer = async () => {
         logger.warn('DEV_BYPASS_AUTH is ignored outside NODE_ENV=development');
     }
 
-    const { cacheService } = await import('./services/Cache.service');
-    await cacheService.initialize();
-    const { initializeQueues } = await import('./services/Queue.service');
-    await initializeQueues();
-    const { initializeValidationWorker } = await import('./services/ValidationWorker.service');
-    const validationWorker = initializeValidationWorker();
-    const { initializeDeliveryWorker } = await import('./services/DeliveryWorker.service');
-    const deliveryWorker = initializeDeliveryWorker();
-    if (appConfig.redis.enabled) {
-        let timeout: NodeJS.Timeout | undefined;
-        try {
-            await Promise.race([
-                Promise.all([validationWorker.waitUntilReady(), deliveryWorker.waitUntilReady()]),
-                new Promise<never>((_, reject) => {
-                    timeout = setTimeout(() => reject(new Error('Redis workers did not become ready within 5 seconds')), 5000);
-                })
-            ]);
-        } finally {
-            if (timeout) clearTimeout(timeout);
-        }
-    }
-    logger.info('Cache, queues, and upload workers initialized successfully');
+    const { serviceBusService } = await import('./services/ServiceBus.service');
+    const { UploadService } = await import('./services/Upload.service');
+    const { processDeliveryRequest } = await import('./services/DeliveryWorker.service');
+    await serviceBusService.initialize(
+        event => UploadService.handleValidationEvent(event),
+        request => processDeliveryRequest(request),
+    );
+    logger.info('Service Bus receivers initialized successfully');
 
     httpServer.listen(PORT, '0.0.0.0', () => {
         logger.info(`Server running on port ${PORT} (${appConfig.nodeEnv})`);
@@ -146,16 +137,20 @@ const shutdown = async (signal: string) => {
     try {
         // Closing Socket.IO also closes the HTTP server, so new requests stop first.
         await closeSocket();
-        const { closeAllQueues } = await import('./services/Queue.service');
-        await closeAllQueues();
-        const { cacheService } = await import('./services/Cache.service');
-        await cacheService.close();
+        const { serviceBusService } = await import('./services/ServiceBus.service');
+        await serviceBusService.close();
         const { closeConnection } = await import('./config/database');
         await closeConnection();
         logger.info('Shutdown complete');
+        await shutdownTelemetry();
         process.exit(0);
     } catch (error) {
         logger.error('Error during shutdown', error);
+        try {
+            await shutdownTelemetry();
+        } catch {
+            process.stderr.write('[TELEMETRY] Could not flush telemetry during shutdown.\n');
+        }
         process.exit(1);
     }
 };
@@ -163,7 +158,12 @@ const shutdown = async (signal: string) => {
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-startServer().catch(error => {
+startServer().catch(async error => {
     logger.error('Startup failed; upload processing is unavailable:', error);
+    try {
+        await shutdownTelemetry();
+    } catch {
+        process.stderr.write('[TELEMETRY] Could not flush telemetry after startup failure.\n');
+    }
     process.exit(1);
 });

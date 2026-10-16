@@ -6,7 +6,6 @@ import AdminDashboard from './pages/AdminDashboard';
 import Upload from './pages/Upload';
 import UploadHistory from './pages/UploadHistory';
 import UploadDetails from './pages/UploadDetails';
-import Rules from './pages/Rules';
 import Definitions from './pages/Definitions';
 import Lookups from './pages/Lookups';
 import AdminUsers from './pages/admin/Users';
@@ -89,7 +88,6 @@ function App() {
         <Route path="upload" element={<Upload />} />
         <Route path="history" element={<UploadHistory />} />
         <Route path="history/:id" element={<UploadDetails />} />
-        <Route path="rules" element={<Rules />} />
         <Route path="definitions" element={<Definitions />} />
         <Route path="lookups" element={<Lookups />} />
       </Route>
@@ -109,13 +107,12 @@ function App() {
         <Route path="upload" element={<Upload />} />
         <Route path="definitions" element={<Definitions />} />
         <Route path="users" element={<AdminUsers />} />
-        <Route path="file-definitions" element={<AdminFileDefinitions />} />
+        <Route path="file-definitions/*" element={<AdminFileDefinitions />} />
         <Route path="audit-logs" element={<AuditLogs />} />
         <Route path="monitoring" element={<Monitoring />} />
         <Route path="compliance" element={<Compliance />} />
         <Route path="history" element={<UploadHistory />} />
         <Route path="history/:id" element={<UploadDetails />} />
-        <Route path="rules" element={<Rules />} />
         <Route path="lookups" element={<Lookups />} />
       </Route>
 
@@ -135,4 +132,3 @@ function App() {
 }
 
 export default App;
-

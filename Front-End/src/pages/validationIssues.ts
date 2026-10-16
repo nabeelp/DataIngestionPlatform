@@ -5,11 +5,19 @@ export interface ValidationIssue {
   value: string;
 }
 
-export const getValidationIssueCount = (
-  status: 'Passed' | 'Failed' | 'Warning',
-  errorCount: number | null | undefined,
-  warningCount: number | null | undefined,
-): number => status === 'Warning' ? warningCount ?? 0 : errorCount ?? 0;
+export type ValidationCheckStatus = 'Passed' | 'Failed' | 'Warning' | 'Error' | 'Pending' | 'In Progress' | 'Unknown';
+
+export const mapValidationCheckStatus = (status: string): ValidationCheckStatus => {
+  const statuses: Record<string, ValidationCheckStatus> = {
+    PASSED: 'Passed',
+    FAILED: 'Failed',
+    WARNING: 'Warning',
+    ERROR: 'Error',
+    PENDING: 'Pending',
+    IN_PROGRESS: 'In Progress',
+  };
+  return statuses[status] ?? 'Unknown';
+};
 
 const asDisplayText = (value: unknown): string => {
   if (value === null || value === undefined) {
@@ -36,7 +44,7 @@ export const parseValidationIssues = (failedRows: unknown): ValidationIssue[] =>
       }
 
       const record = issue as Record<string, unknown>;
-      const rawRowNumber = record.row ?? record.row_num ?? record.RowNumber;
+      const rawRowNumber = record.row;
       const rowNumber = typeof rawRowNumber === 'number'
         ? rawRowNumber
         : typeof rawRowNumber === 'string' && rawRowNumber.trim() !== ''
@@ -45,8 +53,8 @@ export const parseValidationIssues = (failedRows: unknown): ValidationIssue[] =>
 
       return [{
         column: asDisplayText(record.column),
-        error: asDisplayText(record.error),
-        rowNumber: rowNumber !== undefined && Number.isFinite(rowNumber) ? rowNumber : undefined,
+        error: asDisplayText(record.message),
+        rowNumber: rowNumber !== undefined && Number.isInteger(rowNumber) && rowNumber > 0 ? rowNumber : undefined,
         value: asDisplayText(record.value),
       }];
     });

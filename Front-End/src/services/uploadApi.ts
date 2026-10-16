@@ -38,8 +38,6 @@ export interface IUpload {
   AzureBlobUrl: string | null;
   FileSize: number;
   FileType: string;
-  CompressedFileSize: number | null;
-  CompressedBlobUrl: string | null;
   RowCountNo: number | null;
   SheetCount: number | null;
   Status: UploadStatus;
@@ -48,9 +46,6 @@ export interface IUpload {
   ValidationCompletedAt: string | null;
   DeliveryStartedAt: string | null;
   DeliveryCompletedAt: string | null;
-  ValidationJobId: string | null;
-  DeliveryJobId: string | null;
-  ProcessingNode: string | null;
   DeliveredTo: string | null;
   DeliveredAt: string | null;
   ErrorMessage: string | null;
@@ -99,13 +94,11 @@ export interface IValidationRuleDetail {
   RuleType: string;
   RuleSeverity: string;
   ExecutionOrder: number;
-  Status: 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'WARNING';
-  ExecutionTimeMs: number | null;
-  ErrorCount: number;
-  WarningCount: number;
-  FailedRows: string | null;
-  FailedRowsCount: number;
-  SampleErrorValue: string | null;
+  Status: 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'WARNING' | 'ERROR';
+  IssueCount: number;
+  Issues: string;
+  ElapsedMs: number;
+  Sheet?: string | null;
   StartedAt: string | null;
   CompletedAt: string | null;
 }
@@ -114,7 +107,7 @@ export interface IDeliveryRecord {
   Id: string;
   UploadId: string;
   UploadSheetId: string | null;
-  DeliveryType: 'FabricLakehouse' | 'SQLTable' | 'SharePoint';
+  DeliveryType: 'FileCopy' | 'AzureBlob' | 'FabricLakehouse' | 'SharePoint';
   DestinationPath: string;
   DestinationName: string | null;
   Status: 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'FAILED';
@@ -136,33 +129,6 @@ export interface IUploadsResponse {
 export interface IUploadResponse {
   success: boolean;
   upload: IUpload;
-}
-
-export interface IUploadDetailResponse {
-  success: boolean;
-  upload: IUpload;
-  sheets: IUploadSheet[];
-  validationResult: IValidationResult | null;
-  ruleDetails: IValidationRuleDetail[];
-  deliveryRecords: IDeliveryRecord[];
-}
-
-export interface IUploadProgressResponse {
-  success: boolean;
-  uploadId: string;
-  status: UploadStatus;
-  progress: {
-    validation: {
-      percent: number;
-      currentRule: string | null;
-      passedRules: number;
-      totalRules: number;
-    } | null;
-    delivery: {
-      percent: number;
-      recordsDelivered: number;
-    } | null;
-  };
 }
 
 export interface IApiError {
@@ -194,34 +160,6 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
 // ============================================================================
 
 /**
- * Get all uploads accessible to the user
- */
-export const getUploads = async (params?: {
-  page?: number;
-  pageSize?: number;
-  status?: string;
-}): Promise<IUploadsResponse> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const queryParams = new URLSearchParams();
-  
-  if (params?.page) queryParams.set('page', params.page.toString());
-  if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
-  if (params?.status) queryParams.set('status', params.status);
-
-  const url = `${baseUrl}/uploads${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-  
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
-  });
-
-  return handleResponse<IUploadsResponse>(response);
-};
-
-/**
  * Get recent uploads for dashboard
  */
 export const getRecentUploads = async (limit: number = 10): Promise<IUploadsResponse> => {
@@ -237,36 +175,75 @@ export const getRecentUploads = async (limit: number = 10): Promise<IUploadsResp
   return handleResponse<IUploadsResponse>(response);
 };
 
-/**
- * Get single upload details
- */
-export const getUploadById = async (id: string): Promise<IUploadDetailResponse> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const response = await fetch(`${baseUrl}/uploads/${id}`, {
+/** Download via the API so upload access checks and bearer authentication are preserved. */
+export const downloadUploadReport = async (id: string): Promise<void> => {
+  const response = await fetch(`${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(id)}/report`, {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
+    headers: getAuthHeaders(),
   });
 
-  return handleResponse<IUploadDetailResponse>(response);
+  if (!response.ok) {
+    let message = `Failed to download issues report (HTTP ${response.status})`;
+    if (response.headers.get('Content-Type')?.includes('application/json')) {
+      const error: unknown = await response.json();
+      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        message = error.message || message;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const filename = response.headers.get('Content-Disposition')
+    ?.match(/filename="([^"]+)"/i)?.[1] ?? `${id}-issues.csv`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  try {
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 };
 
-/**
- * Get upload progress
- */
-export const getUploadProgress = async (id: string): Promise<IUploadProgressResponse> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const response = await fetch(`${baseUrl}/uploads/${id}/progress`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
+/** Download a delivered file through the authenticated API, not a public Blob URL. */
+export const downloadUploadDelivery = async (uploadId: string, deliveryId: string): Promise<void> => {
+  const response = await fetch(
+    `${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(uploadId)}/deliveries/${encodeURIComponent(deliveryId)}`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
     },
-  });
+  );
 
-  return handleResponse<IUploadProgressResponse>(response);
+  if (!response.ok) {
+    let message = `Failed to download delivery output (HTTP ${response.status})`;
+    if (response.headers.get('Content-Type')?.includes('application/json')) {
+      const error: unknown = await response.json();
+      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        message = error.message || message;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const filename = response.headers.get('Content-Disposition')
+    ?.match(/filename="([^"]+)"/i)?.[1] ?? `${deliveryId}-delivery`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  try {
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 };
 
 /**
@@ -383,10 +360,7 @@ export const canDelete = (status: UploadStatus): boolean => {
 };
 
 export default {
-  getUploads,
   getRecentUploads,
-  getUploadById,
-  getUploadProgress,
   uploadFile,
   startVerification,
   retryValidation,
@@ -396,4 +370,3 @@ export default {
   canRetry,
   canDelete,
 };
-

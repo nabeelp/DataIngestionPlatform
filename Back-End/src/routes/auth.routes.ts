@@ -7,8 +7,7 @@ import { body, query, validationResult } from 'express-validator';
 import { rateLimit } from 'express-rate-limit';
 import { AuthService } from '../services/Auth.service';
 import { buildAuthorizeUrl } from '../services/MicrosoftSso.service';
-import { User } from '../models/User.model';
-import { authenticate, authorize } from '../middleware/authMiddleware';
+import { authenticate } from '../middleware/authMiddleware';
 import { logger } from '../utils/logger';
 import type { SsoProvider } from '../interfaces/user.interface';
 
@@ -90,29 +89,6 @@ router.post(
 );
 
 /**
- * POST /api/auth/refresh
- * Refresh JWT token
- * Headers: Authorization: Bearer <token>
- */
-router.post(
-    '/refresh',
-    async (req: Request, res: Response) => {
-        try {
-            const authHeader = req.headers.authorization;
-            if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                return res.status(401).json({ success: false, message: 'No token provided' });
-            }
-
-            const result = await AuthService.refreshToken(authHeader.substring(7));
-            res.json(result);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Token refresh failed';
-            res.status(401).json({ success: false, message });
-        }
-    }
-);
-
-/**
  * GET /api/auth/sso/url
  * Get SSO authorization URL for redirect. The client keeps `state` and `session` (not in a URL)
  * and sends them back with the authorization code.
@@ -130,62 +106,6 @@ router.get(
             const message = error instanceof Error ? error.message : 'Failed to generate SSO URL';
             logger.warn(`[AUTH] SSO URL generation failed: ${message}`);
             res.status(503).json({ success: false, message });
-        }
-    }
-);
-
-/**
- * POST /api/auth/register
- * Register new user with password (admin only)
- * Body: { Email, Username, Password, FirstName?, LastName?, Role? }
- */
-router.post(
-    '/register',
-    [
-        body('Email').isEmail().normalizeEmail(),
-        body('Username').isLength({ min: 3, max: 50 }),
-        body('Password').isLength({ min: 8 }),
-        body('FirstName').optional().isLength({ max: 100 }),
-        body('LastName').optional().isLength({ max: 100 }),
-        body('Role').optional().isIn(['admin', 'user']),
-    ],
-    validateRequest,
-    authenticate,
-    authorize('admin'),
-    async (req: Request, res: Response) => {
-        try {
-            const { Email, Username, Password, FirstName, LastName, Role } = req.body;
-
-            const existingUser = await User.findByEmail(Email);
-            if (existingUser) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'User with this email already exists'
-                });
-            }
-
-            const passwordHash = await AuthService.hashPassword(Password);
-            const user = await User.create({
-                Email,
-                Username,
-                Password: passwordHash,
-                FirstName,
-                LastName,
-                Role: Role || 'user',
-                IsPasswordAuthEnabled: true,
-                IsSsoAuthEnabled: false,
-            });
-
-            logger.info(`[AUTH] User registered: ${user.Id}`);
-            res.status(201).json({
-                success: true,
-                message: 'User registered successfully',
-                user: AuthService.formatUserResponse(user, 'password'),
-            });
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Registration failed';
-            logger.error('[AUTH] Registration error:', error);
-            res.status(500).json({ success: false, message });
         }
     }
 );

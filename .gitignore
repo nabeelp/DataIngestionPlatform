@@ -14,6 +14,9 @@ coverage/
 !.env.example
 !.env.*.example
 .vscode/
+.azure/*
+!.azure/insights.json
+!.azure/infrastructure-plan.json
 
 # Runtime logs and uploaded files
 logs/
@@ -23,12 +26,17 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 uploads/
-desktop-uploads/
 deliveries/
-Back-End/sharepoint/uploads/
-Back-End/sharepoint/compressed/
+# Live natural-language evaluation reports contain raw model output
+Back-End/eval-results/
 Back-End/temp/*
 !Back-End/temp/.gitkeep
+
+# Python tooling and test artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Test output
 test-results/

@@ -1,8 +1,23 @@
 import path from 'path';
-import { normalizeDeliveryFolder, resolveDeliveryDestination, assertInsideDeliveryRoot, getDeliveryTargets, getDeliveryRoot } from '../src/services/DeliveryTargets.service';
+import { appConfig } from '../src/config/appConfig';
+import {
+    AZURE_BLOB_DELIVERY,
+    normalizeDeliveryFolder,
+    resolveDeliveryDestination,
+    assertInsideDeliveryRoot,
+    assertSafeDeliveryBlobName,
+    getDeliveryTargets,
+    getDeliveryRoot,
+} from '../src/services/DeliveryTargets.service';
 import { sanitizeFilename, assertSafeTemplateName, getTemplateDisplayName } from '../src/services/TemplateStorage.service';
 
 describe('delivery folders', () => {
+    const originalProvider = appConfig.delivery.provider;
+
+    afterEach(() => {
+        appConfig.delivery.provider = originalProvider;
+    });
+
     it('normalizes valid relative folders', () => {
         expect(normalizeDeliveryFolder(' finance\\customers/ ')).toBe('finance/customers');
         expect(normalizeDeliveryFolder('')).toBeNull();
@@ -23,6 +38,20 @@ describe('delivery folders', () => {
         expect(getDeliveryTargets({ DeliveryFolder: null })).toEqual([]);
         expect(getDeliveryTargets({ DeliveryFolder: 'out' })).toEqual([{ type: 'FileCopy', folder: 'out', name: 'out' }]);
     });
+
+    it('uses deterministic relative blob names for Azure delivery', () => {
+        appConfig.delivery.provider = 'azure';
+        expect(getDeliveryTargets({ DeliveryFolder: 'finance' })).toEqual([
+            { type: AZURE_BLOB_DELIVERY, folder: 'finance', name: 'finance' },
+        ]);
+        expect(resolveDeliveryDestination('finance', 'upload-1', '../../report.csv'))
+            .toBe('finance/upload-1_report.csv');
+    });
+
+    it.each(['', '/absolute.csv', 'finance/../other.csv', 'finance//empty.csv'])(
+        'rejects unsafe blob destination %p',
+        blobName => expect(() => assertSafeDeliveryBlobName(blobName)).toThrow(),
+    );
 });
 
 describe('template names', () => {

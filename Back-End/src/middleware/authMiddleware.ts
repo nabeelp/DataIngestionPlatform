@@ -130,18 +130,3 @@ export const authorize = (...allowedRoles: UserRole[]) => {
         next();
     };
 };
-
-/**
- * Optional authentication - attaches user if token exists but doesn't require it
- */
-export const optionalAuth = (req: Request, res: Response, next: NextFunction) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        try {
-            (req as AuthRequest).user = verifyAccessToken(authHeader.substring(7));
-        } catch {
-            // Invalid token - continue without user (optional auth)
-        }
-    }
-    next();
-};

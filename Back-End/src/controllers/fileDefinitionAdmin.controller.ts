@@ -6,14 +6,17 @@
 import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
-import { ExampleFileError, analyzeExampleFile, type ExampleAnalysis } from '../services/validation/ExampleFileAnalyzer';
-import { TemplateStorage, getTemplateDisplayName } from '../services/TemplateStorage.service';
+import { TemplateStorage, getTemplateDisplayName, sanitizeFilename } from '../services/TemplateStorage.service';
+import { azureStorage } from '../services/AzureStorage.service';
+import { RulesService, RulesServiceError } from '../services/RulesService.service';
+import { appConfig } from '../config/appConfig';
 import { logAction } from '../models/AuditLog.model';
 import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
 import { logger } from '../utils/logger';
-import type { IFileDefinitionUser, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
+import type { IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 
 // Extend Request to include user
@@ -75,11 +78,7 @@ export const addUsersToFileDefinition = async (req: AuthRequest, res: Response, 
             });
         }
 
-        const updatedUsers = await FileDefinitionService.addUsersToDefinition(
-            definitionId, 
-            userIds, 
-            adminUserId
-        );
+        const updatedUsers = await FileDefinitionService.addUsersToDefinition(definitionId, userIds);
 
         res.json({
             success: true,
@@ -192,6 +191,28 @@ export const uploadTemplate = async (req: AuthRequest, res: Response, next: Next
     }
 };
 
+export const removeTemplate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const definitionId = req.params.id as string;
+        const adminUserId = req.user?.userId;
+
+        if (!adminUserId || req.user?.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Admin access required' });
+        }
+
+        const previousTemplate = await FileDefinitionService.getTemplateBlobName(definitionId);
+        await FileDefinitionService.clearTemplateFilename(definitionId);
+        if (previousTemplate) {
+            await TemplateStorage.delete(previousTemplate);
+        }
+
+        res.json({ success: true, message: 'Template removed successfully' });
+    } catch (error) {
+        logger.error('[FILEDEF_ADMIN_CTRL] Error removing template:', error);
+        next(error);
+    }
+};
+
 
 
 /**
@@ -268,6 +289,14 @@ const mapVersion = (version: IFileDefinitionVersion) => ({
         table: rule.Table,
         naturalLanguageText: rule.NaturalLanguageText ?? null,
     })),
+    definitionMetadata: version.DefinitionMetadata
+        ? {
+            ...version.DefinitionMetadata,
+            templateFilename: version.DefinitionMetadata.templateFilename
+                ? getTemplateDisplayName(version.DefinitionMetadata.templateFilename)
+                : null,
+        }
+        : null,
     changeNote: version.ChangeNote,
     createdByName: version.CreatedByName,
     activatedAt: version.ActivatedAt,
@@ -298,7 +327,7 @@ export const getFileDefinitionVersions = async (req: AuthRequest, res: Response,
             success: true,
             activeVersionNumber: state.activeVersion?.VersionNumber ?? null,
             hasUnpublishedChanges: state.diff.hasChanges,
-            changes: { columns: state.diff.columns, rules: state.diff.rules },
+            changes: { metadata: state.diff.metadata, columns: state.diff.columns, rules: state.diff.rules },
             versions: versions.map(mapVersion),
         });
     } catch (error) {
@@ -350,24 +379,48 @@ export const analyzeExample = async (req: AuthRequest, res: Response, next: Next
         return res.status(400).json({ success: false, message: 'No example file uploaded' });
     }
 
-    let analysis: ExampleAnalysis;
+    const blobName = `examples/${uuidv4()}/${sanitizeFilename(file.originalname)}`;
     const fileType = path.extname(file.originalname).toLowerCase().slice(1);
+    let analysis: Record<string, unknown> | null = null;
+    let operationError: unknown;
+    let blobContainer: string | null = appConfig.azure.storage.containerName;
+
     try {
-        analysis = await analyzeExampleFile(file.path, fileType);
+        if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
+        const uploaded = await azureStorage.uploadFile(file.path, blobName);
+        blobContainer = uploaded.containerName;
+        analysis = await RulesService.analyzeExample({ container: uploaded.containerName, name: uploaded.blobName });
     } catch (error) {
-        if (error instanceof ExampleFileError) {
-            return res.status(400).json({ success: false, message: error.message });
-        }
-        logger.error('[FILEDEF_ADMIN_CTRL] Error analyzing example file:', error);
-        return next(error);
-    } finally {
-        // Delete before responding: the example may contain customer data and is never kept.
-        await fs.promises.rm(file.path, { force: true }).catch(err =>
-            logger.warn('[FILEDEF_ADMIN_CTRL] Could not delete analyzed example file', err)
-        );
+        operationError = error;
     }
 
-    logger.info(`[FILEDEF_ADMIN_CTRL] Example analyzed by ${req.user?.userId}: ${fileType}, ${file.size}B, ${analysis.sheets.length} sheet(s)`);
+    let cleanupError: unknown;
+    try {
+        await fs.promises.rm(file.path, { force: true });
+    } catch (error) {
+        cleanupError = error;
+    }
+    if (blobContainer && azureStorage) {
+        try {
+            await azureStorage.deleteBlob(blobName, blobContainer);
+        } catch (error) {
+            cleanupError ??= error;
+        }
+    }
+    if (cleanupError) {
+        logger.error(`[FILEDEF_ADMIN_CTRL] Example cleanup failed for admin ${req.user?.userId}: ${cleanupError instanceof Error ? cleanupError.name : 'UnknownError'}`);
+        return next(cleanupError);
+    }
+    if (operationError) {
+        if (operationError instanceof RulesServiceError && operationError.statusCode === 400) {
+            return res.status(400).json({ success: false, message: 'The example file could not be analyzed.' });
+        }
+        logger.error(`[FILEDEF_ADMIN_CTRL] Example analysis failed for admin ${req.user?.userId}: ${operationError instanceof Error ? operationError.name : 'UnknownError'}`);
+        return next(operationError);
+    }
+
+    const sheets = analysis?.sheets;
+    const sheetCount = Array.isArray(sheets) ? sheets.length : 0;
+    logger.info(`[FILEDEF_ADMIN_CTRL] Example analyzed by ${req.user?.userId}: type=${fileType}, sheets=${sheetCount}`);
     res.json({ success: true, fileName: path.basename(file.originalname), ...analysis });
 };
-

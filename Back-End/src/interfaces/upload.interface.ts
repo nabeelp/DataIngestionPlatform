@@ -27,13 +27,23 @@ export type ValidationStatus =
     | 'PASSED'
     | 'FAILED'
     | 'WARNING'
+    | 'ERROR'
     | 'SKIPPED';
+
+export interface IValidationIssue {
+    sheet: string | null;
+    row: number | null;
+    column: string | null;
+    value: string | number | boolean | null;
+    message: string;
+}
 
 /**
  * Delivery type
  */
 export type DeliveryType = 
     | 'FileCopy'
+    | 'AzureBlob'
     // Legacy values that may exist on historical delivery records
     | 'FabricLakehouse'
     | 'SharePoint';
@@ -45,15 +55,6 @@ export type DeliveryStatus =
     | 'PENDING'
     | 'IN_PROGRESS'
     | 'DELIVERED'
-    | 'FAILED';
-
-/**
- * Job status
- */
-export type JobStatus = 
-    | 'WAITING'
-    | 'RUNNING'
-    | 'COMPLETED'
     | 'FAILED';
 
 /**
@@ -78,12 +79,17 @@ export interface IUpload {
     UploadedBy: string;
     OriginalFilename: string;
     StoredFilename: string;
+    BlobContainer: string;
+    BlobName: string;
+    FileSha256: string | null;
+    DetectedEncoding: string | null;
+    ValidationDate: Date | null;
+    EngineVersion: string | null;
+    ReportBlobName: string | null;
+    ParquetPrefix: string | null;
     AzureBlobUrl: string | null;
     FileSize: number;
     FileType: string;
-    CompressedFileSize: number | null;
-    CompressedBlobUrl: string | null;
-    TempLocalPath: string | null | undefined;
     RetryCount: number;
     RowCountNo: number | null;
     SheetCount: number | null;
@@ -93,12 +99,13 @@ export interface IUpload {
     ValidationCompletedAt: Date | null;
     DeliveryStartedAt: Date | null;
     DeliveryCompletedAt: Date | null;
-    ValidationJobId: string | null;
-    DeliveryJobId: string | null;
-    ProcessingNode: string | null;
     DeliveredTo: string | null;
     DeliveredAt: Date | null;
     ErrorMessage: string | null;
+    /** Read-only list/detail context populated from the related definition. */
+    DefinitionName?: string;
+    /** Read-only list context populated from the pinned definition version. */
+    DefinitionVersionNumber?: number | null;
 }
 
 /**
@@ -148,18 +155,15 @@ export interface IValidationRuleDetail {
     Id: string;
     ValidationResultId: string;
     UploadId: string;
-    RuleId: string;
+    RuleId: string | null;
     RuleName: string;
     RuleType: string;
     RuleSeverity: string;
     ExecutionOrder: number;
     Status: ValidationStatus;
-    ExecutionTimeMs: number | null;
-    ErrorCount: number;
-    WarningCount: number;
-    FailedRows: string | null;
-    FailedRowsCount: number;
-    SampleErrorValue: string | null;
+    IssueCount: number;
+    Issues: string;
+    ElapsedMs: number;
     StartedAt: Date | null;
     CompletedAt: Date | null;
     /** Sheet the check applies to (null: every sheet or the CSV). Only set on upload details responses. */
@@ -182,25 +186,6 @@ export interface IDeliveryRecord {
     CompletedAt: Date | null;
     ErrorMessage: string | null;
     RecordsDelivered: number | null;
-}
-
-/**
- * Upload task interface
- */
-export interface IUploadTask {
-    Id: string;
-    UploadId: string;
-    TaskType: 'VALIDATION' | 'DELIVERY';
-    CurrentStage: string | null;
-    TotalStages: number | null;
-    ProgressPercent: number;
-    CompletedStages: number;
-    Status: JobStatus;
-    QueueName: string | null;
-    JobId: string | null;
-    StartedAt: Date | null;
-    CompletedAt: Date | null;
-    LastUpdatedAt: Date;
 }
 
 /**
@@ -237,12 +222,17 @@ export interface ICreateUploadDto {
     FileDefinitionVersionId?: string | null;
     OriginalFilename: string;
     StoredFilename: string;
-    TempLocalPath?: string;
+    BlobContainer?: string;
+    BlobName?: string;
+    FileSha256?: string | null;
+    DetectedEncoding?: string | null;
+    ValidationDate?: Date | null;
+    EngineVersion?: string | null;
+    ReportBlobName?: string | null;
+    ParquetPrefix?: string | null;
     AzureBlobUrl?: string;
     FileSize: number;
     FileType: string;
-    CompressedFileSize?: number;
-    CompressedBlobUrl?: string;
     RetryCount?: number;
     RowCountNo?: number;
     SheetCount?: number;
@@ -255,14 +245,18 @@ export interface ICreateUploadDto {
 export interface IUpdateUploadDto {
     Status?: UploadStatus;
     FileDefinitionVersionId?: string;
-    TempLocalPath?: string | null;
+    BlobContainer?: string;
+    BlobName?: string;
+    FileSha256?: string | null;
+    DetectedEncoding?: string | null;
+    ValidationDate?: Date | null;
+    EngineVersion?: string | null;
+    ReportBlobName?: string | null;
+    ParquetPrefix?: string | null;
     RetryCount?: number;
     RowCountNo?: number;
     SheetCount?: number;
     AzureBlobUrl?: string;
-    CompressedBlobUrl?: string;
-    ValidationJobId?: string;
-    DeliveryJobId?: string;
     DeliveredTo?: string;
     DeliveredAt?: Date | null;
     ErrorMessage?: string | null;
@@ -272,16 +266,6 @@ export interface IUpdateUploadDto {
     DeliveryCompletedAt?: Date | null;
 }
 
-
-/**
- * Create upload sheet DTO
- */
-export interface ICreateUploadSheetDto {
-    UploadId: string;
-    SheetIndex: number;
-    SheetName: string;
-    RowCountNo?: number;
-}
 
 /**
  * Update upload sheet DTO
@@ -334,21 +318,6 @@ export interface ICreateValidationRuleDetailDto {
     RuleType: string;
     RuleSeverity: string;
     ExecutionOrder: number;
-}
-
-/**
- * Update validation rule detail DTO
- */
-export interface IUpdateValidationRuleDetailDto {
-    Status?: ValidationStatus;
-    ExecutionTimeMs?: number;
-    ErrorCount?: number;
-    WarningCount?: number;
-    FailedRows?: string;
-    FailedRowsCount?: number;
-    SampleErrorValue?: string;
-    StartedAt?: Date;
-    CompletedAt?: Date;
 }
 
 /**

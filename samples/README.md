@@ -1,6 +1,6 @@
 # Sample files
 
-Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, one-table and one-table-per-sheet definitions, every rule type and severity, example-file proposals, rejected and corrupt files, and very large files. Each file has an expected outcome in [manifest.json](manifest.json), which the verification script checks against the real validation engine.
+Test files for every upload and definition scenario of the Data Ingestion Platform: file formats, encodings, one-table and one-table-per-sheet definitions, enum and range rules at both severities, example-file proposals, rejected and corrupt files, and very large files. The manifest records the expected sample outcomes. The Python golden suite compares every upload fixture with the reviewed snapshot `Validation-Service/tests/golden/expected_outcomes.json`.
 
 > **Generated content.** This README, the sample files, `manifest.json`, `.gitignore` and `definitions/` are produced by [tools/generate_samples.py](tools/generate_samples.py). Change the generator, not the output. All data is synthetic (fixed random seed); e-mail addresses use `example.com`/`.example` domains.
 
@@ -10,17 +10,17 @@ The files are validated against five sample definitions. The one-table ones reus
 
 | Key | Definition | Layout | Tables / rules |
 |---|---|---|---|
-| `customers` | Sample - Customers | One table | 12 columns; 4 rules |
-| `products` | Sample - Products | One table | 12 columns; 6 rules |
-| `orders` | Sample - Sales Orders | One table | 11 columns; 5 rules |
-| `finance` | Sample - Finance Workbook | One table per sheet | `Invoices`, `Payments`, `Credit Notes`; 8 rules |
-| `hr` | Sample - HR Onboarding Workbook | One table per sheet | `Employees`, `Benefits (2026)`, `Employee Emergency Contacts '26`; 8 rules |
+| `customers` | Sample - Customers | One table | 12 columns; 2 rules |
+| `products` | Sample - Products | One table | 12 columns; 5 rules |
+| `orders` | Sample - Sales Orders | One table | 11 columns; 4 rules |
+| `finance` | Sample - Finance Workbook | One table per sheet | `Invoices`, `Payments`, `Credit Notes`; 6 rules |
+| `hr` | Sample - HR Onboarding Workbook | One table per sheet | `Employees`, `Benefits (2026)`, `Employee Emergency Contacts '26`; 6 rules |
 
-1. Run [definitions/sample_definitions.sql](definitions/sample_definitions.sql) against the application database (after the scripts in `Back-End/database`, including `seed_local_users.sql`), for example `sqlcmd -S "(localdb)\MSSQLLocalDB" -d FileValidationPlatform -I -i samples\definitions\sample_definitions.sql`.
-2. Re-run `Back-End/database/file_definition_versions_schema.sql` to publish version 1 of each new definition.
+1. Run [definitions/sample_definitions.sql](definitions/sample_definitions.sql) against the application database (after the scripts in `Back-End/database`, including `seed_local_users.sql`), using the database configured by `SQLCMD_DATABASE` in `Back-End/.env`.
+2. Publish each draft definition in the application to create its version snapshot.
 3. The script gives the seeded test user access. Alternatively, create the definitions in the UI from [definitions/sample_definitions.json](definitions/sample_definitions.json).
 
-Then upload a file on the **Upload** page against the definition in the catalog below and compare the result.
+The dedicated Playwright corpus run publishes these drafts, uploads every upload fixture through the **Upload** page, and sends every example fixture through the analysis API. It checks final status, counts, issue reports and delivery.
 
 ## Verify and regenerate
 
@@ -28,13 +28,16 @@ Then upload a file on the **Upload** page against the definition in the catalog 
 # Regenerate (pip install xlsxwriter xlwt). --skip-large skips 05-large/, --skip-max-rows skips the 1M-row workbook.
 python samples\tools\generate_samples.py
 
-# Check every expected outcome with the backend's reader, validation engine and example analyzer (no database needed).
-cd Back-End
-node --max-old-space-size=8192 -r ts-node/register/transpile-only ..\samples\tools\verify_samples.ts
-# Options: --skip-large, --only <text>
+# Compare every upload sample with the reviewed engine snapshot (UPDATE_GOLDEN=1 regenerates it).
+cd Validation-Service
+uv run pytest tests/golden -q
+
+# With .\start.ps1 running and the sample definitions seeded, exercise every fixture through the local stack.
+cd ..\Front-End
+npm run test:e2e:samples
 ```
 
-Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity checks failed; the file is accepted and delivered), **Failed** (an Error-severity check failed), **Failed (read error)** (the file could not be parsed), and **Rejected at upload** (refused before validation: extension, size or CSV for a sheet-table definition).
+Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity checks failed; the upload is accepted and delivered when a target is configured), **Failed** (an Error-severity check failed), **Failed (read error)** (the file could not be parsed), and **Rejected at upload** (refused before validation: extension, size or CSV for a sheet-table definition).
 
 ## Behaviors these samples surface
 
@@ -44,14 +47,14 @@ Expected statuses: **Passed**, **Passed with warnings** (only Warning-severity c
 - **Duplicate headers: the last one wins.** A second, empty `Email` column makes every Email look blank.
 - **Title rows break the header.** The first non-empty row is the header; blank rows above it are fine.
 - **An empty table sheet counts as missing.** A `Payments` sheet with no cells is reported as "Required sheet not found".
-- **Impossible dates are accepted.** `2026-02-30` and `31/02/2026` pass as datetimes: ISO dates roll over (JavaScript date parsing) and local formats only check day ≤ 31 and month ≤ 12.
+- **Date parsing is strict.** ISO dates are validated as real calendar dates; non-ISO strings need an explicit format. Non-ISO date strings are therefore reported as failures unless the column declares a format.
 - **Excel date serials are not dates.** A date cell without a date format is read as a number and fails a datetime column.
 - **1/0 columns are proposed as integer, not boolean,** by the example analyzer; change the type before saving if needed.
-- **Uploads do not check the ZIP signature.** CSV text renamed to `.xlsx` is read as a workbook and passes; example files are rejected.
+- **Workbook signatures are checked.** CSV text renamed to `.xlsx` is rejected as a malformed workbook.
 - **A zero-byte `.xlsx` passes a one-table definition** (it is read as one empty sheet with nothing to check), whereas a zero-byte CSV fails. Sheet-table definitions fail it because the sheets are missing.
-- **Encodings:** UTF-8 (with or without BOM) and UTF-16LE *with* a BOM are decoded. UTF-16 without a BOM fails (headers unreadable); Windows-1252 accents become replacement characters but still validate as text.
-- **Random binary content is read as garbage text** and fails the column checks rather than crashing the worker.
-- **Excel's row limit is out of reach for the in-memory Excel reader.** A 1,048,575-row sheet (~650 MB of sheet XML) exceeds the JavaScript string limit and fails with a read error; 500,000 rows (~310 MB) still validate.
+- **Encodings:** UTF-8 (with or without BOM), UTF-16LE with or without a BOM, and Windows-1252 are detected.
+- **Random binary content is rejected** as an unrecoverable file-format error.
+- **Excel's maximum worksheet row count is supported.** The 1,048,575-row sample is parsed by the Python reader; large workbooks still have substantial memory and processing costs.
 
 ## One-table definitions
 
@@ -74,23 +77,23 @@ Columns apply to a CSV file and to **every** sheet of a workbook.
 | [customers/customers_valid_reordered_and_extra_columns.csv](<01-single-table/customers/customers_valid_reordered_and_extra_columns.csv>) | `customers` | Passed |  | Columns in a different order plus undeclared columns (ignored). | 7.3 KB |
 | [customers/customers_valid_padded_headers.csv](<01-single-table/customers/customers_valid_padded_headers.csv>) | `customers` | Passed |  | Header names with surrounding spaces are trimmed. | 2.0 KB |
 | [customers/customers_valid_mixed_date_formats.csv](<01-single-table/customers/customers_valid_mixed_date_formats.csv>) | `customers` | Passed |  | ISO dates/times with zones and day-first/month-first local formats are all valid datetimes. | 3.9 KB |
-| [customers/customers_warning_optional_columns_missing.csv](<01-single-table/customers/customers_warning_optional_columns_missing.csv>) | `customers` | Passed with warnings | warns: Phone number provided | Only required columns present: definition passes; the Warning rule on Phone reports the missing column. | 3.1 KB |
-| [customers/customers_warning_unsupported_country_and_missing_phone.csv](<01-single-table/customers/customers_warning_unsupported_country_and_missing_phone.csv>) | `customers` | Passed with warnings | warns: Country is a supported market; Phone number provided | Only Warning-severity rules fail (unsupported/lower-case country, missing phone), so the upload is accepted. | 6.2 KB |
-| [customers/customers_invalid_missing_required_column.csv](<01-single-table/customers/customers_invalid_missing_required_column.csv>) | `customers` | Failed | fails: File definition columns; Key customer columns present | Required Email column is absent: definition columns and the schema rule fail. | 4.9 KB |
+| [customers/customers_warning_optional_columns_missing.csv](<01-single-table/customers/customers_warning_optional_columns_missing.csv>) | `customers` | Passed |  | Optional columns (Phone, DateOfBirth, Address, City, State, ZipCode) may be absent from the file: only the required columns are present, so every check passes. | 3.1 KB |
+| [customers/customers_warning_unsupported_country_and_missing_phone.csv](<01-single-table/customers/customers_warning_unsupported_country_and_missing_phone.csv>) | `customers` | Passed with warnings | warns: Country is a supported market | Only a Warning-severity rule fails (unsupported/lower-case country); the blank optional Phone values pass, so the upload is accepted. | 6.2 KB |
+| [customers/customers_invalid_missing_required_column.csv](<01-single-table/customers/customers_invalid_missing_required_column.csv>) | `customers` | Failed | fails: File definition columns | Required Email column is absent: the definition columns check fails. | 4.9 KB |
 | [customers/customers_invalid_empty_required_values.csv](<01-single-table/customers/customers_invalid_empty_required_values.csv>) | `customers` | Failed | fails: File definition columns | Required values blank or whitespace-only in 5 rows. | 6.2 KB |
 | [customers/customers_invalid_dates.csv](<01-single-table/customers/customers_invalid_dates.csv>) | `customers` | Failed | fails: File definition columns | Ten unparseable DateOfBirth values (invalid month/day, year-first slashes, words, compact dates). | 6.2 KB |
 | [customers/customers_invalid_status_values.csv](<01-single-table/customers/customers_invalid_status_values.csv>) | `customers` | Failed | fails: Customer status allowed values | Enum checks are case-sensitive (active/ACTIVE fail) but trim spaces ("  Prospect  " passes). | 6.2 KB |
-| [customers/customers_invalid_header_case_mismatch.csv](<01-single-table/customers/customers_invalid_header_case_mismatch.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | Header names are case-sensitive: lower-case headers match no definition column. | 0.7 KB |
+| [customers/customers_invalid_header_case_mismatch.csv](<01-single-table/customers/customers_invalid_header_case_mismatch.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | Header names are case-sensitive: lower-case headers match no definition column. | 0.7 KB |
 | [customers/customers_invalid_duplicate_headers.csv](<01-single-table/customers/customers_invalid_duplicate_headers.csv>) | `customers` | Failed | fails: File definition columns | A second, empty "Email" column overrides the first (last duplicate wins), so Email looks blank. | 1.3 KB |
 | [customers/customers_invalid_ragged_rows.csv](<01-single-table/customers/customers_invalid_ragged_rows.csv>) | `customers` | Failed | fails: File definition columns | Short rows (Country/CustomerStatus missing) fail; rows with extra trailing values are accepted. | 1.6 KB |
 | [customers/customers_header_only.csv](<01-single-table/customers/customers_header_only.csv>) | `customers` | Passed |  | Header row with no data rows (0 rows) passes. | 0.1 KB |
-| [customers/customers_empty_file.csv](<01-single-table/customers/customers_empty_file.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | Zero-byte file: no header, so every column check fails. | 0.0 KB |
+| [customers/customers_empty_file.csv](<01-single-table/customers/customers_empty_file.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | Zero-byte file: no header, so every column check fails. | 0.0 KB |
 | [customers/customers_invalid_unclosed_quote.csv](<01-single-table/customers/customers_invalid_unclosed_quote.csv>) | `customers` | Failed (read error) |  | Malformed CSV (unterminated quoted field): the parser stops and the upload fails with an error message. | 0.8 KB |
 | [customers/customers_invalid_many_errors_5000_rows.csv](<01-single-table/customers/customers_invalid_many_errors_5000_rows.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns | Thousands of issues: only 100 samples are stored per check, but the total count is exact. | 614.1 KB |
 | [customers/customers_xlsx_blank_rows_above_header.xlsx](<01-single-table/customers/customers_xlsx_blank_rows_above_header.xlsx>) | `customers` | Passed |  | Header on row 4 (first non-empty row) and blank rows between data blocks are skipped. | 8.5 KB |
-| [customers/customers_xlsx_title_row_above_header.xlsx](<01-single-table/customers/customers_xlsx_title_row_above_header.xlsx>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | A title row above the headers becomes the header row, so no definition column is found. | 8.5 KB |
+| [customers/customers_xlsx_title_row_above_header.xlsx](<01-single-table/customers/customers_xlsx_title_row_above_header.xlsx>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | A title row above the headers becomes the header row, so no definition column is found. | 8.5 KB |
 | [customers/customers_xlsx_multi_sheet_same_columns.xlsx](<01-single-table/customers/customers_xlsx_multi_sheet_same_columns.xlsx>) | `customers` | Passed |  | One-table definition: every sheet is validated against the same columns (4 x 50 rows). | 23.7 KB |
-| [customers/customers_xlsx_extra_notes_sheet.xlsx](<01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | One-table definitions validate EVERY sheet, so an extra "Notes" sheet fails. Use a sheet-table definition to ignore extra sheets. | 10.7 KB |
+| [customers/customers_xlsx_extra_notes_sheet.xlsx](<01-single-table/customers/customers_xlsx_extra_notes_sheet.xlsx>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | One-table definitions validate EVERY sheet, so an extra "Notes" sheet fails. Use a sheet-table definition to ignore extra sheets. | 10.7 KB |
 | [customers/customers_xlsx_with_empty_sheet.xlsx](<01-single-table/customers/customers_xlsx_with_empty_sheet.xlsx>) | `customers` | Passed |  | Completely empty sheets have no header and are skipped by one-table definitions. | 10.9 KB |
 | [customers/customers_xlsx_native_types_and_formulas.xlsx](<01-single-table/customers/customers_xlsx_native_types_and_formulas.xlsx>) | `customers` | Passed |  | Native date/number cells, numeric ZipCode/Phone in string columns, extra formula columns (cached values). | 11.4 KB |
 | [customers/customers_xlsx_excel_table_object.xlsx](<01-single-table/customers/customers_xlsx_excel_table_object.xlsx>) | `customers` | Passed |  | Data formatted as an Excel Table (ListObject). | 10.8 KB |
@@ -99,7 +102,7 @@ Columns apply to a CSV file and to **every** sheet of a workbook.
 | [products/products_valid.xlsx](<01-single-table/products/products_valid.xlsx>) | `products` | Passed |  | Native numeric and TRUE/FALSE boolean cells. | 12.3 KB |
 | [products/products_valid_boolean_variants.csv](<01-single-table/products/products_valid_boolean_variants.csv>) | `products` | Passed |  | Every accepted boolean spelling: true/false, yes/no, y/n, 1/0 (any case). | 2.6 KB |
 | [products/products_valid_numeric_boundaries.csv](<01-single-table/products/products_valid_numeric_boundaries.csv>) | `products` | Passed |  | Inclusive range bounds, signed/leading-dot/scientific numbers and leading zeros are accepted. | 0.7 KB |
-| [products/products_invalid_number_formats.csv](<01-single-table/products/products_invalid_number_formats.csv>) | `products` | Failed | fails: File definition columns; Unit price range<br>warns: Reorder level ceiling; Reorder level is a whole number | Comma decimals, currency symbols, thousands separators, 10.5/1e3 as integers and non-boolean flags. | 1.1 KB |
+| [products/products_invalid_number_formats.csv](<01-single-table/products/products_invalid_number_formats.csv>) | `products` | Failed | fails: File definition columns; Unit price range<br>warns: Reorder level ceiling | Comma decimals, currency symbols, thousands separators, 10.5/1e3 as integers and non-boolean flags. | 1.1 KB |
 | [products/products_invalid_range_violations.csv](<01-single-table/products/products_invalid_range_violations.csv>) | `products` | Failed | fails: Stock quantity range; Unit price range<br>warns: Reorder level ceiling; Weight is not negative | Just outside each range bound; the weight and reorder rules are Warnings. | 2.6 KB |
 | [products/products_warning_only_ranges.csv](<01-single-table/products/products_warning_only_ranges.csv>) | `products` | Passed with warnings | warns: Reorder level ceiling; Weight is not negative | Only Warning-severity range rules fail. | 2.6 KB |
 | [products/products_invalid_category.csv](<01-single-table/products/products_invalid_category.csv>) | `products` | Failed | fails: Category allowed values | Unknown and wrong-case categories. | 2.6 KB |
@@ -132,7 +135,7 @@ Each table matches a sheet by name (case-insensitive, trimmed); other sheets are
 | [finance/finance_valid_hidden_table_sheet.xlsx](<02-sheet-tables/finance/finance_valid_hidden_table_sheet.xlsx>) | `finance` | Passed |  | A hidden table sheet (Payments) is still found and validated. | 18.1 KB |
 | [finance/finance_valid_header_only_credit_notes.xlsx](<02-sheet-tables/finance/finance_valid_header_only_credit_notes.xlsx>) | `finance` | Passed |  | Credit Notes has a header row and no data rows: the table is present, so it passes. | 17.4 KB |
 | [finance/finance_valid_excel_tables_and_formulas.xlsx](<02-sheet-tables/finance/finance_valid_excel_tables_and_formulas.xlsx>) | `finance` | Passed |  | Each table sheet is an Excel Table; Invoice Amount is a formula (=Net+Tax) with extra helper columns. | 23.6 KB |
-| [finance/finance_warning_missing_po_and_reason.xlsx](<02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx>) | `finance` | Passed with warnings | warns: Credit note reason provided; Invoice has a PO number | Optional PONumber/Reason missing: only the Warning rules for those sheets fail. | 18.0 KB |
+| [finance/finance_warning_missing_po_and_reason.xlsx](<02-sheet-tables/finance/finance_warning_missing_po_and_reason.xlsx>) | `finance` | Passed |  | Blank values in the optional (nullable) PONumber and Reason columns do not fail any check. | 18.0 KB |
 | [finance/finance_invalid_missing_credit_notes_sheet.xlsx](<02-sheet-tables/finance/finance_invalid_missing_credit_notes_sheet.xlsx>) | `finance` | Failed | fails: Sheet "Credit Notes" columns | A required table sheet is missing: its columns check fails; its rules have nothing to check. | 17.4 KB |
 | [finance/finance_invalid_similar_sheet_names_only.xlsx](<02-sheet-tables/finance/finance_invalid_similar_sheet_names_only.xlsx>) | `finance` | Failed | fails: Sheet "Credit Notes" columns; Sheet "Invoices" columns; Sheet "Payments" columns | Near-miss names ("Invoice", "Payments 2026", "CreditNotes") do not match, so all three sheets are missing. | 18.1 KB |
 | [finance/finance_invalid_empty_payments_sheet.xlsx](<02-sheet-tables/finance/finance_invalid_empty_payments_sheet.xlsx>) | `finance` | Failed | fails: Sheet "Payments" columns | A completely empty "Payments" sheet has no header row and is reported as not found. | 13.9 KB |
@@ -145,7 +148,7 @@ Each table matches a sheet by name (case-insensitive, trimmed); other sheets are
 | [hr/hr_valid_unicode_and_emoji.xlsx](<02-sheet-tables/hr/hr_valid_unicode_and_emoji.xlsx>) | `hr` | Passed |  | Non-Latin scripts, accents and emoji in names. | 11.1 KB |
 | [hr/hr_invalid_values.xlsx](<02-sheet-tables/hr/hr_invalid_values.xlsx>) | `hr` | Failed | fails: Benefit plan allowed values; Department allowed values; Dependents range; Salary range | Enum and range errors in the Employees and Benefits sheets. | 12.3 KB |
 | [hr/hr_invalid_sheet_name_without_apostrophe.xlsx](<02-sheet-tables/hr/hr_invalid_sheet_name_without_apostrophe.xlsx>) | `hr` | Failed | fails: Sheet "Employee Emergency Contacts '26" columns | The contacts sheet is named without the apostrophe, so it is not matched. | 12.2 KB |
-| [hr/hr_warning_cost_relationship_alt_phone.xlsx](<02-sheet-tables/hr/hr_warning_cost_relationship_alt_phone.xlsx>) | `hr` | Passed with warnings | warns: Alternate phone provided; Monthly cost within budget; Relationship allowed values | Only Warning rules in two sheets fail. | 12.2 KB |
+| [hr/hr_warning_cost_relationship_alt_phone.xlsx](<02-sheet-tables/hr/hr_warning_cost_relationship_alt_phone.xlsx>) | `hr` | Passed with warnings | warns: Monthly cost within budget; Relationship allowed values | Only Warning rules in two sheets fail (monthly cost, relationship); blank optional AltPhone values pass. | 12.2 KB |
 | [hr/hr_invalid_boolean_integer_and_date_types.xlsx](<02-sheet-tables/hr/hr_invalid_boolean_integer_and_date_types.xlsx>) | `hr` | Failed | fails: Dependents range; Sheet "Benefits (2026)" columns; Sheet "Employees" columns | Non-boolean FullTime (text and the number 2), non-integer Dependents, bad and missing dates. | 12.2 KB |
 | [hr/hr_invalid_missing_employees_and_benefits.xlsx](<02-sheet-tables/hr/hr_invalid_missing_employees_and_benefits.xlsx>) | `hr` | Failed | fails: Sheet "Benefits (2026)" columns; Sheet "Employees" columns | Only one of the three table sheets is present. | 8.4 KB |
 
@@ -187,13 +190,13 @@ CSV/XLSX up to 10 MB; up to 1,000 rows per sheet and 20 sheets are analyzed.
 | [customers_zero_bytes.xlsx](<04-file-handling/customers_zero_bytes.xlsx>) | `customers` | Passed |  | Empty file with an .xlsx extension is read as one empty sheet, so a one-table definition has nothing to check. _Gap: consider rejecting empty workbooks (a zero-byte CSV fails because it has no header)._ | 0.0 KB |
 | [finance_zero_bytes.xlsx](<04-file-handling/finance_zero_bytes.xlsx>) | `finance` | Failed | fails: Sheet "Credit Notes" columns; Sheet "Invoices" columns; Sheet "Payments" columns | The same empty workbook against a sheet-table definition: every table sheet is missing. | 0.0 KB |
 | [customers_csv_renamed_to_xlsx.xlsx](<04-file-handling/customers_csv_renamed_to_xlsx.xlsx>) | `customers` | Passed |  | CSV text renamed to .xlsx: the upload reader sniffs the content and reads it as a single sheet. _Unlike example files, uploads do not check the ZIP signature; consider adding that check._ | 3.2 KB |
-| [customers_random_binary.csv](<04-file-handling/customers_random_binary.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | Binary content with a .csv extension: no recognizable header. | 4.0 KB |
+| [customers_random_binary.csv](<04-file-handling/customers_random_binary.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | Binary content with a .csv extension: no recognizable header. | 4.0 KB |
 | [customers_utf16le_bom_encoded.csv](<04-file-handling/customers_utf16le_bom_encoded.csv>) | `customers` | Passed |  | UTF-16LE with a BOM (Excel "Unicode Text") is detected from the BOM and decoded. | 6.3 KB |
-| [customers_utf16le_no_bom.csv](<04-file-handling/customers_utf16le_no_bom.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | UTF-16 without a BOM is read as UTF-8, so the headers do not match. Re-save as UTF-8. | 6.3 KB |
+| [customers_utf16le_no_bom.csv](<04-file-handling/customers_utf16le_no_bom.csv>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | UTF-16 without a BOM is read as UTF-8, so the headers do not match. Re-save as UTF-8. | 6.3 KB |
 | [customers_windows1252_encoded.csv](<04-file-handling/customers_windows1252_encoded.csv>) | `customers` | Passed |  | Windows-1252 (ANSI) encoding: validates, but accented letters are read as replacement characters. | 2.6 KB |
 | [customers_cr_only_line_endings.csv](<04-file-handling/customers_cr_only_line_endings.csv>) | `customers` | Passed |  | Classic Mac CR-only line endings. | 3.2 KB |
 | [customers_no_trailing_newline.csv](<04-file-handling/customers_no_trailing_newline.csv>) | `customers` | Passed |  | Last record without a trailing newline. | 3.2 KB |
-| [customers_single_column_no_delimiter.txt](<04-file-handling/customers_single_column_no_delimiter.txt>) | `customers` | Failed | fails: Customer status allowed values; File definition columns; Key customer columns present<br>warns: Country is a supported market; Phone number provided | A single-column text file: only CustomerId is present. | 0.3 KB |
+| [customers_single_column_no_delimiter.txt](<04-file-handling/customers_single_column_no_delimiter.txt>) | `customers` | Failed | fails: Customer status allowed values; File definition columns<br>warns: Country is a supported market | A single-column text file: only CustomerId is present. | 0.3 KB |
 
 ## Large files (git-ignored, regenerate with the generator)
 

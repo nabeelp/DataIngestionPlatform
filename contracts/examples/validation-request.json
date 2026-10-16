@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "uploadId": "upload-123",
+  "definitionVersionId": "definition-version-1",
+  "blob": { "container": "uploads", "name": "upload-123/orders.csv" },
+  "fileType": "csv",
+  "requestedAt": "2026-10-02T10:00:00Z",
+  "correlationId": "correlation-123"
+}

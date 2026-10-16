@@ -1,64 +1,76 @@
-// =============================================================================
-// Delivery Worker Service - Processes delivery jobs from the delivery queue
-// =============================================================================
-
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
-import { Job } from 'bullmq';
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
+import type { DeliveryRequest } from '../contracts/delivery-request';
 import { Upload } from '../models/Upload.model';
 import { DeliveryRecord } from '../models/DeliveryRecord.model';
 import { UploadService } from './Upload.service';
-import { createDeliveryWorker } from './Queue.service';
-import type { IDeliveryJobData } from '../interfaces/upload.interface';
+import { azureStorage } from './AzureStorage.service';
+import { serviceBusService } from './ServiceBus.service';
 import { logger } from '../utils/logger';
-import { FILE_COPY_DELIVERY, assertInsideDeliveryRoot } from './DeliveryTargets.service';
+import { appConfig } from '../config/appConfig';
+import {
+    AZURE_BLOB_DELIVERY,
+    FILE_COPY_DELIVERY,
+    assertInsideDeliveryRoot,
+    assertSafeDeliveryBlobName,
+} from './DeliveryTargets.service';
 
-async function processDeliveryJob(job: Job<IDeliveryJobData>): Promise<void> {
-    const { uploadId, uploadSheetId, deliveryType, destinationPath } = job.data;
+const MAX_DELIVERY_ATTEMPTS = 5;
+
+export async function processDeliveryRequest(request: DeliveryRequest): Promise<void> {
+    const { uploadId, attempt } = request;
     const upload = await Upload.findById(uploadId);
-
-    if (!upload) {
-        throw new Error(`Upload not found: ${uploadId}`);
-    }
+    if (!upload) throw new Error(`Upload not found for delivery request ${uploadId}.`);
+    if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
 
     const records = await DeliveryRecord.findByUploadId(uploadId);
-    const record = records.find((item) =>
-        (item.UploadSheetId ?? null) === (uploadSheetId ?? null) &&
-        item.DeliveryType === deliveryType &&
-        item.DestinationPath === destinationPath
-    );
-
-    if (!record) {
-        throw new Error(`Delivery record not found for upload: ${uploadId}`);
+    const pendingRecords = records.filter(record => record.Status !== 'DELIVERED');
+    if (pendingRecords.length === 0) {
+        await UploadService.completeDelivery(uploadId);
+        return;
     }
-
-    await DeliveryRecord.markStarted(record.Id);
 
     try {
-        if (!upload.TempLocalPath || !fs.existsSync(upload.TempLocalPath)) {
-            throw new Error(`Delivery source file not found for upload: ${uploadId}`);
+        for (const record of pendingRecords) {
+            if (record.DeliveryType !== FILE_COPY_DELIVERY && record.DeliveryType !== AZURE_BLOB_DELIVERY) {
+                throw new Error(`Unsupported delivery type for upload ${uploadId}.`);
+            }
+
+            await DeliveryRecord.markStarted(record.Id);
+
+            const source = await azureStorage.openBlobReadStream(upload.BlobName, upload.BlobContainer);
+            if (record.DeliveryType === AZURE_BLOB_DELIVERY) {
+                assertSafeDeliveryBlobName(record.DestinationPath);
+                await azureStorage.uploadStreamToBlob(
+                    source,
+                    record.DestinationPath,
+                    appConfig.azure.storage.deliveriesContainerName,
+                );
+            } else {
+                const destination = path.resolve(record.DestinationPath);
+                assertInsideDeliveryRoot(destination);
+                await fs.mkdir(path.dirname(destination), { recursive: true });
+                await pipeline(source, createWriteStream(destination));
+            }
+
+            await DeliveryRecord.markCompleted(record.Id, upload.RowCountNo || 0);
+            await UploadService.updateDeliveryProgress(record.Id, 100, upload.RowCountNo || 0);
         }
-
-        if (deliveryType !== FILE_COPY_DELIVERY) {
-            throw new Error(`Delivery type ${deliveryType} is not supported`);
-        }
-
-        const destination = path.resolve(destinationPath);
-        assertInsideDeliveryRoot(destination);
-        fs.mkdirSync(path.dirname(destination), { recursive: true });
-        fs.copyFileSync(upload.TempLocalPath, destination);
-
-        await DeliveryRecord.markCompleted(record.Id, upload.RowCountNo || 0);
-        await UploadService.updateDeliveryProgress(record.Id, 100, upload.RowCountNo || 0);
         await UploadService.completeDelivery(uploadId);
-    } catch (error: any) {
-        await DeliveryRecord.markFailed(record.Id, error.message || 'Delivery failed');
-        await UploadService.failDelivery(uploadId, error.message || 'Delivery failed');
-        throw error;
-    }
-}
+    } catch (error) {
+        if (attempt < MAX_DELIVERY_ATTEMPTS) {
+            await serviceBusService.scheduleDeliveryRetry({
+                schemaVersion: 1,
+                uploadId,
+                attempt: attempt + 1,
+            });
+            logger.warn(`[DELIVERY] Scheduled retry for upload ${uploadId}; attempt=${attempt + 1}; error=${error instanceof Error ? error.name : 'UnknownError'}`);
+            return;
+        }
 
-export function initializeDeliveryWorker() {
-    logger.info('Initializing delivery worker');
-    return createDeliveryWorker(processDeliveryJob);
+        await UploadService.failDelivery(uploadId, 'Delivery failed after the maximum retry attempts.');
+        logger.error(`[DELIVERY] Failed upload ${uploadId} after ${attempt} attempts; error=${error instanceof Error ? error.name : 'UnknownError'}`);
+    }
 }

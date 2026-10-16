@@ -3,30 +3,37 @@
 // =============================================================================
 
 import { Request, Response, NextFunction } from 'express';
-import * as bcrypt from 'bcryptjs';
+import { hashPassword } from '../utils/password';
 import { User } from '../models/User.model';
-import { Upload } from '../models/Upload.model';
 import { FileDefinition } from '../models/FileDefinition.model';
 import { AuditLog } from '../models/AuditLog.model';
 import { StatsService } from '../services/Stats.service';
 import { UserService, type GetUsersResult } from '../services/User.service';
-import { getConnection } from '../config/database';
 import { logAction } from '../models/AuditLog.model';
-import { getAllQueueStats, getStuckJobs } from '../services/Queue.service';
 import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
-import type { IUser, ICreateUserDto, UserRole } from '../interfaces/user.interface';
-import type { IUpload, UploadStatus } from '../interfaces/upload.interface';
+import type { IUser } from '../interfaces/user.interface';
 import { IJwtPayload } from '../interfaces/user.interface';
 import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
-import { DefinitionVersionService } from '../services/DefinitionVersion.service';
+import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
+import {
+    AuthoringInputError,
+    buildAuthoringContract,
+    getDraftRevision,
+    saveDraftRules,
+    type SavedRules,
+} from '../services/RuleAuthoring.service';
+import { getConnection } from '../config/database';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
-import { COLUMN_TYPES, parseRuleExpression, sameSheet } from '../services/validation/ValidationEngine';
-import { MAX_SHEET_NAME_LENGTH, ruleColumns } from '../services/validation/DefinitionContract';
+import { COLUMN_TYPES, MAX_SHEET_NAME_LENGTH } from '../services/validation/DefinitionContract';
+import { v4 as uuidv4 } from 'uuid';
 import type { IColumn, ITable } from '../interfaces/fileDefinition.interface';
-import { assertValidRule } from '../services/Rule.service';
-import type { ICreateRuleDto, RuleSeverity, RuleType } from '../interfaces/rule.interface';
+import type { ICreateRuleDto, RuleType } from '../interfaces/rule.interface';
+import type { RuleConfig } from '../contracts/rule-config';
+import type { DefinitionContract } from '../contracts/definition-contract';
+import { contractFromLegacyColumns, parseRuleConfig } from '../models/contractMapper';
+import { RulesService, RulesServiceError } from '../services/RulesService.service';
 import { logger } from '../utils/logger';
 
 // Extend Request to include user
@@ -50,7 +57,7 @@ export const getStats = async (req: AuthRequest, res: Response, next: NextFuncti
             stats
         });
     } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting stats:', error);
+        logger.error(`[ADMIN_CONTROLLER] Stats lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         next(error);
     }
 };
@@ -97,44 +104,6 @@ const result: GetUsersResult = await UserService.getUsers(page, limit, search);
 };
 
 /**
- * Get user by ID
- */
-export const getUserById = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
-        
-        const user = await User.findById(id);
-        
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            user: {
-                id: user.Id,
-                email: user.Email,
-                username: user.Username,
-                firstName: user.FirstName,
-                lastName: user.LastName,
-                role: user.Role,
-                isActive: user.IsActive,
-                createdAt: user.CreatedAt,
-                lastLoginAt: user.LastLoginAt,
-                failedLoginAttempts: user.FailedLoginAttempts,
-                lockedUntil: user.LockedUntil
-            }
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting user:', error);
-        next(error);
-    }
-};
-
-/**
  * Create new user
  */
 export const createUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -151,7 +120,7 @@ export const createUser = async (req: AuthRequest, res: Response, next: NextFunc
         }
 
         // Hash password
-        const passwordHash = await bcrypt.hash(password, 10);
+        const passwordHash = await hashPassword(password);
 
         // Create user
         const user = await User.create({
@@ -373,25 +342,6 @@ export const getAuditLogs = async (req: AuthRequest, res: Response, next: NextFu
     }
 };
 
-/**
- * Get recent audit logs (for dashboard)
- */
-export const getRecentAuditLogs = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const limit = parseInt(req.query.limit as string) || 20;
-        
-        const logs = await AuditLog.findRecent(limit);
-
-        res.json({
-            success: true,
-            logs
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting recent audit logs:', error);
-        next(error);
-    }
-};
-
 // ============================================================================
 // Queue Monitoring
 // ============================================================================
@@ -401,121 +351,14 @@ export const getRecentAuditLogs = async (req: AuthRequest, res: Response, next: 
  */
 export const getQueueStats = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        let stats;
-        
-        try {
-            stats = await getAllQueueStats();
-        } catch (error) {
-            logger.warn('[ADMIN_CONTROLLER] Failed to get queue stats:', error);
-            stats = {
-                validation: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-                delivery: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-                retry: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }
-            };
-        }
-
+        const { stats, recentUploadThroughput } = await StatsService.getQueueMonitoring();
         res.json({
             success: true,
-            stats
+            stats,
+            recentUploadThroughput,
         });
     } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting queue stats:', error);
-        next(error);
-    }
-};
-
-/**
- * Get files currently being processed
- */
-export const getProcessingFiles = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const pool = await getConnection();
-        
-        // Get files currently in validation or delivery
-        const result = await pool.request()
-            .query(`
-                SELECT 
-                    u.Id,
-                    u.OriginalFilename,
-                    u.Status,
-                    u.UploadedAt,
-                    u.ValidationStartedAt,
-                    u.ValidationCompletedAt,
-                    u.DeliveryStartedAt,
-                    u.DeliveryCompletedAt,
-                    u.ErrorMessage,
-                    fd.Name as DefinitionName,
-                    u.UploadedBy
-                FROM Uploads u
-                LEFT JOIN FileDefinitions fd ON u.FileDefinitionId = fd.Id
-                WHERE u.Status IN (
-                    'UPLOADED',
-                    'VALIDATION_QUEUED',
-                    'VALIDATION_IN_PROGRESS',
-                    'VALIDATION_COMPLETED',
-                    'DELIVERY_QUEUED',
-                    'DELIVERY_IN_PROGRESS'
-                )
-                ORDER BY u.UploadedAt DESC
-            `);
-
-        // Calculate progress for each file
-        const files = result.recordset.map((file: any) => {
-            let progress = 0;
-            let stage = 'pending';
-            
-            if (file.Status === 'VALIDATING') {
-                stage = 'validating';
-                // Estimate progress based on time elapsed (placeholder logic)
-                const elapsed = file.ValidationStartedAt 
-                    ? Date.now() - new Date(file.ValidationStartedAt).getTime()
-                    : 0;
-                progress = Math.min(50, Math.round(elapsed / 1000)); // Simplified progress
-            } else if (file.Status === 'DELIVERING') {
-                stage = 'delivering';
-                const elapsed = file.DeliveryStartedAt 
-                    ? Date.now() - new Date(file.DeliveryStartedAt).getTime()
-                    : 0;
-                progress = Math.min(100, 50 + Math.round(elapsed / 1000)); // Simplified progress
-            } else if (file.Status === 'VALIDATION_COMPLETED') {
-                stage = 'ready_for_delivery';
-                progress = 75;
-            } else if (file.Status === 'QUEUED') {
-                stage = 'queued';
-                progress = 10;
-            }
-
-            // Calculate processing time
-            let processingTimeMs = 0;
-            if (file.ValidationStartedAt) {
-                const endTime = file.ValidationCompletedAt || new Date();
-                processingTimeMs = new Date(endTime).getTime() - new Date(file.ValidationStartedAt).getTime();
-            }
-
-            return {
-                ...file,
-                progress,
-                stage,
-                processingTimeMs,
-                processingTimeFormatted: formatProcessingTime(processingTimeMs)
-            };
-        });
-
-        // Get stuck jobs
-        let stuckJobs = { validationJobs: [] as any[], deliveryJobs: [] as any[] };
-        try {
-            stuckJobs = await getStuckJobs();
-        } catch (error) {
-            logger.warn('[ADMIN_CONTROLLER] Failed to get stuck jobs:', error);
-        }
-
-        res.json({
-            success: true,
-            files,
-            stuckJobs
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting processing files:', error);
+        logger.error(`[ADMIN_CONTROLLER] Queue metrics lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         next(error);
     }
 };
@@ -553,7 +396,7 @@ export const getFileDefinitions = async (req: AuthRequest, res: Response, next: 
  */
 export const createFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { name, description, columns, tables, status, deliveryFolder, rules } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder, rules, contract: submittedContract } = req.body;
 
         if (!name) {
             return res.status(400).json({
@@ -565,11 +408,25 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
         let normalizedDeliveryFolder: string | null;
         let layout: DefinitionLayout;
         let initialRules: InitialRule[];
+        let baseContract: DefinitionContract;
         try {
-            layout = validateDefinitionLayout(columns, tables);
+            if (submittedContract) {
+                baseContract = submittedContract as DefinitionContract;
+                await validateDefinitionContract(baseContract);
+                layout = validateDefinitionLayout(...legacyLayoutArguments(baseContract));
+            } else {
+                layout = validateDefinitionLayout(columns, tables);
+                baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
+            }
             normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
-            initialRules = validateInitialRules(rules, layout);
+            const configs = [
+                ...(Array.isArray(baseContract.rules) ? baseContract.rules : []),
+                ...normalizeInitialRuleConfigs(rules),
+            ];
+            baseContract = { ...baseContract, rules: [] };
+            initialRules = await validateInitialRules(configs, baseContract);
         } catch (validationError) {
+            if (validationError instanceof RulesServiceError) return next(validationError);
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
 
@@ -578,6 +435,7 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
             Description: description || '',
             Columns: layout.columns,
             Tables: layout.tables,
+            Contract: baseContract,
             Status: status || 'Active',
             DeliveryFolder: normalizedDeliveryFolder
         };
@@ -613,12 +471,29 @@ export const createFileDefinition = async (req: AuthRequest, res: Response, next
 export const updateFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
-        const { name, description, columns, tables, status, deliveryFolder } = req.body;
+        const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract, rules: submittedRules, revision } = req.body;
 
         const updates: any = {};
+        let draftRules: RuleConfig[] | undefined;
         try {
-            // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
-            if (tables !== undefined) {
+            if (submittedContract) {
+                const contract = { ...(submittedContract as DefinitionContract), rules: [] };
+                if (Array.isArray(submittedRules)) {
+                    // The workspace saves its whole draft: structure and rules must be valid together before anything is written.
+                    const authored = await buildAuthoringContract(submittedContract, submittedRules);
+                    await validateDefinitionContract(authored);
+                    draftRules = authored.rules;
+                } else {
+                    await validateDefinitionContract(contract);
+                }
+                const layout = validateDefinitionLayout(...legacyLayoutArguments(contract));
+                updates.Columns = layout.columns;
+                updates.Tables = layout.tables;
+                updates.Contract = contract;
+            } else if (submittedRules !== undefined) {
+                throw new Error('Rules can only be saved together with the definition contract');
+            } else if (tables !== undefined) {
+                // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
                 const layout = validateDefinitionLayout(columns, tables);
                 updates.Columns = layout.columns;
                 updates.Tables = layout.tables;
@@ -628,11 +503,27 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
             }
             if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
         } catch (validationError) {
+            if (validationError instanceof RulesServiceError) return next(validationError);
             return res.status(400).json({ success: false, message: (validationError as Error).message });
         }
         if (name !== undefined) updates.Name = name;
         if (description !== undefined) updates.Description = description;
         if (status !== undefined) updates.Status = status;
+
+        let ruleChanges: SavedRules | undefined;
+        try {
+            if (draftRules) {
+                ruleChanges = await saveDraftRules(id, draftRules, req.user!.userId, typeof revision === 'string' ? revision : null);
+            } else if (typeof revision === 'string' && await getDraftRevision(await getConnection(), id) !== revision) {
+                throw new DefinitionVersionError(
+                    'This definition was changed by someone else after you opened it. Reload it to see their changes before saving.', 409);
+            }
+        } catch (conflict) {
+            if (conflict instanceof DefinitionVersionError) {
+                return res.status(conflict.statusCode).json({ success: false, message: conflict.message });
+            }
+            throw conflict;
+        }
 
         const definition = await FileDefinitionService.updateDefinition(id, updates);
 
@@ -642,7 +533,16 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
             AUDIT_ACTIONS.DEFINITION_UPDATED,
             ENTITY_TYPES.FILE_DEFINITION,
             id,
-            { updates },
+            {
+                updates,
+                ...(ruleChanges ? {
+                    ruleChanges: {
+                        added: ruleChanges.added.length,
+                        updated: ruleChanges.updated.length,
+                        removed: ruleChanges.removed.length,
+                    },
+                } : {}),
+            },
             req.ip || undefined,
             req.headers['user-agent']
         );
@@ -651,10 +551,44 @@ export const updateFileDefinition = async (req: AuthRequest, res: Response, next
         res.json({
             success: true,
             definition: camelCaseDefinition,
+            revision: await getDraftRevision(await getConnection(), id),
             message: 'File definition updated successfully'
         });
     } catch (error) {
         logger.error('[ADMIN_CONTROLLER] Error updating file definition:', error);
+        next(error);
+    }
+};
+
+/**
+ * Check a definition draft held by the workspace without saving it: contract and rule validation errors plus what
+ * publishing it would change relative to the active version.
+ * POST /api/admin/file-definitions/preflight
+ */
+export const preflightFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { contract, rules, definitionId } = req.body;
+        let authored: DefinitionContract;
+        try {
+            authored = await buildAuthoringContract(contract, rules);
+        } catch (inputError) {
+            if (inputError instanceof AuthoringInputError) {
+                return res.status(400).json({ success: false, message: inputError.message });
+            }
+            throw inputError;
+        }
+        const validation = await RulesService.validateContract(authored);
+        let diff = null;
+        if (typeof definitionId === 'string' && validation.ok) {
+            try {
+                diff = await DefinitionVersionService.previewDiff(definitionId, authored);
+            } catch (diffError) {
+                if (!(diffError instanceof DefinitionVersionError)) throw diffError;
+            }
+        }
+        res.json({ success: true, ok: validation.ok, errors: validation.errors, diff });
+    } catch (error) {
+        logger.error(`[ADMIN_CONTROLLER] Definition preflight failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
         next(error);
     }
 };
@@ -704,14 +638,6 @@ export const deleteFileDefinition = async (req: AuthRequest, res: Response, next
 // Helper Functions
 // ============================================================================
 
-function formatProcessingTime(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
-    const minutes = Math.floor(ms / 60000);
-    const seconds = Math.round((ms % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-}
-
 /**
  * Map FileDefinition from DB PascalCase to frontend camelCase
  */
@@ -727,6 +653,7 @@ interface MappedFileDefinition {
     allowedUsers: any[];
     templateFilename: string | null;
     deliveryFolder: string | null;
+    contract: DefinitionContract | null;
 }
 
 /**
@@ -784,59 +711,150 @@ function validateDefinitionLayout(columns: unknown, tables: unknown): Definition
     return { columns: [], tables: normalized };
 }
 
+function legacyLayoutArguments(contract: DefinitionContract): [unknown, unknown] {
+    if (contract.layout === 'single' && contract.tables.length !== 1) {
+        throw new Error('A single-table contract must contain exactly one table');
+    }
+    if (contract.layout === 'sheets' && contract.tables.some(table => !table.sheet)) {
+        throw new Error('Every table in a sheet-table contract needs a sheet name');
+    }
+
+    const toColumns = (columns: DefinitionContract['tables'][number]['columns']): IColumn[] =>
+        columns.map(column => ({
+            name: column.name,
+            type: column.type === 'date' ? 'datetime' : column.type,
+            required: column.mustExist && !column.nullable,
+        }));
+
+    if (contract.layout === 'single') {
+        return [toColumns(contract.tables[0].columns), []];
+    }
+    return [
+        [],
+        contract.tables.map(table => {
+            if (!table.sheet) throw new Error('Every table in a sheet-table contract needs a sheet name');
+            return { sheet: table.sheet, columns: toColumns(table.columns) };
+        }),
+    ];
+}
+
 type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
 
 const MAX_INITIAL_RULES = 50;
 
-/**
- * Validate the optional rules created together with a new definition (for example accepted suggestions from
- * an example file): supported type, valid expression, the sheet table (for sheet-table definitions), and every
- * referenced column defined in that table.
- */
-function validateInitialRules(rules: unknown, layout: DefinitionLayout): InitialRule[] {
-    if (rules === undefined || rules === null) return [];
-    if (!Array.isArray(rules)) throw new Error('Rules must be an array');
-    if (rules.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
+const ruleTypeLabels: Record<RuleConfig['type'], RuleType> = {
+    enum: 'Enum Check',
+    range: 'Range Check',
+    pattern: 'Schema Validation',
+    length: 'Schema Validation',
+    unique: 'Schema Validation',
+    lookup: 'Schema Validation',
+    dateRange: 'Schema Validation',
+    conditionalRequired: 'Schema Validation',
+    compare: 'Schema Validation',
+    rowCount: 'Schema Validation',
+    aggregate: 'Schema Validation',
+    reconcile: 'Schema Validation',
+    naturalLanguage: 'Natural Language',
+};
 
-    return rules.map((rule, index) => {
-        const name = typeof rule?.name === 'string' ? rule.name.trim() : '';
-        if (!name || name.length > 255) throw new Error(`Rule ${index + 1} needs a name of at most 255 characters`);
-        const severity = rule.severity ?? 'Error';
-        if (severity !== 'Error' && severity !== 'Warning') throw new Error(`Rule "${name}" severity must be Error or Warning`);
+const legacyRuleTypes: Record<string, RuleConfig['type']> = {
+    'enum check': 'enum',
+    'range check': 'range',
+};
 
-        const expression = typeof rule.expression === 'string' ? rule.expression.trim() : '';
-        try {
-            assertValidRule(rule.ruleType, expression);
-        } catch (error) {
-            throw new Error(`Rule "${name}": ${(error as Error).message}`);
+function normalizeInitialRuleConfigs(value: unknown): RuleConfig[] {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error('Rules must be an array');
+
+    return value.map((candidate, index) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+            throw new Error(`Rule ${index + 1} must be a RuleConfig or supported example suggestion`);
+        }
+        const rule = candidate as Record<string, unknown>;
+        if (typeof rule.type === 'string' && rule.params && typeof rule.params === 'object' && !Array.isArray(rule.params)) {
+            return parseRuleConfig(rule);
         }
 
-        const tableName = typeof rule.table === 'string' && rule.table.trim() ? rule.table.trim() : null;
-        let columns: IColumn[] = layout.columns;
-        let where = 'the definition';
-        if (layout.tables.length > 0) {
-            const table = tableName ? layout.tables.find(t => sameSheet(t.sheet, tableName)) : undefined;
-            if (!tableName) throw new Error(`Rule "${name}" must name the sheet table it applies to`);
-            if (!table) throw new Error(`Rule "${name}" is for sheet "${tableName}", which is not defined`);
-            columns = table.columns;
-            where = `sheet "${table.sheet}"`;
-        } else if (tableName) {
-            throw new Error(`Rule "${name}" is for sheet "${tableName}", but this definition has a single table`);
+        const ruleType = typeof rule.ruleType === 'string' ? legacyRuleTypes[rule.ruleType.trim().toLowerCase()] : undefined;
+        const expression = typeof rule.expression === 'string' ? rule.expression : '';
+        const separator = expression.indexOf(':');
+        if (!ruleType) {
+            throw new Error(`Rule ${index + 1}: Rule type must be one of the supported RuleConfig types or example suggestions`);
+        }
+        if (separator < 1) {
+            throw new Error(`Rule ${index + 1} is not a supported typed rule or example suggestion`);
+        }
+        if (typeof rule.name !== 'string' || !rule.name.trim()) throw new Error(`Rule ${index + 1} needs a name`);
+        if (rule.severity !== undefined && rule.severity !== 'Error' && rule.severity !== 'Warning') {
+            throw new Error(`Rule ${index + 1} has an unsupported severity`);
+        }
+        if (rule.table !== undefined && rule.table !== null && typeof rule.table !== 'string') {
+            throw new Error(`Rule ${index + 1} has an invalid table name`);
+        }
+        if (rule.executionOrder !== undefined &&
+            (typeof rule.executionOrder !== 'number' || !Number.isInteger(rule.executionOrder) || rule.executionOrder < 1)) {
+            throw new Error(`Rule ${index + 1} has an invalid execution order`);
+        }
+        const column = expression.slice(0, separator).trim();
+        const valueText = expression.slice(separator + 1).trim();
+        if (!column || !valueText) throw new Error(`Rule ${index + 1} needs a column and rule value`);
+
+        let params: Record<string, unknown>;
+        if (ruleType === 'enum') {
+            const values = valueText.split(',').map(item => item.trim()).filter(Boolean);
+            if (values.length === 0) throw new Error(`Rule ${index + 1} needs at least one allowed value`);
+            params = { column, values };
+        } else if (ruleType === 'range') {
+            const match = valueText.match(/^(-?(?:\d+\.?\d*|\.\d+))\s*\.\.\s*(-?(?:\d+\.?\d*|\.\d+))$/);
+            if (!match) throw new Error(`Rule ${index + 1} needs numeric range bounds in min..max format`);
+            params = { column, min: Number(match[1]), max: Number(match[2]) };
+        } else {
+            throw new Error(`Rule ${index + 1} is not a supported typed rule or example suggestion`);
         }
 
-        const columnNames = new Set(columns.map(column => column.name.trim()));
-        const missing = ruleColumns(parseRuleExpression(rule.ruleType, expression)).find(column => !columnNames.has(column));
-        if (missing) throw new Error(`Rule "${name}" refers to column "${missing}", which is not in ${where}`);
-
-        return {
-            Name: name,
-            Description: typeof rule.description === 'string' ? rule.description.slice(0, 1000) : '',
-            RuleType: rule.ruleType as RuleType,
-            Severity: severity as RuleSeverity,
-            SqlQuery: expression,
-            TableName: tableName,
-        };
+        const severity = rule.severity === 'Warning' ? 'Warning' : 'Error';
+        const table = typeof rule.table === 'string' && rule.table.trim() ? rule.table.trim() : null;
+        return parseRuleConfig({
+            id: uuidv4(),
+            name: typeof rule.name === 'string' && rule.name.trim() ? rule.name.trim() : `Suggested rule ${index + 1}`,
+            description: typeof rule.description === 'string' ? rule.description : '',
+            severity,
+            executionOrder: typeof rule.executionOrder === 'number' ? rule.executionOrder : index + 1,
+            enabled: true,
+            table,
+            type: ruleType,
+            params,
+        });
     });
+}
+
+async function validateDefinitionContract(contract: DefinitionContract): Promise<void> {
+    const validation = await RulesService.validateContract(contract);
+    if (!validation.ok) {
+        throw new Error(validation.errors.map(error => `${error.path}: ${error.message}`).join('; '));
+    }
+}
+
+/**
+ * Validate optional initial RuleConfig values with the Python contract validator.
+ */
+async function validateInitialRules(configs: RuleConfig[], baseContract: DefinitionContract): Promise<InitialRule[]> {
+    if (configs.length > MAX_INITIAL_RULES) throw new Error(`At most ${MAX_INITIAL_RULES} rules can be created with a definition`);
+    const contract: DefinitionContract = { ...baseContract, rules: configs };
+    await validateDefinitionContract(contract);
+
+    return configs.map(config => ({
+        Config: config,
+        Name: config.name,
+        Description: config.description,
+        RuleType: ruleTypeLabels[config.type],
+        Severity: config.severity,
+        ExecutionOrder: config.executionOrder,
+        SqlQuery: '',
+        IsEnabled: config.enabled,
+        TableName: config.table,
+    }));
 }
 
 function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
@@ -851,6 +869,7 @@ function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
         updatedAt: def.UpdatedAt,
         allowedUsers: def.AllowedUsers || [],
         templateFilename: def.TemplateFilename ? getTemplateDisplayName(def.TemplateFilename) : null,
-        deliveryFolder: def.DeliveryFolder || null
+        deliveryFolder: def.DeliveryFolder || null,
+        contract: def.Contract || null
     };
 }
