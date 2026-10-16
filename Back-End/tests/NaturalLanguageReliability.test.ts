@@ -3,6 +3,7 @@ import {
     type RuleDiagnosticEvent,
 } from '../src/services/NaturalLanguageRule.service';
 import { RulesService } from '../src/services/RulesService.service';
+import { appConfig } from '../src/config/appConfig';
 import { goldenContract, loadGoldenCorpus, modelOutput, type GoldenCase } from './helpers/goldenCorpus';
 
 const createResponse = jest.fn();
@@ -58,6 +59,7 @@ const withBadRelatedColumn = (): GoldenCase['referenceProposal'] => {
 
 beforeEach(() => {
     jest.clearAllMocks();
+    appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
     jest.mocked(RulesService.validateRule).mockImplementation(async (_contract, rule) => ({
         ok: true, errors: [], normalizedRule: rule, explanation: null,
     }));

@@ -38,7 +38,7 @@ RSS_BUDGET_BYTES = 1_500 * 1024 * 1024
 
 
 def _peak_rss_bytes() -> int:
-    if os.name == "nt":
+    if sys.platform == "win32":
         class ProcessMemoryCounters(ctypes.Structure):
             _fields_ = [
                 ("cb", ctypes.c_ulong),

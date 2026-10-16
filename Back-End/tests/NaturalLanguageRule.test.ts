@@ -8,6 +8,7 @@ import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { Rule } from '../src/models/Rule.model';
 import { RulesService, RulesServiceError } from '../src/services/RulesService.service';
 import { logger } from '../src/utils/logger';
+import { appConfig } from '../src/config/appConfig';
 
 const createResponse = jest.fn();
 jest.mock('@azure/ai-projects', () => ({
@@ -112,6 +113,7 @@ const request = 'Email must end with @contoso.example';
 describe('RuleConfig natural-language authoring', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
         jest.mocked(RulesService.validateRule).mockImplementation(async (_schema, rule) => ({
             ok: true,
             errors: [],

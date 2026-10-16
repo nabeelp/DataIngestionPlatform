@@ -3,6 +3,7 @@ import {
 } from '../src/services/NaturalLanguageRule.service';
 import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { RulesService } from '../src/services/RulesService.service';
+import { appConfig } from '../src/config/appConfig';
 import {
     combinedExamples,
     goldenContract,
@@ -51,6 +52,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 beforeEach(() => {
     jest.clearAllMocks();
+    appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
     jest.mocked(RulesService.validateRule).mockImplementation(async (_contract, rule) => ({
         ok: true, errors: [], normalizedRule: rule, explanation: null,
     }));
