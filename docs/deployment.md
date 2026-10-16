@@ -194,14 +194,35 @@ connection string to Key Vault; Container Apps reference Key Vault secrets.
 Runtime SQL, Blob and Service Bus access uses managed identities rather than
 connection strings.
 
-The GitHub Actions deployment workflow uses OIDC. Configure the `azure-deployment`
-GitHub environment with required reviewers if deployment approval is needed,
-then create federated credentials for the workflow identity. Set the
+PRs run the `CI` workflow; merging to `main` runs CI again on the actual merged
+commit. Deployment is intentionally a separate manual approval action:
+dispatch `Deploy to Azure` from `main` only after that commit's CI succeeds.
+The deployment workflow rejects other branches and commits whose latest main
+push CI run is missing, pending or unsuccessful. Checking the PR alone is not
+sufficient because the merge commit has a different SHA.
+
+The GitHub Actions deployment workflow uses OIDC for both Azure CLI and azd.
+Configure the `azure-deployment` GitHub environment to permit only `main`.
+Required environment reviewers are not supported by this private repository's
+current billing plan, so manual dispatch is the approval gate; do not add an
+automatic merge trigger unless an equivalent approval gate is available.
+Create a dedicated deployment app/service principal with a federated credential
+whose issuer is `https://token.actions.githubusercontent.com`, audience is
+`api://AzureADTokenExchange` and subject is
+`repo:nabeelp/DataIngestionPlatform:environment:azure-deployment`.
+Do not reuse application runtime identities or create a client secret.
+Grant Contributor only on the existing resource group. azd environment refresh
+also needs subscription deployment-history read access; use a narrow custom
+role for that operation rather than subscription-wide Contributor.
+Set the
 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_LOCATION`
 GitHub environment variables. The workflow deploys to an already provisioned
 `azd` environment; it does not provision infrastructure. Its `deployment_target`
-input supports:
+input defaults to `all` for coordinated releases and supports:
 
+- `validate`: Verify GitHub OIDC, both CLI logins, existing environment refresh
+  and resource discovery without image builds, provisioning, SQL jobs or rollout.
+  Run this first after merging and passing main CI to prove the identity setup.
 - `frontend`: Build and deploy only the SPA image. Use this for frontend-only
   changes such as the admin user-management UI.
 - `worker`: Build and update only the validation Container Apps Job image. It
@@ -245,8 +266,9 @@ applies infrastructure changes.
     even if the job fails, and updates the validation worker job to the built
     validation-service image.
 
-The repository workflow is manual; use `all` for a coordinated application
-deployment or a targeted frontend/worker deployment to avoid unrelated updates.
+The repository workflow is manual after merged-main CI succeeds; use `all` for
+a coordinated application deployment or a targeted frontend/worker deployment
+to avoid unrelated updates.
 Infrastructure provisioning remains a separate, explicitly approved step.
 
 ## Post-deployment checks
