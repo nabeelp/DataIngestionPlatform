@@ -25,7 +25,6 @@ function azd {
         API_CONTAINER_APP_NAME='api'; RULES_SERVICE_CONTAINER_APP_NAME='rules'; SQL_SERVER_NAME='sql';
         SQL_BOOTSTRAP_JOB_NAME='bootstrap'; SQL_BOOTSTRAP_IDENTITY_NAME='bootstrap-id'; WORKER_JOB_NAME='worker';
         SQL_BOOTSTRAP_IDENTITY_PRINCIPAL_ID='11111111-1111-1111-1111-111111111111';
-        SQL_ADMIN_OBJECT_ID='22222222-2222-2222-2222-222222222222'; SQL_ADMIN_LOGIN='configured-admin';
         AZURE_ENV_NAME='test'; AZURE_SUBSCRIPTION_ID='subscription'; SQL_DATABASE_NAME='DataIngestion';
         AZURE_STORAGE_ACCOUNT_NAME='sttest'; AZURE_STORAGE_ACCOUNT_URL='https://sttest.blob.core.windows.net/';
         KEY_VAULT_NAME='vault'; WORKER_IDENTITY_NAME='worker-identity'; FRONTEND_CONTAINER_APP_NAME='frontend';
@@ -88,7 +87,7 @@ describe('postdeploy reset orchestration (mock Azure CLI)', () => {
     jest.setTimeout(60_000);
     const prepare = '-Prepare -ConfirmEnvironment test -ExpectedUsers 2 -BootstrapImage test.azurecr.io/api:release';
 
-    it('keeps normal postdeploy non-destructive and updates the worker', () => {
+    it('keeps normal postdeploy non-destructive without local SQL admin settings and updates the worker', () => {
         const result = run('');
         expect(result.failed).toBe(false);
         expect(result.commands.some(command => command.includes('reset-application-data'))).toBe(false);

@@ -320,7 +320,10 @@ Contributor. SQL row deletion and compatible schema updates run transactionally
 with a byte-for-byte user comparison; Blob deletion is a separate, explicitly
 verified phase. A partial blob failure is reported and requires a reviewed
 rerun. Temporary role assignments, job retry settings and the actual previous
-SQL administrator are restored on success or failure. Reset arguments are
+SQL administrator are restored on success or failure. The hook captures the
+actual live administrator rather than relying on local SQL administrator
+settings, so a fresh CI environment does not require `SQL_ADMIN_OBJECT_ID`
+or `SQL_ADMIN_LOGIN`. Reset arguments remain
 execution overrides, never persistent job settings. Preparation copies the
 existing full execution template into a temporary JSON/YAML input to retain
 environment variables, resources and container names; Azure CLI's individual
