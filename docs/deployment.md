@@ -209,7 +209,9 @@ automatic merge trigger unless an equivalent approval gate is available.
 Create a dedicated deployment app/service principal with a federated credential
 whose issuer is `https://token.actions.githubusercontent.com`, audience is
 `api://AzureADTokenExchange` and subject is
-`repo:nabeelp/DataIngestionPlatform:environment:azure-deployment`.
+`repo:nabeelp@19663473/DataIngestionPlatform@1394763110:environment:azure-deployment`.
+This repository uses GitHub's ID-qualified OIDC subject; match the exact
+issued subject rather than assuming the older name-only repository format.
 Do not reuse application runtime identities or create a client secret.
 Grant Contributor only on the existing resource group. azd environment refresh
 also needs subscription deployment-history read access; use a narrow custom
