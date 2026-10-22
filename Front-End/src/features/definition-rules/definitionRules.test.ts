@@ -10,7 +10,7 @@ import {
   ruleStatus,
 } from './ruleDraft';
 import { ruleColumnReferences, ruleProblems, structureOf } from './ruleReferences';
-import { describeRule, RULE_TYPE_OPTIONS } from './ruleText';
+import { describeRule, RULE_TYPE_DESCRIPTIONS, RULE_TYPE_OPTIONS } from './ruleText';
 import { ruleConfigFromSuggestion } from './ruleSuggestions';
 import { mapPreflightErrors, ruleHealth } from './preflight';
 
@@ -31,6 +31,25 @@ describe('rule type options', () => {
   it('lists rule types alphabetically by their visible label', () => {
     const labels = RULE_TYPE_OPTIONS.map(option => option.label);
     expect(labels).toEqual([...labels].sort((left, right) => left.localeCompare(right)));
+  });
+
+  it('provides a description for every rule type', () => {
+    expect(Object.keys(RULE_TYPE_DESCRIPTIONS).sort()).toEqual([
+      'aggregate',
+      'compare',
+      'conditionalRequired',
+      'dateRange',
+      'enum',
+      'length',
+      'lookup',
+      'naturalLanguage',
+      'pattern',
+      'range',
+      'reconcile',
+      'rowCount',
+      'unique',
+    ]);
+    expect(Object.values(RULE_TYPE_DESCRIPTIONS).every(description => description.length > 0)).toBe(true);
   });
 });
 

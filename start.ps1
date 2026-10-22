@@ -112,21 +112,22 @@ function Wait-ForTcpPort {
     throw "Local service did not open port $Port within $TimeoutSeconds seconds."
 }
 
-function Wait-ForHttpProcess {
+function Wait-ForHttpService {
     param(
-        [Parameter(Mandatory)]
         [System.Diagnostics.Process]$Process,
 
         [Parameter(Mandatory)]
         [string]$HealthUrl,
 
-        [int]$TimeoutSeconds = 90
+        [int]$TimeoutSeconds = 90,
+
+        [string]$FailureHint = ''
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $lastError = $null
     while ((Get-Date) -lt $deadline) {
-        if ($Process.HasExited) {
+        if ($null -ne $Process -and $Process.HasExited) {
             throw "Process exited with code $($Process.ExitCode) before becoming healthy."
         }
 
@@ -135,6 +136,7 @@ function Wait-ForHttpProcess {
             if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
                 return
             }
+            $lastError = "HTTP $($response.StatusCode)"
         }
         catch {
             $lastError = $_.Exception.Message
@@ -143,7 +145,7 @@ function Wait-ForHttpProcess {
         Start-Sleep -Milliseconds 500
     }
 
-    throw "Service did not become healthy at $HealthUrl within $TimeoutSeconds seconds. Last error: $lastError"
+    throw "Service did not become healthy at $HealthUrl within $TimeoutSeconds seconds. Last error: $lastError. $FailureHint"
 }
 
 function Test-ContainerRunning {
@@ -255,6 +257,9 @@ try {
     foreach ($port in @(1433, 5672, $emulatorHttpPort, 10000)) {
         Wait-ForTcpPort -Port $port -TimeoutSeconds 60
     }
+    Write-Host 'Waiting for Service Bus emulator readiness...'
+    Wait-ForHttpService -HealthUrl "http://localhost:$emulatorHttpPort/health" -TimeoutSeconds 180 `
+        -FailureHint 'Inspect docker logs --tail 100 servicebus-emulator and docker logs --tail 100 data-ingestion-servicebus-sql. See README.md for Service Bus recovery guidance.'
 
     Write-Host 'Applying local database scripts...'
     $applyScript = Join-Path $backend 'database\apply.ps1'
@@ -272,7 +277,7 @@ try {
         $processes.Add($rulesService)
         $worker = Start-Process $uvPath -WorkingDirectory $pythonService -ArgumentList 'run', 'dq-engine', 'worker' -NoNewWindow -PassThru
         $processes.Add($worker)
-        Wait-ForHttpProcess -Process $rulesService -HealthUrl $rulesHealthUrl
+        Wait-ForHttpService -Process $rulesService -HealthUrl $rulesHealthUrl
     }
     else {
         Write-Warning 'Python API and worker entry points will start once their work package is implemented.'
@@ -281,12 +286,12 @@ try {
     Write-Host 'Starting Node API...'
     $backendProcess = Start-Process npm.cmd -WorkingDirectory $backend -ArgumentList 'run', 'dev' -NoNewWindow -PassThru
     $processes.Add($backendProcess)
-    Wait-ForHttpProcess -Process $backendProcess -HealthUrl $backendHealthUrl
+    Wait-ForHttpService -Process $backendProcess -HealthUrl $backendHealthUrl
 
     Write-Host 'Starting frontend...'
     $frontendProcess = Start-Process npm.cmd -WorkingDirectory $frontend -ArgumentList 'run', 'dev' -NoNewWindow -PassThru
     $processes.Add($frontendProcess)
-    Wait-ForHttpProcess -Process $frontendProcess -HealthUrl $frontendUrl
+    Wait-ForHttpService -Process $frontendProcess -HealthUrl $frontendUrl
 
     Write-Host "Health: $backendHealthUrl"
     if ((Test-Path $pythonApiEntry) -and (Test-Path $pythonWorkerEntry)) {

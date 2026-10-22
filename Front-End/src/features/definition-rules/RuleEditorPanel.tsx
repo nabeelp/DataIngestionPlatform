@@ -18,7 +18,7 @@ import {
   type RuleExampleTestResult,
 } from './ruleDraftApi';
 import { ruleProblems, type RuleStructure } from './ruleReferences';
-import { RULE_TYPE_OPTIONS, type BuiltInRuleType } from './ruleText';
+import { RULE_TYPE_OPTIONS, ruleTypeDescription, type BuiltInRuleType } from './ruleText';
 
 interface Props {
   /** The rule being edited; null creates a rule of a built-in type. */
@@ -464,14 +464,22 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
               <select
                 id="ruleType"
                 value={form.ruleType}
+                aria-describedby="ruleTypeDescription"
                 onChange={event => {
                   const ruleType = event.target.value as BuiltInRuleType;
                   editForm(current => ({ ...current, ruleType, params: defaultRuleParams(ruleType) }));
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {RULE_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {RULE_TYPE_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value} title={ruleTypeDescription(option.value)}>
+                    {option.label} - {ruleTypeDescription(option.value)}
+                  </option>
+                ))}
               </select>
+              <p id="ruleTypeDescription" className="text-xs leading-relaxed text-slate-600">
+                {ruleTypeDescription(form.ruleType)}
+              </p>
             </div>
             <RuleConfigFields
               type={form.ruleType as BuiltInRuleType}

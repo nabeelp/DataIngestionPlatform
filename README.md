@@ -20,6 +20,12 @@ The current schema is a clean-slate contract. `apply.ps1` fails fast on incompat
 
 Local runs keep using the `.env`-based emulator settings and shared development key; they do not require Azure identity, Entra app registrations, or provisioned cloud resources. Azure managed-identity and Entra rules-service settings are injected by the Container Apps deployment.
 
+### Service Bus emulator startup troubleshooting
+
+`start.ps1` waits for the emulator's HTTP `/health` endpoint to return success before starting the application. An open AMQP port alone does not mean the emulator has finished creating its databases and messaging entities.
+
+If startup times out, inspect `docker logs --tail 100 servicebus-emulator` and `docker logs --tail 100 data-ingestion-servicebus-sql` locally; redact credentials before sharing logs. Repeated SQL error 5170 ("Cannot create file ... because it already exists") can indicate orphaned emulator database files in the dedicated `servicebus-sql-data` volume. Stop only `servicebus-emulator`, verify the affected files are not registered in SQL Server's `sys.master_files`, and back up those exact files outside the SQL data directory before restarting the emulator. This recreates the emulator message store; preserve anything needed before recovery. Do not delete the application SQL or Azurite volumes, or run `docker compose down --volumes` to fix this.
+
 ## Validation
 
 Every upload is streamed from Blob Storage to the Python service, parsed (including all Excel sheets), and checked in one pass:
