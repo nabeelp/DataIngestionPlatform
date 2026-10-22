@@ -3,20 +3,38 @@ import type { RuleConfig } from '../../contracts/rule-config';
 type Params = Record<string, unknown>;
 export type BuiltInRuleType = Exclude<RuleConfig['type'], 'naturalLanguage'>;
 
-export const RULE_TYPE_OPTIONS: ReadonlyArray<{ value: BuiltInRuleType; label: string; hint: string }> = [
-  { value: 'aggregate', label: 'Aggregate', hint: 'A sum, count, min, max or average must stay within limits' },
-  { value: 'enum', label: 'Allowed values', hint: 'Values must come from a fixed list' },
-  { value: 'compare', label: 'Compare columns', hint: 'Compare two columns row by row' },
-  { value: 'conditionalRequired', label: 'Conditional required values', hint: 'Columns are required when another column has a value' },
-  { value: 'dateRange', label: 'Date range', hint: 'Dates must fall within a window' },
-  { value: 'length', label: 'Length', hint: 'Text length must stay within limits' },
-  { value: 'lookup', label: 'Lookup', hint: 'Values must exist in a reference list' },
-  { value: 'range', label: 'Numeric range', hint: 'Numbers must stay between a minimum and maximum' },
-  { value: 'pattern', label: 'Pattern', hint: 'Values must match a regular expression' },
-  { value: 'reconcile', label: 'Reconcile tables', hint: 'Totals in two tables must agree' },
-  { value: 'rowCount', label: 'Row count', hint: 'The table must have a number of rows within limits' },
-  { value: 'unique', label: 'Unique values', hint: 'No duplicate values across rows' },
+export const RULE_TYPE_DESCRIPTIONS: Record<RuleConfig['type'], string> = {
+  enum: 'A column must match one of a specified set of allowed values.',
+  range: 'A numeric column must fall within a minimum, maximum, or both.',
+  pattern: "A column's text must match a regular-expression pattern.",
+  length: 'A text value must meet a minimum or maximum character count.',
+  unique: 'A value or combination of columns must not be duplicated.',
+  lookup: "A column's value must exist in a configured lookup set.",
+  dateRange: 'A date column must fall within specified fixed or relative date bounds.',
+  conditionalRequired: 'One or more columns must be populated when another column meets a specified condition.',
+  compare: 'Two columns in a row must satisfy a typed comparison, such as less than, equal to, or greater than.',
+  rowCount: "A table's number of rows must meet a minimum, maximum, or both.",
+  aggregate: 'An aggregate of a column, such as sum, average, count, or distinct count, must meet a minimum or maximum.',
+  reconcile: 'Aggregates from two tables or sheets must agree, optionally within a tolerance.',
+  naturalLanguage: 'A custom condition is needed: use row mode for a single-sheet row check, or query mode for a whole-file or cross-sheet check.',
+};
+
+export const RULE_TYPE_OPTIONS: ReadonlyArray<{ value: BuiltInRuleType; label: string }> = [
+  { value: 'aggregate', label: 'Aggregate' },
+  { value: 'enum', label: 'Allowed values' },
+  { value: 'compare', label: 'Compare columns' },
+  { value: 'conditionalRequired', label: 'Conditional required values' },
+  { value: 'dateRange', label: 'Date range' },
+  { value: 'length', label: 'Length' },
+  { value: 'lookup', label: 'Lookup' },
+  { value: 'range', label: 'Numeric range' },
+  { value: 'pattern', label: 'Pattern' },
+  { value: 'reconcile', label: 'Reconcile tables' },
+  { value: 'rowCount', label: 'Row count' },
+  { value: 'unique', label: 'Unique values' },
 ];
+
+export const ruleTypeDescription = (type: RuleConfig['type']): string => RULE_TYPE_DESCRIPTIONS[type];
 
 export const ruleTypeLabel = (type: RuleConfig['type']): string =>
   type === 'naturalLanguage'
