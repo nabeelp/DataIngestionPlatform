@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { apiConfig } from '../config/api';
-import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../contracts/definition-contract';
+import type { Column as ContractColumn, DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
 import { apiRequest } from './http';
 
@@ -262,26 +262,12 @@ export const getQueueStats = async (): Promise<{
 // File Definitions (Admin)
 // ============================================================================
 
-export type FileDefinitionColumn = Pick<ContractColumn, 'name'> & { type: string }
-  & Partial<Omit<ContractColumn, 'name' | 'type'>>
-  & { required: boolean };
-
-/** A table for one workbook sheet (definitions with one table per sheet). */
-export type FileDefinitionTable = Partial<Omit<ContractTable, 'sheet' | 'columns'>> & {
-  sheet: string;
-  columns: FileDefinitionColumn[];
-};
-
 export interface FileDefinitionAdmin {
   id: string;
   name: string;
   description: string;
-  /** Single-table columns; empty when the definition has sheet tables. */
-  columns: FileDefinitionColumn[];
-  /** One table per workbook sheet; empty for single-table definitions. */
-  tables?: FileDefinitionTable[];
-  /** Full validation contract. Optional while older definitions are being migrated. */
-  contract?: DefinitionContract | null;
+  /** The draft structure; its rules are always empty here (rules live in the draft rules API). */
+  contract: DefinitionContract;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -291,28 +277,12 @@ export interface FileDefinitionAdmin {
   hasUnpublishedChanges?: boolean;
 }
 
-export interface DefinitionVersionRule {
-  id: string;
-  name: string;
-  description: string;
-  ruleType: string;
-  severity: string;
-  executionOrder: number;
-  expression: string;
-  /** Sheet table the rule applies to; null for single-table definitions. */
-  table?: string | null;
-  /** Natural Language rules only: the request the rule was created from. */
-  naturalLanguageText?: string | null;
-}
-
 export interface DefinitionVersion {
   id: string;
   versionNumber: number;
   status: 'Active' | 'Superseded';
-  columns: FileDefinitionColumn[];
-  tables?: FileDefinitionTable[];
-  contract?: DefinitionContract;
-  rules: DefinitionVersionRule[];
+  /** The published snapshot: layout, tables, columns and the enabled rules. */
+  contract: DefinitionContract;
   definitionMetadata: DefinitionMetadataSnapshot | null;
   changeNote: string | null;
   createdByName: string | null;
@@ -341,22 +311,13 @@ export interface DefinitionVersionHistory {
   versions: DefinitionVersion[];
 }
 
-/** A rule created together with a new definition, so version 1 publishes it. */
-export interface InitialRule {
-  name: string;
-  ruleType: string;
-  expression: string;
-  severity: 'Error' | 'Warning';
-  /** Sheet table the rule applies to (sheet-table definitions only). */
-  table?: string | null;
-}
-
-export interface ExampleColumn extends FileDefinitionColumn {
+export interface ExampleColumn extends ContractColumn {
   filledRows: number;
   sampleValues: string[];
 }
 
-export interface ExampleRuleSuggestion extends InitialRule {
+export interface ExampleRuleSuggestion {
+  rule: RuleConfig;
   reason: string;
 }
 
@@ -432,12 +393,11 @@ export const getFileDefinitionsAdmin = async (): Promise<{
 export const createFileDefinitionAdmin = async (defData: {
   name: string;
   description?: string;
-  columns: FileDefinitionColumn[];
-  tables?: FileDefinitionTable[];
-  contract?: DefinitionContract;
+  contract: DefinitionContract;
   status?: string;
   deliveryFolder?: string | null;
-  rules?: Array<InitialRule | RuleConfig>;
+  /** Rules published with version 1. */
+  rules?: RuleConfig[];
 }): Promise<FileDefinitionAdmin> => {
   const response = await fetch(
     `${getBaseUrl()}/admin/file-definitions`,
@@ -455,8 +415,6 @@ export const updateFileDefinitionAdmin = async (
   updates: {
     name?: string;
     description?: string;
-    columns?: FileDefinitionColumn[];
-    tables?: FileDefinitionTable[];
     contract?: DefinitionContract;
     /** The complete rule set; rules missing from it are deleted. Requires `contract`. */
     rules?: RuleConfig[];

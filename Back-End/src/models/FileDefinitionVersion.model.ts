@@ -6,22 +6,17 @@ import type { ConnectionPool, Request, Transaction } from 'mssql';
 import { v4 as uuidv4 } from 'uuid';
 import type { DefinitionContract } from '../contracts/definition-contract';
 import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
-import { legacySnapshotFromContract, parseDefinitionContract } from './contractMapper';
+import { parseDefinitionContract } from './contractMapper';
 
 type Queryable = ConnectionPool | Transaction;
 
 export function mapVersionRow(row: any): IFileDefinitionVersion {
-    const definitionContract = parseDefinitionContract(row.Contract);
-    const contract = legacySnapshotFromContract(definitionContract);
     return {
         Id: row.Id,
         FileDefinitionId: row.FileDefinitionId,
         VersionNumber: row.VersionNumber,
         Status: row.Status,
-        Contract: definitionContract,
-        Columns: contract.columns,
-        Tables: contract.tables,
-        Rules: contract.rules,
+        Contract: parseDefinitionContract(row.Contract),
         DefinitionMetadata: row.DefinitionMetadata ? JSON.parse(row.DefinitionMetadata) as IDefinitionMetadataSnapshot : null,
         ChangeNote: row.ChangeNote ?? null,
         CreatedBy: row.CreatedBy ?? null,

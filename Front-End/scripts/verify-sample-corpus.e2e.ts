@@ -17,7 +17,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLES, 'manifest.json'),
   }[];
 };
 const definitions = JSON.parse(fs.readFileSync(path.join(SAMPLES, 'definitions', 'sample_definitions.json'), 'utf8')) as
-  Record<string, { name: string; tables: unknown[] }>;
+  Record<string, { name: string; description: string; contract: { layout: 'single' | 'sheets' } }>;
 // Engine truth per sample (status, failing/warning checks, rows), reviewed in Validation-Service/tests/golden.
 const snapshot = JSON.parse(fs.readFileSync(path.join(ROOT, 'Validation-Service', 'tests', 'golden', 'expected_outcomes.json'), 'utf8')) as
   Record<string, { status: string; failedChecks?: string[]; warningChecks?: string[]; rows?: number }>;
@@ -70,7 +70,7 @@ const uploadViaUi = async (page: Page, definitionName: string, filePath: string)
       new URL(candidate.url()).pathname.endsWith('/uploads') && candidate.request().method() === 'POST',
       { timeout: 5 * 60 * 1000 },
     ),
-    page.getByRole('button', { name: 'Verify and Upload File' }).click(),
+    page.getByRole('button', { name: 'Upload and validate' }).click(),
   ]);
   return { response, body: await readJson(response) };
 };
@@ -107,6 +107,17 @@ const verifyExample = async (page: Page, token: string, entry: typeof manifest.f
     expect(response.status(), `${entry.file}: ${body.message || 'example analysis failed'}`).toBe(200);
     expect(body.success, entry.file).toBe(true);
     expect(Array.isArray(body.sheets), entry.file).toBe(true);
+    for (const sheet of body.sheets) {
+      for (const column of sheet.columns) {
+        expect(typeof column.mustExist, `${entry.file}: ${column.name} mustExist`).toBe('boolean');
+        expect(typeof column.nullable, `${entry.file}: ${column.name} nullable`).toBe('boolean');
+        expect(column, `${entry.file}: ${column.name}`).not.toHaveProperty('required');
+      }
+      for (const suggestion of sheet.suggestedRules) {
+        expect(['enum', 'range'], `${entry.file}: ${suggestion.rule?.name}`).toContain(suggestion.rule?.type);
+        expect(typeof suggestion.reason, `${entry.file}: ${suggestion.rule?.name} reason`).toBe('string');
+      }
+    }
     if (entry.expected.layout) {
       const populated = body.sheets.filter((sheet: any) => sheet.columns?.length > 0);
       const layout = body.fileType === 'xlsx' && populated.length > 1 ? 'sheets' : 'single';
@@ -208,8 +219,8 @@ test('runs all upload and example samples through the local UI and APIs', async 
       expect(expectedStatus, `${entry.file}: unexpected live status ${status}`).toContain(status);
       if (entry.expected.rows !== undefined) expectRowCount(result.upload.RowCountNo, entry.expected.rows, entry.file);
       const ruleDetails = result.ruleDetails ?? [];
-      const singleLayout = definitions[entry.definition!].tables.length === 0;
-      const actualFailed = ruleDetails.filter((rule: any) => rule.Status === 'FAILED')
+      const singleLayout = definitions[entry.definition!].contract.layout === 'single';
+      const actualFailed = ruleDetails.filter((rule: any) => rule.Status === 'FAILED' || rule.Status === 'ERROR')
         .map((rule: any) => normalizeCheckName(rule.RuleName, singleLayout)).sort();
       const actualWarnings = ruleDetails.filter((rule: any) => rule.Status === 'WARNING')
         .map((rule: any) => normalizeCheckName(rule.RuleName, singleLayout)).sort();

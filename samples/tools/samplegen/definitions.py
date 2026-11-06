@@ -1,5 +1,7 @@
 """File definitions (and their rules) that the sample files are validated against.
 
+`DEFINITIONS` is a compact authoring shorthand (`col()` and `rule()`) used only by the generator; everything that is
+published or consumed is the versioned definition contract built from it (`definitions_json`, `definitions_sql`).
 The single-table definitions use exactly the same columns as the seeded definitions in
 Back-End/database/local/sample_file_definitions.sql, so their sample files also work with those.
 """
@@ -243,6 +245,14 @@ def _definition_contract(definition_key, definition):
         'rules': rules,
         'lookups': {},
     }, rules
+
+
+def definitions_json():
+    """The sample definitions as published in sample_definitions.json: name, description and full contract."""
+    return {
+        key: {'name': d['name'], 'description': d['description'], 'contract': _definition_contract(key, d)[0]}
+        for key, d in DEFINITIONS.items()
+    }
 
 
 def definitions_sql():

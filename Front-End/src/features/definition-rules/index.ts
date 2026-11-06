@@ -13,7 +13,6 @@ export type { RuleDraftAction, RuleDraftState } from './ruleDraft';
 export { ruleHealth, usePreflight } from './preflight';
 export { useUnsavedChangesGuard } from './useUnsavedChangesGuard';
 export type { PreflightState, RuleHealth } from './preflight';
-export { ruleConfigFromSuggestion } from './ruleSuggestions';
 export { structureOf } from './ruleReferences';
 export { describeRule, ruleTypeLabel } from './ruleText';
 export { getDraftRules, getPublishedRules } from './ruleDraftApi';

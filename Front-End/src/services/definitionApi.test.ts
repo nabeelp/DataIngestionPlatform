@@ -57,19 +57,42 @@ describe('definition summary mapping', () => {
       tables: [{ sheet: null }],
     });
     expect(definition.columns.map(column => column.name)).toEqual(['CustomerId']);
+    expect(definition.tables[0].columns[0]).toMatchObject({ mustExist: true, nullable: false });
   });
 
-  it('maps admin draft state and sheet-table fallback', () => {
+  it('maps one table per sheet from the contract', () => {
     const definition = mapDefinitionSummary({
-      id: 'definition-2',
-      name: 'Workbook',
-      description: '',
-      status: 'Active',
-      hasUnpublishedChanges: true,
-      tables: [{ sheet: 'Orders', columns: [{ name: 'OrderId', type: 'string', required: true }] }],
+      Id: 'definition-2',
+      Name: 'Workbook',
+      Description: '',
+      Status: 'Active',
+      HasUnpublishedChanges: true,
+      Contract: {
+        schemaVersion: 1,
+        layout: 'sheets',
+        ignoredSheets: ['Notes'],
+        encoding: 'auto',
+        tables: [
+          { sheet: 'Orders', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null, columns: [{ name: 'OrderId', type: 'integer', mustExist: true, nullable: false }] },
+          { sheet: 'Refunds', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null, columns: [{ name: 'Reason', type: 'string', mustExist: true, nullable: true }] },
+        ],
+        rules: [],
+        lookups: {},
+      },
     });
 
     expect(definition.hasUnpublishedChanges).toBe(true);
-    expect(definition.tables[0].sheet).toBe('Orders');
+    expect(definition.tables.map(table => table.sheet)).toEqual(['Orders', 'Refunds']);
+    expect(definition.columns.map(column => column.name)).toEqual(['OrderId', 'Reason']);
+    expect(definition.ruleCounts).toEqual({ total: 0, errors: 0, warnings: 0 });
+  });
+
+  it('has no tables until a version with a contract is published', () => {
+    const definition = mapDefinitionSummary({ Id: 'definition-3', Name: 'Draft', Status: 'Active' });
+
+    expect(definition.contract).toBeNull();
+    expect(definition.tables).toEqual([]);
+    expect(definition.columns).toEqual([]);
+    expect(definition.activeVersion).toBeNull();
   });
 });

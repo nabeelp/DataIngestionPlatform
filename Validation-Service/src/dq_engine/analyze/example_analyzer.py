@@ -5,6 +5,7 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import fastexcel
 
@@ -124,10 +125,32 @@ def _looks_like_identifier(name: str) -> bool:
     return bool(parts) and (parts[-1] in IDENTIFIER_WORDS or "".join(parts) in IDENTIFIER_WORDS)
 
 
-def _suggested_rules(name: str, kind: str, values: list[str]) -> list[dict[str, str]]:
-    rules: list[dict[str, str]] = []
+def _bound(value: float) -> int | float:
+    return int(value) if float(value).is_integer() else value
+
+
+def _suggested_rules(name: str, kind: str, values: list[str], table: str | None) -> list[dict[str, Any]]:
+    """Candidate RuleConfig values with the reason each was proposed. The caller assigns the execution order."""
+
+    def rule(rule_name: str, rule_type: str, params: dict[str, Any], reason: str) -> dict[str, Any]:
+        return {
+            "rule": {
+                "id": str(uuid4()),
+                "name": rule_name,
+                "description": "",
+                "severity": "Error",
+                "executionOrder": 1,
+                "enabled": True,
+                "table": table,
+                "type": rule_type,
+                "params": params,
+            },
+            "reason": reason,
+        }
+
+    rules: list[dict[str, Any]] = []
     filled = [value.strip() for value in values if value.strip()]
-    if kind == "string" and ":" not in name:
+    if kind == "string":
         distinct = set(filled)
         if (
             1 < len(distinct) <= MAX_ENUM_VALUES
@@ -135,19 +158,15 @@ def _suggested_rules(name: str, kind: str, values: list[str]) -> list[dict[str, 
             and all(len(value) <= MAX_ENUM_VALUE_LENGTH and "," not in value for value in distinct)
         ):
             allowed = sorted(distinct, key=str.casefold)
-            rules.append({
-                "name": f"{name} allowed values",
-                "ruleType": "Enum Check",
-                "expression": f"{name}: {', '.join(allowed)}",
-                "severity": "Error",
-                "reason": (
-                    f"{len(allowed)} distinct values repeat across {len(filled)} filled rows. "
-                    "Only values seen in the example would be allowed"
-                ),
-            })
+            rules.append(rule(
+                f"{name} allowed values",
+                "enum",
+                {"column": name, "values": allowed},
+                f"{len(allowed)} distinct values repeat across {len(filled)} filled rows. "
+                "Only values seen in the example would be allowed",
+            ))
     if (
         kind in {"integer", "decimal"}
-        and ":" not in name
         and not re.fullmatch(r"Column\d+", name)
         and not _looks_like_identifier(name)
     ):
@@ -160,24 +179,21 @@ def _suggested_rules(name: str, kind: str, values: list[str]) -> list[dict[str, 
             observed_max = max(numbers)
             minimum = 0 if observed_min >= 0 else -_nice_ceiling(-observed_min)
             maximum = _nice_ceiling(observed_max) if observed_max > 0 else 0
-            rules.append({
-                "name": f"{name} range",
-                "ruleType": "Range Check",
-                "expression": f"{name}: {_format_number(minimum)}..{_format_number(maximum)}",
-                "severity": "Error",
-                "reason": (
-                    f"Values in the example range from {_format_number(observed_min)} to "
-                    f"{_format_number(observed_max)}. The bounds are rounded out to leave headroom"
-                    f"{' and reject negative values' if minimum == 0 else ''}"
-                ),
-            })
+            rules.append(rule(
+                f"{name} range",
+                "range",
+                {"column": name, "min": _bound(minimum), "max": _bound(maximum)},
+                f"Values in the example range from {_format_number(observed_min)} to "
+                f"{_format_number(observed_max)}. The bounds are rounded out to leave headroom"
+                f"{' and reject negative values' if minimum == 0 else ''}",
+            ))
     return rules
 
 
 def _summarize(table: ParsedTable) -> dict[str, Any]:
     frame = table.frame.head(MAX_ANALYZED_ROWS)
     columns: list[dict[str, Any]] = []
-    suggested_rules: list[dict[str, str]] = []
+    suggested_rules: list[dict[str, Any]] = []
     warnings: list[str] = []
     if not table.source_columns:
         warnings.append("No header row was found.")
@@ -225,14 +241,15 @@ def _summarize(table: ParsedTable) -> dict[str, Any]:
         columns.append({
             "name": proposed_name,
             "type": inferred_type,
-            "required": bool(values) and filled == len(values),
+            "mustExist": True,
+            "nullable": not (bool(values) and filled == len(values)),
             "filledRows": filled,
             "sampleValues": [
                 value if len(value) <= MAX_SAMPLE_LENGTH else f"{value[:MAX_SAMPLE_LENGTH]}..."
                 for value in samples[:MAX_SAMPLE_VALUES]
             ],
         })
-        suggested_rules.extend(_suggested_rules(proposed_name, inferred_type, values))
+        suggested_rules.extend(_suggested_rules(proposed_name, inferred_type, values, table.name or None))
     if frame.height == 0 and columns:
         warnings.append("There are no data rows below the header.")
     if table.frame.height > MAX_ANALYZED_ROWS:

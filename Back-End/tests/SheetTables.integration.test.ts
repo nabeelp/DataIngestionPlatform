@@ -3,6 +3,7 @@
 
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
+import { randomUUID } from 'crypto';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -48,11 +49,40 @@ describeDb('sheet table definitions (SQL Server)', () => {
         return res;
     };
 
+    const column = (name: string, type = 'string') => ({ name, type, mustExist: true, nullable: false });
+    const sheetTable = (sheet: string, columns: ReturnType<typeof column>[]) => ({
+        sheet, headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null, columns,
+    });
+    const contractOf = (tables: ReturnType<typeof sheetTable>[], layout: 'sheets' | 'single' = 'sheets') => ({
+        schemaVersion: 1,
+        layout,
+        ignoredSheets: [],
+        encoding: 'auto',
+        tables,
+        rules: [],
+        lookups: {},
+    });
+    const singleContract = (columns: ReturnType<typeof column>[]) =>
+        contractOf([{ ...sheetTable('', columns), sheet: null as unknown as string }], 'single');
+
     const ordersTables = [
-        { sheet: 'Orders', columns: [{ name: 'OrderId', type: 'integer', required: true }, { name: 'Status', type: 'string', required: true }] },
-        { sheet: 'Refunds', columns: [{ name: 'OrderId', type: 'integer', required: true }, { name: 'Reason', type: 'string', required: true }] },
+        sheetTable('Orders', [column('OrderId', 'integer'), column('Status')]),
+        sheetTable('Refunds', [column('OrderId', 'integer'), column('Reason')]),
     ];
-    const statusRule = { name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', severity: 'Error', table: 'Orders' };
+    const ordersContract = contractOf(ordersTables);
+    const enumRule = (overrides: Record<string, unknown> = {}) => ({
+        id: randomUUID(),
+        name: 'Status allowed values',
+        description: '',
+        severity: 'Error',
+        executionOrder: 1,
+        enabled: true,
+        table: 'Orders',
+        type: 'enum',
+        params: { column: 'Status', values: ['Closed', 'Open'] },
+        ...overrides,
+    });
+    const statusRule = enumRule();
 
     beforeAll(async () => {
         m = load();
@@ -93,33 +123,35 @@ describeDb('sheet table definitions (SQL Server)', () => {
     });
 
     it('publishes sheet tables and table-scoped rules in version 1', async () => {
-        const created = await createDefinition({ columns: [], tables: ordersTables, rules: [statusRule] });
+        const created = await createDefinition({ contract: ordersContract, rules: [statusRule] });
         expect(created.status).toBe(201);
-        expect(created.body.definition).toMatchObject({ columns: [], tables: ordersTables });
+        expect(created.body.definition.contract).toMatchObject({ layout: 'sheets', tables: ordersTables });
 
         const history = await call('GET', `/admin/file-definitions/${created.body.definition.id}/versions`);
         expect(history.body.versions[0]).toMatchObject({
             versionNumber: 1,
-            columns: [],
-            tables: ordersTables,
-            rules: [expect.objectContaining({ name: 'Status allowed values', table: 'Orders' })],
+            contract: {
+                layout: 'sheets',
+                tables: ordersTables,
+                rules: [expect.objectContaining({ name: 'Status allowed values', table: 'Orders' })],
+            },
         });
     });
 
     it.each([
-        ['duplicate sheet names', { tables: [ordersTables[0], { ...ordersTables[1], sheet: 'orders' }] }, 'Sheet "orders" is defined more than once'],
-        ['an invalid sheet name', { tables: [{ ...ordersTables[0], sheet: 'Q1/Q2' }] }, 'cannot contain'],
-        ['a rule without a table', { tables: ordersTables, rules: [{ ...statusRule, table: undefined }] }, 'must name the sheet table'],
-        ['a rule column in the wrong sheet', { tables: ordersTables, rules: [{ ...statusRule, table: 'Refunds' }] }, 'not in sheet "Refunds"'],
-        ['a sheet rule on a single table', { columns: ordersTables[0].columns, rules: [statusRule] }, 'this definition has a single table'],
+        ['duplicate sheet names', { contract: contractOf([ordersTables[0], { ...ordersTables[1], sheet: 'orders' }]) }, 'Sheet "orders" is defined more than once'],
+        ['an invalid sheet name', { contract: contractOf([{ ...ordersTables[0], sheet: 'Q1/Q2' }]) }, 'cannot contain'],
+        ['a rule without a table', { contract: ordersContract, rules: [enumRule({ table: null })] }, 'A sheet-layout rule must target a declared table'],
+        ['a rule column in the wrong sheet', { contract: ordersContract, rules: [enumRule({ table: 'Refunds' })] }, 'undeclared column "Status" in table "Refunds"'],
+        ['a sheet rule on a single table', { contract: singleContract(ordersTables[0].columns), rules: [statusRule] }, 'A single-layout rule cannot target an undeclared table'],
     ])('rejects %s', async (_label, body, message) => {
-        const res = await createDefinition({ columns: [], ...body });
+        const res = await createDefinition(body);
         expect(res.status).toBe(400);
         expect(res.body.message).toContain(message);
     });
 
     it('rejects CSV uploads for definitions that require sheet tables', async () => {
-        const created = await createDefinition({ columns: [], tables: ordersTables });
+        const created = await createDefinition({ contract: ordersContract });
         const id = created.body.definition.id;
 
         const form = new FormData();
@@ -131,25 +163,28 @@ describeDb('sheet table definitions (SQL Server)', () => {
     });
 
     it('requires rules added later to name an existing sheet table before publishing', async () => {
-        const created = await createDefinition({ columns: [], tables: ordersTables });
+        const created = await createDefinition({ contract: ordersContract });
         const id = created.body.definition.id;
-        const unscoped = await m.rules.Rule.create({ FileDefinitionId: id, Name: 'Reason required', RuleType: 'Enum Check', SqlQuery: 'Reason: a, b' }, adminId);
+        const unscoped = await m.rules.Rule.create({
+            FileDefinitionId: id,
+            Config: enumRule({ name: 'Reason required', table: null, params: { column: 'Reason', values: ['a', 'b'] } }) as any,
+        }, adminId);
         const refused = await call('POST', `/admin/file-definitions/${id}/versions`, {});
         expect(refused.status).toBe(400);
-        expect(refused.body.message).toContain('must name the sheet table');
+        expect(refused.body.message).toContain('A sheet-layout rule must target a declared table');
 
         const scoped = await m.rules.Rule.update(unscoped.Id, { TableName: ' refunds ' });
         expect(scoped?.TableName).toBe('refunds');
         const published = await call('POST', `/admin/file-definitions/${id}/versions`, {});
         expect(published.status).toBe(201);
-        expect(published.body.version.rules).toEqual([expect.objectContaining({ name: 'Reason required', table: 'refunds' })]);
+        expect(published.body.version.contract.rules).toEqual([expect.objectContaining({ name: 'Reason required', table: 'refunds' })]);
     });
 
     it('switches layouts as a draft and publishes the change', async () => {
-        const created = await createDefinition({ columns: [{ name: 'OrderId', type: 'integer', required: true }] });
+        const created = await createDefinition({ contract: singleContract([column('OrderId', 'integer')]) });
         const id = created.body.definition.id;
 
-        const updated = await call('PUT', `/admin/file-definitions/${id}`, { columns: [], tables: ordersTables });
+        const updated = await call('PUT', `/admin/file-definitions/${id}`, { contract: ordersContract });
         expect(updated.status).toBe(200);
         const draft = await call('GET', `/admin/file-definitions/${id}/versions`);
         expect(draft.body).toMatchObject({ hasUnpublishedChanges: true });
@@ -158,12 +193,14 @@ describeDb('sheet table definitions (SQL Server)', () => {
 
         const published = await call('POST', `/admin/file-definitions/${id}/versions`, {});
         expect(published.status).toBe(201);
-        expect(published.body.version).toMatchObject({ versionNumber: 2, columns: [], tables: ordersTables });
+        expect(published.body.version).toMatchObject({ versionNumber: 2, contract: { layout: 'sheets', tables: ordersTables } });
 
         // Back to a single table.
-        await call('PUT', `/admin/file-definitions/${id}`, { columns: [{ name: 'OrderId', type: 'integer', required: true }], tables: [] });
+        await call('PUT', `/admin/file-definitions/${id}`, { contract: singleContract([column('OrderId', 'integer')]) });
         const state = await m.versions.DefinitionVersionService.getDraftState(id);
-        expect(state.draft.tables).toEqual([]);
-        expect(state.draft.columns).toEqual([{ name: 'OrderId', type: 'integer', required: true }]);
+        expect(state.draft.layout).toBe('single');
+        expect(state.draft.tables).toHaveLength(1);
+        expect(state.draft.tables[0].sheet).toBeNull();
+        expect(state.draft.tables[0].columns).toEqual([column('OrderId', 'integer')]);
     });
 });

@@ -1,4 +1,6 @@
-import type { ExampleAnalysis, ExampleColumn, ExampleSheet, FileDefinitionColumn, FileDefinitionTable, InitialRule } from '../../services/adminApi';
+import type { Column, Table } from '../../contracts/definition-contract';
+import type { RuleConfig } from '../../contracts/rule-config';
+import type { ExampleAnalysis, ExampleColumn, ExampleSheet } from '../../services/adminApi';
 
 export type DefinitionLayout = 'single' | 'sheets';
 
@@ -12,10 +14,11 @@ export interface ExampleProposal {
   source: string;
   layout: DefinitionLayout;
   /** Single-table columns (layout "single"). */
-  columns: FileDefinitionColumn[];
+  columns: Column[];
   /** One table per sheet (layout "sheets"). */
-  tables: FileDefinitionTable[];
-  rules: InitialRule[];
+  tables: Table[];
+  /** The selected suggestions as rules, scoped to their sheet table (null for a single table). */
+  rules: RuleConfig[];
   /** Keyed by hintKey(sheet, column). */
   hints: Record<string, ColumnHint>;
   suggestedName: string;
@@ -44,7 +47,17 @@ export const defaultSheetIndex = (analysis: ExampleAnalysis): number => Math.max
 export const proposesSheetTables = (analysis: ExampleAnalysis): boolean =>
   analysis.fileType === 'xlsx' && populatedSheetIndexes(analysis).length > 1;
 
-const toColumn = ({ name, type, required }: ExampleColumn): FileDefinitionColumn => ({ name, type, required });
+const toColumn = ({ name, type, mustExist, nullable }: ExampleColumn): Column => ({ name, type, mustExist, nullable });
+
+/** Workbook sheets are proposed with the contract's default table settings; the editor can change them afterwards. */
+const toTable = (sheet: ExampleSheet): Table => ({
+  sheet: sheet.name,
+  headerRow: null,
+  allowExtraColumns: true,
+  minRows: null,
+  maxRows: null,
+  columns: sheet.columns.map(toColumn),
+});
 
 const hintsFor = (sheet: ExampleSheet, key: string | null): Record<string, ColumnHint> =>
   Object.fromEntries(sheet.columns.map(column => [
@@ -52,12 +65,10 @@ const hintsFor = (sheet: ExampleSheet, key: string | null): Record<string, Colum
     { filledRows: column.filledRows, rowsAnalyzed: sheet.rowsAnalyzed, sampleValues: column.sampleValues },
   ]));
 
-const chosenRules = (sheet: ExampleSheet, selected: Set<string>, table: string | null): InitialRule[] =>
+const chosenRules = (sheet: ExampleSheet, selected: Set<string>, table: string | null): RuleConfig[] =>
   sheet.suggestedRules
-    .filter(rule => selected.has(suggestionKey(sheet.name, rule.name)))
-    .map(({ name, ruleType, expression, severity }) => (table === null
-      ? { name, ruleType, expression, severity }
-      : { name, ruleType, expression, severity, table }));
+    .filter(({ rule }) => selected.has(suggestionKey(sheet.name, rule.name)))
+    .map(({ rule }) => ({ ...rule, table }) as RuleConfig);
 
 /**
  * A single-table proposal from one analyzed sheet (CSV files, or one sheet of a workbook).
@@ -84,29 +95,32 @@ export function proposalFromSheets(analysis: ExampleAnalysis, sheetIndexes: numb
     source: `${analysis.fileName} (${sheets.length} sheet${sheets.length === 1 ? '' : 's'})`,
     layout: 'sheets',
     columns: [],
-    tables: sheets.map(sheet => ({ sheet: sheet.name!, columns: sheet.columns.map(toColumn) })),
+    tables: sheets.map(toTable),
     rules: sheets.flatMap(sheet => chosenRules(sheet, selectedRules, sheet.name)),
     hints: Object.assign({}, ...sheets.map(sheet => hintsFor(sheet, sheet.name))),
     suggestedName: suggestedDefinitionName(analysis.fileName),
   };
 }
 
-/** The column a single-column rule ("Column: ...") applies to. */
-export const ruleColumn = (rule: InitialRule): string => rule.expression.split(':')[0].trim();
+/** The column a single-column rule (allowed values, range, ...) applies to. */
+export const ruleColumn = (rule: RuleConfig): string => {
+  const column = (rule.params as Record<string, unknown>).column;
+  return typeof column === 'string' ? column.trim() : '';
+};
 
 /**
  * Split rules into those that still fit the definition being edited and those whose table or column was
  * removed or renamed (or that no longer match the layout).
  */
 export function rulesForLayout(
-  rules: InitialRule[],
-  definition: { layout: DefinitionLayout; columns: FileDefinitionColumn[]; tables: FileDefinitionTable[] },
-): { kept: InitialRule[]; skipped: InitialRule[] } {
-  const kept: InitialRule[] = [];
-  const skipped: InitialRule[] = [];
+  rules: RuleConfig[],
+  definition: { layout: DefinitionLayout; columns: Column[]; tables: Table[] },
+): { kept: RuleConfig[]; skipped: RuleConfig[] } {
+  const kept: RuleConfig[] = [];
+  const skipped: RuleConfig[] = [];
   for (const rule of rules) {
     const columns = definition.layout === 'sheets'
-      ? (rule.table ? definition.tables.find(table => sameSheet(table.sheet, rule.table!))?.columns : undefined)
+      ? (rule.table ? definition.tables.find(table => table.sheet !== null && sameSheet(table.sheet, rule.table!))?.columns : undefined)
       : (rule.table ? undefined : definition.columns);
     const fits = Boolean(columns?.some(column => column.name.trim() === ruleColumn(rule)));
     (fits ? kept : skipped).push(rule);

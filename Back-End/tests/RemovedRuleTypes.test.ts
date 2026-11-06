@@ -1,6 +1,5 @@
 import { parseRuleConfig } from '../src/models/contractMapper';
 import { AuthoringInputError, parseDraftRules } from '../src/services/RuleAuthoring.service';
-import { ruleConfigFromLegacy } from '../src/models/Rule.model';
 
 jest.mock('../src/config/database', () => ({ getConnection: jest.fn() }));
 
@@ -25,11 +24,5 @@ describe('removed rule types (required columns, required values, data type)', ()
         for (const item of removed) {
             expect(() => parseDraftRules([item])).toThrow(AuthoringInputError);
         }
-    });
-
-    it('cannot be created from the legacy rule labels either', () => {
-        const legacy = { Id: 'r', Name: 'n', Description: '', Severity: 'Error' as const, ExecutionOrder: 1, SqlQuery: 'A', IsEnabled: true, TableName: null };
-        expect(() => ruleConfigFromLegacy({ ...legacy, RuleType: 'Schema Validation' })).toThrow('no longer supported');
-        expect(ruleConfigFromLegacy({ ...legacy, RuleType: 'Enum Check', SqlQuery: 'A: x, y' })).toMatchObject({ type: 'enum' });
     });
 });

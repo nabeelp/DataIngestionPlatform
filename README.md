@@ -86,7 +86,7 @@ The layout, the sheet tables and each rule's table are part of the versioned con
 
 ## Definition versions
 
-A definition's **tables (columns) and enabled rules** form its versioned contract. Everything else (name, description, status, delivery folder and template) applies immediately and is not versioned.
+A definition's **tables (columns) and enabled rules** form its versioned contract. Everything else (name, description, status, delivery folder and template) applies immediately and is not versioned. The APIs exchange a definition only as that `contract` (plus `RuleConfig[]` rules): admin reads and writes, version history, exports, the uploader's view and example-file proposals all use the same shapes. A column is shown as **required** when it must exist (`mustExist`) and may not be empty (`nullable: false`). Version comparisons cover every contract field, including column parsing options, table limits, encoding, ignored sheets and the lookup values a rule uses.
 
 - Creating a definition publishes **version 1**.
 - Editing a definition uses the same **Details → Tables and columns → Rules → Review** flow as clean-slate creation (saved definitions can jump between these sections). Details include name, description, status, delivery folder, and reusable-template replacement or removal. The final Review step accepts an optional change note and publishes a new version containing those details, the validation contract, and enabled rules.

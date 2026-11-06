@@ -23,13 +23,12 @@ import {
 import { getConnection } from '../config/database';
 import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
-import { COLUMN_TYPES, MAX_SHEET_NAME_LENGTH } from '../services/validation/DefinitionContract';
-import { v4 as uuidv4 } from 'uuid';
-import type { IColumn, IFileDefinition, IFileDefinitionUser, ITable, IUpdateFileDefinitionDto } from '../interfaces/fileDefinition.interface';
-import type { ICreateRuleDto, RuleType } from '../interfaces/rule.interface';
+import { validateContractLayout } from '../services/validation/ContractLayout';
+import type { IFileDefinition, IFileDefinitionUser, IUpdateFileDefinitionDto } from '../interfaces/fileDefinition.interface';
+import type { ICreateRuleDto } from '../interfaces/rule.interface';
 import type { RuleConfig } from '../contracts/rule-config';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import { contractFromLegacyColumns, parseRuleConfig } from '../models/contractMapper';
+import { parseRuleConfig } from '../models/contractMapper';
 import { RulesService, RulesServiceError } from '../services/RulesService.service';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { BadRequestError, NotFoundError } from '../utils/httpError';
@@ -326,25 +325,23 @@ export const getFileDefinitions = asyncHandler(async (_req, res) => {
  * Create file definition
  */
 export const createFileDefinition = asyncHandler(async (req, res) => {
-    const { name, description, columns, tables, status, deliveryFolder, rules, contract: submittedContract } = req.body;
+    rejectLegacyStructure(req.body);
+    const { name, description, status, deliveryFolder, rules, contract: submittedContract } = req.body;
 
     if (!name) {
         throw new BadRequestError('Name is required');
     }
 
     let normalizedDeliveryFolder: string | null;
-    let layout: DefinitionLayout;
-    let initialRules: InitialRule[];
     let baseContract: DefinitionContract;
+    let initialRules: InitialRule[];
     try {
-        if (submittedContract) {
-            baseContract = submittedContract as DefinitionContract;
-            await validateDefinitionContract(baseContract);
-            layout = validateDefinitionLayout(...legacyLayoutArguments(baseContract));
-        } else {
-            layout = validateDefinitionLayout(columns, tables);
-            baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
+        if (!submittedContract || typeof submittedContract !== 'object') {
+            throw new Error('A definition contract is required');
         }
+        baseContract = submittedContract as DefinitionContract;
+        validateContractLayout(baseContract);
+        await validateDefinitionContract(baseContract);
         normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
         const configs = [
             ...(Array.isArray(baseContract.rules) ? baseContract.rules : []),
@@ -359,8 +356,6 @@ export const createFileDefinition = asyncHandler(async (req, res) => {
     const dto = {
         Name: name,
         Description: description || '',
-        Columns: layout.columns,
-        Tables: layout.tables,
         Contract: baseContract,
         Status: status || 'Active',
         DeliveryFolder: normalizedDeliveryFolder
@@ -374,7 +369,12 @@ export const createFileDefinition = asyncHandler(async (req, res) => {
         AUDIT_ACTIONS.DEFINITION_CREATED,
         ENTITY_TYPES.FILE_DEFINITION,
         definition.Id,
-        { name, description, sheetTables: layout.tables.length, initialRules: initialRules.length },
+        {
+            name,
+            description,
+            sheetTables: baseContract.layout === 'sheets' ? baseContract.tables.length : 0,
+            initialRules: initialRules.length,
+        },
         req.ip || undefined,
         req.headers['user-agent']
     );
@@ -392,7 +392,8 @@ export const createFileDefinition = asyncHandler(async (req, res) => {
  */
 export const updateFileDefinition = asyncHandler<Record<string, string>>(async (req, res) => {
     const { id } = req.params;
-    const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract, rules: submittedRules, revision } = req.body;
+    rejectLegacyStructure(req.body);
+    const { name, description, status, deliveryFolder, contract: submittedContract, rules: submittedRules, revision } = req.body;
 
     const updates: DefinitionUpdates = {};
     let draftRules: RuleConfig[] | undefined;
@@ -407,20 +408,10 @@ export const updateFileDefinition = asyncHandler<Record<string, string>>(async (
             } else {
                 await validateDefinitionContract(contract);
             }
-            const layout = validateDefinitionLayout(...legacyLayoutArguments(contract));
-            updates.Columns = layout.columns;
-            updates.Tables = layout.tables;
+            validateContractLayout(contract);
             updates.Contract = contract;
         } else if (submittedRules !== undefined) {
             throw new Error('Rules can only be saved together with the definition contract');
-        } else if (tables !== undefined) {
-            // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
-            const layout = validateDefinitionLayout(columns, tables);
-            updates.Columns = layout.columns;
-            updates.Tables = layout.tables;
-        } else if (columns !== undefined) {
-            validateDefinitionColumns(columns);
-            updates.Columns = columns;
         }
         if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
     } catch (validationError) {
@@ -544,8 +535,6 @@ interface MappedFileDefinition {
     id: string;
     name: string;
     description: string;
-    columns: IColumn[];
-    tables: ITable[];
     status: string;
     createdAt: Date;
     updatedAt: Date;
@@ -556,111 +545,18 @@ interface MappedFileDefinition {
 }
 
 /**
- * Validate file definition columns: non-empty unique names and supported types.
+ * Definition structure travels only as the contract; the older columns/tables request fields are rejected rather
+ * than silently ignored.
  */
-function validateDefinitionColumns(columns: unknown, context = ''): void {
-    const where = context ? ` in ${context}` : '';
-    if (!Array.isArray(columns) || columns.length === 0) {
-        throw new Error(`At least one column is required${where}`);
+function rejectLegacyStructure(body: Record<string, unknown>): void {
+    if (body.columns !== undefined || body.tables !== undefined) {
+        throw new BadRequestError('Columns and tables are part of the definition contract; send the contract instead');
     }
-    const seen = new Set<string>();
-    for (const column of columns) {
-        const name = typeof column?.name === 'string' ? column.name.trim() : '';
-        if (!name) throw new Error(`Every column needs a name${where}`);
-        if (seen.has(name)) throw new Error(`Duplicate column name "${name}"${where}`);
-        seen.add(name);
-        if (!(COLUMN_TYPES as readonly string[]).includes(column.type)) {
-            throw new Error(`Column "${name}"${where} has unsupported type "${column.type}". Use: ${COLUMN_TYPES.join(', ')}`);
-        }
-    }
-}
-
-interface DefinitionLayout {
-    columns: IColumn[];
-    tables: ITable[];
-}
-
-const MAX_SHEET_TABLES = 50;
-// Characters Excel does not allow in sheet names.
-const INVALID_SHEET_NAME = /[[\]:*?/\\]/;
-
-/**
- * Validate a definition's layout: either single-table `columns`, or (when `tables` is non-empty) one table per
- * workbook sheet with a unique sheet name and its own columns.
- */
-function validateDefinitionLayout(columns: unknown, tables: unknown): DefinitionLayout {
-    if (tables === undefined || tables === null || (Array.isArray(tables) && tables.length === 0)) {
-        validateDefinitionColumns(columns);
-        return { columns: columns as IColumn[], tables: [] };
-    }
-    if (!Array.isArray(tables)) throw new Error('Tables must be an array');
-    if (tables.length > MAX_SHEET_TABLES) throw new Error(`At most ${MAX_SHEET_TABLES} sheet tables are supported`);
-
-    const seen = new Set<string>();
-    const normalized = tables.map((table, index) => {
-        const sheet = typeof table?.sheet === 'string' ? table.sheet.trim() : '';
-        if (!sheet) throw new Error(`Sheet table ${index + 1} needs a sheet name`);
-        if (sheet.length > MAX_SHEET_NAME_LENGTH) throw new Error(`Sheet name "${sheet}" is longer than ${MAX_SHEET_NAME_LENGTH} characters`);
-        if (INVALID_SHEET_NAME.test(sheet)) throw new Error(`Sheet name "${sheet}" cannot contain [ ] : * ? / \\`);
-        if (seen.has(sheet.toLowerCase())) throw new Error(`Sheet "${sheet}" is defined more than once`);
-        seen.add(sheet.toLowerCase());
-        validateDefinitionColumns(table.columns, `sheet "${sheet}"`);
-        return { sheet, columns: table.columns as IColumn[] };
-    });
-    return { columns: [], tables: normalized };
-}
-
-function legacyLayoutArguments(contract: DefinitionContract): [unknown, unknown] {
-    if (contract.layout === 'single' && contract.tables.length !== 1) {
-        throw new Error('A single-table contract must contain exactly one table');
-    }
-    if (contract.layout === 'sheets' && contract.tables.some(table => !table.sheet)) {
-        throw new Error('Every table in a sheet-table contract needs a sheet name');
-    }
-
-    const toColumns = (columns: DefinitionContract['tables'][number]['columns']): IColumn[] =>
-        columns.map(column => ({
-            name: column.name,
-            type: column.type === 'date' ? 'datetime' : column.type,
-            required: column.mustExist && !column.nullable,
-        }));
-
-    if (contract.layout === 'single') {
-        return [toColumns(contract.tables[0].columns), []];
-    }
-    return [
-        [],
-        contract.tables.map(table => {
-            if (!table.sheet) throw new Error('Every table in a sheet-table contract needs a sheet name');
-            return { sheet: table.sheet, columns: toColumns(table.columns) };
-        }),
-    ];
 }
 
 type InitialRule = Omit<ICreateRuleDto, 'FileDefinitionId'>;
 
 const MAX_INITIAL_RULES = 50;
-
-const ruleTypeLabels: Record<RuleConfig['type'], RuleType> = {
-    enum: 'Enum Check',
-    range: 'Range Check',
-    pattern: 'Schema Validation',
-    length: 'Schema Validation',
-    unique: 'Schema Validation',
-    lookup: 'Schema Validation',
-    dateRange: 'Schema Validation',
-    conditionalRequired: 'Schema Validation',
-    compare: 'Schema Validation',
-    rowCount: 'Schema Validation',
-    aggregate: 'Schema Validation',
-    reconcile: 'Schema Validation',
-    naturalLanguage: 'Natural Language',
-};
-
-const legacyRuleTypes: Record<string, RuleConfig['type']> = {
-    'enum check': 'enum',
-    'range check': 'range',
-};
 
 function normalizeInitialRuleConfigs(value: unknown): RuleConfig[] {
     if (value === undefined || value === null) return [];
@@ -668,63 +564,9 @@ function normalizeInitialRuleConfigs(value: unknown): RuleConfig[] {
 
     return value.map((candidate, index) => {
         if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-            throw new Error(`Rule ${index + 1} must be a RuleConfig or supported example suggestion`);
+            throw new Error(`Rule ${index + 1} must be a RuleConfig`);
         }
-        const rule = candidate as Record<string, unknown>;
-        if (typeof rule.type === 'string' && rule.params && typeof rule.params === 'object' && !Array.isArray(rule.params)) {
-            return parseRuleConfig(rule);
-        }
-
-        const ruleType = typeof rule.ruleType === 'string' ? legacyRuleTypes[rule.ruleType.trim().toLowerCase()] : undefined;
-        const expression = typeof rule.expression === 'string' ? rule.expression : '';
-        const separator = expression.indexOf(':');
-        if (!ruleType) {
-            throw new Error(`Rule ${index + 1}: Rule type must be one of the supported RuleConfig types or example suggestions`);
-        }
-        if (separator < 1) {
-            throw new Error(`Rule ${index + 1} is not a supported typed rule or example suggestion`);
-        }
-        if (typeof rule.name !== 'string' || !rule.name.trim()) throw new Error(`Rule ${index + 1} needs a name`);
-        if (rule.severity !== undefined && rule.severity !== 'Error' && rule.severity !== 'Warning') {
-            throw new Error(`Rule ${index + 1} has an unsupported severity`);
-        }
-        if (rule.table !== undefined && rule.table !== null && typeof rule.table !== 'string') {
-            throw new Error(`Rule ${index + 1} has an invalid table name`);
-        }
-        if (rule.executionOrder !== undefined &&
-            (typeof rule.executionOrder !== 'number' || !Number.isInteger(rule.executionOrder) || rule.executionOrder < 1)) {
-            throw new Error(`Rule ${index + 1} has an invalid execution order`);
-        }
-        const column = expression.slice(0, separator).trim();
-        const valueText = expression.slice(separator + 1).trim();
-        if (!column || !valueText) throw new Error(`Rule ${index + 1} needs a column and rule value`);
-
-        let params: Record<string, unknown>;
-        if (ruleType === 'enum') {
-            const values = valueText.split(',').map(item => item.trim()).filter(Boolean);
-            if (values.length === 0) throw new Error(`Rule ${index + 1} needs at least one allowed value`);
-            params = { column, values };
-        } else if (ruleType === 'range') {
-            const match = valueText.match(/^(-?(?:\d+\.?\d*|\.\d+))\s*\.\.\s*(-?(?:\d+\.?\d*|\.\d+))$/);
-            if (!match) throw new Error(`Rule ${index + 1} needs numeric range bounds in min..max format`);
-            params = { column, min: Number(match[1]), max: Number(match[2]) };
-        } else {
-            throw new Error(`Rule ${index + 1} is not a supported typed rule or example suggestion`);
-        }
-
-        const severity = rule.severity === 'Warning' ? 'Warning' : 'Error';
-        const table = typeof rule.table === 'string' && rule.table.trim() ? rule.table.trim() : null;
-        return parseRuleConfig({
-            id: uuidv4(),
-            name: typeof rule.name === 'string' && rule.name.trim() ? rule.name.trim() : `Suggested rule ${index + 1}`,
-            description: typeof rule.description === 'string' ? rule.description : '',
-            severity,
-            executionOrder: typeof rule.executionOrder === 'number' ? rule.executionOrder : index + 1,
-            enabled: true,
-            table,
-            type: ruleType,
-            params,
-        });
+        return parseRuleConfig(candidate);
     });
 }
 
@@ -745,14 +587,7 @@ async function validateInitialRules(configs: RuleConfig[], baseContract: Definit
 
     return configs.map(config => ({
         Config: config,
-        Name: config.name,
-        Description: config.description,
-        RuleType: ruleTypeLabels[config.type],
-        Severity: config.severity,
-        ExecutionOrder: config.executionOrder,
-        SqlQuery: '',
         IsEnabled: config.enabled,
-        TableName: config.table,
     }));
 }
 
@@ -761,8 +596,6 @@ function mapFileDefinitionToCamelCase(def: IFileDefinition): MappedFileDefinitio
         id: def.Id,
         name: def.Name,
         description: def.Description || '',
-        columns: def.Columns || [],
-        tables: Array.isArray(def.Tables) ? def.Tables : [],
         status: def.Status || 'Active',
         createdAt: def.CreatedAt,
         updatedAt: def.UpdatedAt,

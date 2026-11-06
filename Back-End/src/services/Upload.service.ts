@@ -13,7 +13,7 @@ import { serviceBusService } from './ServiceBus.service';
 import { cacheService } from './MemoryCache.service';
 import { logger } from '../utils/logger';
 import { emitUploadEvent } from '../websocket/socketServer';
-import { DEFINITION_SCHEMA_RULE_TYPE, schemaCheckName, validationTables } from './validation/DefinitionContract';
+import { DEFINITION_SCHEMA_RULE_TYPE, schemaCheckName } from './validation/DefinitionContract';
 import { getDeliveryTargets, resolveDeliveryDestination } from './DeliveryTargets.service';
 import { DefinitionVersionService, toVersionSummary } from './DefinitionVersion.service';
 import type { 
@@ -47,8 +47,8 @@ function validationFileType(fileType: string): ValidationRequest['fileType'] {
 const withRuleSheets = (ruleDetails: IValidationRuleDetail[], version: IFileDefinitionVersion | null): IValidationRuleDetail[] => {
     if (!version) return ruleDetails.map(detail => ({ ...detail, Sheet: null }));
 
-    const tables = validationTables({ columns: version.Columns, tables: version.Tables });
-    const ruleTables = new Map(version.Rules.map(rule => [String(rule.Id).toLowerCase(), rule.Table]));
+    const tables = version.Contract.tables;
+    const ruleTables = new Map(version.Contract.rules.map(rule => [rule.id.toLowerCase(), rule.table]));
     return ruleDetails.map(detail => ({
         ...detail,
         Sheet: detail.RuleType === DEFINITION_SCHEMA_RULE_TYPE
@@ -116,9 +116,9 @@ export class UploadService {
         const versionLabel = `v${contract.version.VersionNumber}`;
         logger.info(`[SERVICE-STARTVAL] UploadId: ${uploadId}, DefinitionId: ${upload.FileDefinitionId}, Version: ${versionLabel}, Bytes: ${upload.FileSize}, Rows: ${upload.RowCountNo}`);
 
-        const rules = contract.rules;
+        const rules = contract.contract.rules;
         // One columns check per table: the single table, or each sheet table of a workbook definition.
-        const schemaTables = validationTables(contract).filter(table => table.columns.length > 0);
+        const schemaTables = contract.contract.tables.filter(table => table.columns.length > 0);
         const totalChecks = rules.length + schemaTables.length;
         
         // Create validation result
@@ -145,11 +145,11 @@ export class UploadService {
             await ValidationRuleDetail.create({
                 ValidationResultId: validationResult.Id,
                 UploadId: uploadId,
-                RuleId: rule.Id,
-                RuleName: (rule.Table ? `${rule.Name} (${rule.Table})` : rule.Name).slice(0, 255),
-                RuleType: rule.RuleType,
-                RuleSeverity: rule.Severity,
-                ExecutionOrder: rule.ExecutionOrder
+                RuleId: rule.id,
+                RuleName: (rule.table ? `${rule.name} (${rule.table})` : rule.name).slice(0, 255),
+                RuleType: rule.type,
+                RuleSeverity: rule.severity,
+                ExecutionOrder: rule.executionOrder
             });
         }
 

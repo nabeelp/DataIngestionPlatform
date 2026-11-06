@@ -41,78 +41,8 @@ SNAPSHOT: dict[str, dict[str, Any]] = (
 UPDATE = os.getenv("UPDATE_GOLDEN") == "1"
 
 
-def _column_definition(column: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "name": column["name"],
-        "type": column["type"],
-        "mustExist": column["required"],
-        "nullable": not column["required"],
-    }
-
-
-def _expression_parts(expression: str) -> tuple[str, str]:
-    column, separator, value = expression.partition(":")
-    if not separator or not column.strip() or not value.strip():
-        raise ValueError(f"Unsupported sample rule expression: {expression}")
-    return column.strip(), value.strip()
-
-
-def _rule(rule: dict[str, Any], definition_id: str, index: int) -> dict[str, Any]:
-    rule_type = rule["ruleType"]
-    column, value = _expression_parts(rule["expression"])
-    params: dict[str, Any]
-    if rule_type == "Enum Check":
-        kind = "enum"
-        params = {"column": column, "values": [item.strip() for item in value.split(",") if item.strip()]}
-    elif rule_type == "Range Check":
-        minimum, separator, maximum = value.partition("..")
-        if not separator:
-            raise ValueError(f"Unsupported range expression: {rule['expression']}")
-        kind = "range"
-        params = {
-            "column": column,
-            "min": float(minimum) if minimum.strip() else None,
-            "max": float(maximum) if maximum.strip() else None,
-        }
-    else:
-        raise ValueError(f"Unsupported sample rule type: {rule_type}")
-
-    return {
-        "id": f"{definition_id}-{index + 1}",
-        "name": rule["name"],
-        "description": rule.get("description", ""),
-        "severity": rule["severity"],
-        "executionOrder": index,
-        "enabled": True,
-        "table": rule.get("table"),
-        "type": kind,
-        "params": params,
-    }
-
-
 def _contract(definition_id: str) -> DefinitionContract:
-    definition = DEFINITIONS[definition_id]
-    sheet_tables = definition["tables"]
-    tables = sheet_tables or [{"sheet": None, "columns": definition["columns"]}]
-    return DefinitionContract.model_validate({
-        "schemaVersion": 1,
-        "layout": "sheets" if sheet_tables else "single",
-        "ignoredSheets": [],
-        "encoding": "auto",
-        "tables": [
-            {
-                "sheet": table["sheet"],
-                "headerRow": None,
-                "allowExtraColumns": True,
-                "minRows": None,
-                "maxRows": None,
-                "columns": [_column_definition(column) for column in table["columns"]],
-            }
-            for table in tables
-        ],
-        "rules": [_rule(rule, definition_id, index) for index, rule in enumerate(definition["rules"])],
-        "lookups": {},
-    })
+    return DefinitionContract.model_validate(DEFINITIONS[definition_id]["contract"])
 
 
 def _check_name(name: str, single_layout: bool) -> str:
@@ -168,7 +98,9 @@ def test_snapshot_covers_only_manifest_samples() -> None:
 
 
 def test_sample_definitions_use_only_supported_rule_types() -> None:
-    rule_types = {rule["ruleType"] for definition in DEFINITIONS.values() for rule in definition["rules"]}
+    rule_types = {
+        rule["type"] for definition in DEFINITIONS.values() for rule in definition["contract"]["rules"]
+    }
 
-    assert rule_types == {"Enum Check", "Range Check"}
+    assert rule_types == {"enum", "range"}
     assert all(_contract(definition_id).rules for definition_id in DEFINITIONS)

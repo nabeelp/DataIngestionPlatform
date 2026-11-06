@@ -14,11 +14,10 @@ import {
   removeTemplate,
   publishFileDefinitionVersion,
   FileDefinitionAdmin,
-  FileDefinitionColumn,
-  FileDefinitionTable,
   IFileDefinitionUser
 } from '../../services/adminApi';
 import type { Column as ContractColumn, DefinitionContract, Table as ContractTable } from '../../contracts/definition-contract';
+import { isRequiredColumn, withRequired } from '../../contracts/columnRequirement';
 import type { RuleConfig } from '../../contracts/rule-config';
 import { ArrowLeft, Check, FilePlus2, FileUp, Plus, Trash2, Users, X } from 'lucide-react';
 import { Download } from 'lucide-react';
@@ -37,7 +36,6 @@ import {
   isRuleDraftDirty,
   removedRules,
   ruleChangeSummary,
-  ruleConfigFromSuggestion,
   ruleDraftReducer,
   ruleHealth,
   ruleStatus,
@@ -47,13 +45,12 @@ import {
   type DraftContext,
 } from '../../features/definition-rules';
 
-const INITIAL_COLUMNS: FileDefinitionColumn[] = [
-  { name: 'Column1', type: 'string', required: true, mustExist: true, nullable: false }
+const INITIAL_COLUMNS: ContractColumn[] = [
+  { name: 'Column1', type: 'string', mustExist: true, nullable: false }
 ];
-const EMPTY_COLUMN: FileDefinitionColumn = {
+const EMPTY_COLUMN: ContractColumn = {
   name: '',
   type: 'string',
-  required: false,
   mustExist: false,
   nullable: true,
 };
@@ -75,12 +72,23 @@ const EMPTY_CONTRACT: DefinitionContract = {
   lookups: {},
 };
 
+const newTable = (sheet: string, columns: ContractColumn[]): ContractTable => ({
+  sheet,
+  headerRow: null,
+  allowExtraColumns: true,
+  minRows: null,
+  maxRows: null,
+  columns,
+});
+
 export interface DefinitionForm {
   name: string;
   description: string;
   layout: DefinitionLayout;
-  columns: FileDefinitionColumn[];
-  tables: FileDefinitionTable[];
+  /** Columns of the single table (layout "single"); its other settings live in `contract.tables[0]`. */
+  columns: ContractColumn[];
+  /** One table per workbook sheet (layout "sheets"). */
+  tables: ContractTable[];
   status: string;
   deliveryFolder: string;
   contract: DefinitionContract;
@@ -97,70 +105,32 @@ const EMPTY_FORM: DefinitionForm = {
   contract: EMPTY_CONTRACT,
 };
 
-const toEditorColumn = (column: ContractColumn | FileDefinitionColumn): FileDefinitionColumn => {
-  const required = 'required' in column && typeof column.required === 'boolean'
-    ? column.required
-    : (column.mustExist ?? false) && !(column.nullable ?? true);
-  return { ...column, required };
-};
-
-const toEditorTable = (legacy: FileDefinitionTable | undefined, contract: ContractTable | undefined): FileDefinitionTable => ({
-  sheet: legacy?.sheet ?? contract?.sheet ?? '',
-  headerRow: contract ? contract.headerRow : legacy?.headerRow ?? null,
-  allowExtraColumns: contract ? contract.allowExtraColumns : legacy?.allowExtraColumns ?? true,
-  minRows: contract ? contract.minRows : legacy?.minRows ?? null,
-  maxRows: contract ? contract.maxRows : legacy?.maxRows ?? null,
-  columns: (contract?.columns.length ? contract.columns : legacy?.columns ?? []).map(toEditorColumn),
-});
-
-const toContractColumn = ({ required, ...column }: FileDefinitionColumn): ContractColumn => ({
-  ...column,
-  mustExist: required,
-  nullable: !required,
-} as ContractColumn);
-
 export const buildDefinitionContract = (form: Pick<DefinitionForm, 'layout' | 'columns' | 'tables' | 'contract'>): DefinitionContract => {
-  const tableDefaults = form.contract.tables;
+  const singleTable = form.contract.tables[0];
   const tables: ContractTable[] = form.layout === 'single'
     ? [{
-        ...tableDefaults[0],
+        ...singleTable,
         sheet: null,
-        headerRow: tableDefaults[0]?.headerRow ?? null,
-        allowExtraColumns: tableDefaults[0]?.allowExtraColumns ?? true,
-        minRows: tableDefaults[0]?.minRows ?? null,
-        maxRows: tableDefaults[0]?.maxRows ?? null,
-        columns: form.columns.map(toContractColumn),
+        headerRow: singleTable?.headerRow ?? null,
+        allowExtraColumns: singleTable?.allowExtraColumns ?? true,
+        minRows: singleTable?.minRows ?? null,
+        maxRows: singleTable?.maxRows ?? null,
+        columns: form.columns,
       }]
-    : form.tables.map((table, index) => ({
-        ...tableDefaults[index],
-        sheet: table.sheet,
-        headerRow: table.headerRow !== undefined ? table.headerRow : tableDefaults[index]?.headerRow ?? null,
-        allowExtraColumns: table.allowExtraColumns ?? tableDefaults[index]?.allowExtraColumns ?? true,
-        minRows: table.minRows !== undefined ? table.minRows : tableDefaults[index]?.minRows ?? null,
-        maxRows: table.maxRows !== undefined ? table.maxRows : tableDefaults[index]?.maxRows ?? null,
-        columns: table.columns.map(toContractColumn),
-      }));
+    : form.tables;
 
-  const fallbackTable: ContractTable = {
-    sheet: form.layout === 'single' ? null : 'Sheet1',
-    headerRow: null,
-    allowExtraColumns: true,
-    minRows: null,
-    maxRows: null,
-    columns: [],
-  };
   return {
     ...form.contract,
     schemaVersion: 1,
     layout: form.layout,
-    tables: [tables[0] ?? fallbackTable, ...tables.slice(1)],
+    tables: [tables[0] ?? newTable('Sheet1', []), ...tables.slice(1)],
   };
 };
 
 /** Every table has at least one named column, and tables of a multi-table definition have sheet names. */
 const isStructureComplete = (form: Pick<DefinitionForm, 'layout' | 'columns' | 'tables'>): boolean => {
-  const tables = form.layout === 'single'
-    ? [{ sheet: null as string | null, columns: form.columns }]
+  const tables: Array<Pick<ContractTable, 'sheet' | 'columns'>> = form.layout === 'single'
+    ? [{ sheet: null, columns: form.columns }]
     : form.tables;
   return tables.length > 0
     && tables.every(table => table.columns.length > 0 && table.columns.every(column => column.name.trim()))
@@ -172,11 +142,11 @@ function BasicColumnsEditor({
   onChange,
   tableLabel,
 }: {
-  columns: FileDefinitionColumn[];
-  onChange: (columns: FileDefinitionColumn[]) => void;
+  columns: ContractColumn[];
+  onChange: (columns: ContractColumn[]) => void;
   tableLabel: string;
 }) {
-  const update = (index: number, changes: Partial<FileDefinitionColumn>) => {
+  const update = (index: number, changes: Partial<ContractColumn>) => {
     onChange(columns.map((column, current) => current === index ? { ...column, ...changes } : column));
   };
 
@@ -220,7 +190,7 @@ function BasicColumnsEditor({
                   <select
                     aria-label={`Data type for ${column.name || `column ${index + 1}`}`}
                     value={column.type}
-                    onChange={event => update(index, { type: event.target.value })}
+                    onChange={event => update(index, { type: event.target.value as ContractColumn['type'] })}
                     className="w-24 rounded border border-gray-300 bg-white px-2 py-1 text-xs"
                   >
                     <option value="string">String</option>
@@ -236,15 +206,13 @@ function BasicColumnsEditor({
                     <input
                       type="checkbox"
                       aria-label={`Required for ${column.name || `column ${index + 1}`} in ${tableLabel}`}
-                      checked={column.required}
-                      onChange={event => update(index, {
-                        required: event.target.checked,
-                        mustExist: event.target.checked,
-                        nullable: !event.target.checked,
-                      })}
+                      checked={isRequiredColumn(column)}
+                      onChange={event => onChange(columns.map((current, position) => (
+                        position === index ? withRequired(current, event.target.checked) : current
+                      )))}
                       className="rounded border-gray-300"
                     />
-                    <span>{column.required ? 'Yes' : 'No'}</span>
+                    <span>{isRequiredColumn(column) ? 'Yes' : 'No'}</span>
                   </label>
                 </td>
                 <td className="w-12 px-2 py-1.5 text-right">
@@ -475,8 +443,6 @@ export default function FileDefinitions() {
     const payload = {
       name: formData.name,
       description: formData.description,
-      columns: formData.layout === 'single' ? formData.columns : [],
-      tables: formData.layout === 'sheets' ? formData.tables : [],
       status: editingId ? formData.status : 'Active',
       deliveryFolder: formData.deliveryFolder.trim() || null,
       contract,
@@ -494,7 +460,7 @@ export default function FileDefinitions() {
 
       const saved = editingId
         ? await updateFileDefinitionAdmin(editingId, { ...payload, rules, revision: draftRevision.current })
-        : await createFileDefinitionAdmin(rules.length > 0 ? { ...payload, rules } : payload);
+        : await createFileDefinitionAdmin({ ...payload, rules });
       savedId = saved?.id || editingId;
       const savedRevision = (saved as { revision?: string | null }).revision;
       if (savedRevision) draftRevision.current = savedRevision;
@@ -563,36 +529,18 @@ export default function FileDefinitions() {
   };
 
   const populateEditor = (def: FileDefinitionAdmin, initialStep?: string | null) => {
-    const contract = def.contract ?? EMPTY_CONTRACT;
-    const legacyTables = def.tables ?? [];
-    const tables = legacyTables.length > 0
-      ? legacyTables.map((table, index) => toEditorTable(table, def.contract?.tables[index]))
-      : def.contract?.layout === 'sheets'
-        ? def.contract.tables.map(table => toEditorTable(undefined, table))
-        : [];
-    const layout: DefinitionLayout = def.contract?.layout ?? (tables.length > 0 ? 'sheets' : 'single');
-    const singleContractTable = contract.tables[0];
+    const { contract } = def;
+    const layout: DefinitionLayout = contract.layout;
+    const singleColumns = contract.tables[0]?.columns ?? [];
     const form: DefinitionForm = {
       name: def.name,
       description: def.description || '',
       layout,
-      columns: (singleContractTable?.columns.length ? singleContractTable.columns : def.columns).length > 0
-        ? (singleContractTable?.columns.length ? singleContractTable.columns : def.columns).map(toEditorColumn)
-        : INITIAL_COLUMNS,
-      tables,
+      columns: layout === 'single' && singleColumns.length > 0 ? singleColumns : INITIAL_COLUMNS,
+      tables: layout === 'sheets' ? contract.tables : [],
       status: def.status,
       deliveryFolder: def.deliveryFolder || '',
-      contract: {
-        ...EMPTY_CONTRACT,
-        ...contract,
-        schemaVersion: 1,
-        layout,
-        ignoredSheets: contract.ignoredSheets ?? [],
-        encoding: contract.encoding ?? 'auto',
-        rules: [],
-        lookups: contract.lookups ?? {},
-        tables: contract.tables.length ? contract.tables : EMPTY_CONTRACT.tables,
-      },
+      contract: { ...contract, rules: [] },
     };
     setEditingId(def.id);
     setFormData(form);
@@ -619,12 +567,10 @@ export default function FileDefinitions() {
       columns: proposal.layout === 'single' ? proposal.columns : prev.columns,
       tables: proposal.layout === 'sheets' ? proposal.tables : prev.tables,
     }));
-    const suggested = proposal.rules.flatMap((suggestion, index) => {
-      const rule = ruleConfigFromSuggestion(suggestion, index + 1, () => crypto.randomUUID());
-      return rule ? [rule] : [];
-    });
     resetRules();
     appliedProposal.current = proposal;
+    // Fresh ids keep rules from one analysis independent when it is applied to more than one definition.
+    const suggested = proposal.rules.map(rule => ({ ...rule, id: crypto.randomUUID() }));
     dispatchRules({ type: 'append', rules: suggested });
     setSuggestedRuleCount(suggested.length);
   };
@@ -654,14 +600,14 @@ export default function FileDefinitions() {
     return true;
   };
 
-  const cleanSlateTables = formData.layout === 'single'
+  const cleanSlateTables: ContractTable[] = formData.layout === 'single'
     ? [{
         ...formData.contract.tables[0],
         sheet: 'Table 1',
         columns: formData.columns,
       }]
     : formData.tables;
-  const summaryTables: FileDefinitionTable[] = formData.layout === 'single'
+  const summaryTables: ContractTable[] = formData.layout === 'single'
     ? [{
         sheet: 'Single table',
         headerRow: formData.contract.tables[0]?.headerRow ?? null,
@@ -672,7 +618,7 @@ export default function FileDefinitions() {
       }]
     : formData.tables;
 
-  const updateCleanSlateTable = (index: number, changes: Partial<FileDefinitionTable>) => {
+  const updateCleanSlateTable = (index: number, changes: Partial<ContractTable>) => {
     setFormData(prev => {
       if (prev.layout === 'single') {
         return {
@@ -698,14 +644,14 @@ export default function FileDefinitions() {
 
   const addCleanSlateTable = () => {
     setFormData(prev => {
-      const first = prev.layout === 'single'
-        ? prev.tables[0] ?? { sheet: 'Table 1', columns: prev.columns }
-        : null;
-      const existing = prev.layout === 'single' ? [first!] : prev.tables;
+      // The single table keeps its settings (header row, row limits, ...) when it becomes the first sheet table.
+      const existing = prev.layout === 'single'
+        ? [{ ...prev.contract.tables[0], sheet: 'Table 1', columns: prev.columns }]
+        : prev.tables;
       return {
         ...prev,
         layout: 'sheets',
-        tables: [...existing, { sheet: `Table ${existing.length + 1}`, columns: [{ ...EMPTY_COLUMN }] }],
+        tables: [...existing, newTable(`Table ${existing.length + 1}`, [{ ...EMPTY_COLUMN }])],
       };
     });
   };
@@ -718,7 +664,8 @@ export default function FileDefinitions() {
           ...prev,
           layout: 'single',
           columns: remaining[0].columns,
-          tables: remaining,
+          tables: [],
+          contract: { ...prev.contract, tables: [{ ...remaining[0], sheet: null }] },
         };
       }
       return { ...prev, tables: remaining };
@@ -989,9 +936,9 @@ export default function FileDefinitions() {
                         )}
                       </td>
                       <td className="px-4 sm:px-6 py-4 text-sm whitespace-nowrap text-gray-500">
-                        {def.tables && def.tables.length > 0
-                          ? `${def.tables.length} sheet${def.tables.length === 1 ? '' : 's'}, ${def.tables.reduce((sum, t) => sum + t.columns.length, 0)} columns`
-                          : `${def.columns?.length || 0} columns`}
+                        {def.contract.layout === 'sheets'
+                          ? `${def.contract.tables.length} sheet${def.contract.tables.length === 1 ? '' : 's'}, ${def.contract.tables.reduce((sum, t) => sum + t.columns.length, 0)} columns`
+                          : `${def.contract.tables[0]?.columns.length ?? 0} columns`}
                       </td>
                       <td className="px-4 sm:px-6 py-4">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -1355,7 +1302,7 @@ export default function FileDefinitions() {
                                   Table name *
                                   <input
                                     type="text"
-                                    value={table.sheet}
+                                    value={table.sheet ?? ''}
                                     maxLength={31}
                                     onChange={event => updateCleanSlateTable(tableIndex, { sheet: event.target.value })}
                                     required

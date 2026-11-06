@@ -148,7 +148,7 @@ def test_excel_reader_honours_header_row_and_hidden_table_sheet() -> None:
     source = ROOT / "samples" / "02-sheet-tables" / "finance" / "finance_valid_hidden_table_sheet.xlsx"
     payload = json.loads((ROOT / "samples" / "definitions" / "sample_definitions.json").read_text(encoding="utf-8"))
     finance = next(item for item in payload.values() if item["name"] == "Sample - Finance Workbook")
-    # The shared definition JSON is the legacy sample shape; the contract below targets the hidden table explicitly.
+    # The contract below targets the hidden table explicitly.
     finance_contract = contract(layout="sheets", sheet="Payments", columns=[])
     finance_contract.tables[0].headerRow = 1
 
@@ -156,4 +156,5 @@ def test_excel_reader_honours_header_row_and_hidden_table_sheet() -> None:
 
     assert "Payments" in parsed.tables
     assert parsed.tables["Payments"].frame.height > 0
-    assert finance["tables"]
+    assert finance["contract"]["layout"] == "sheets"
+    assert finance["contract"]["tables"]

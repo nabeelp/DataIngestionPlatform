@@ -184,19 +184,7 @@ const mapVersion = (version: IFileDefinitionVersion) => ({
     id: version.Id,
     versionNumber: version.VersionNumber,
     status: version.Status,
-    columns: version.Columns,
-    tables: version.Tables,
-    rules: version.Rules.map(rule => ({
-        id: rule.Id,
-        name: rule.Name,
-        description: rule.Description,
-        ruleType: rule.RuleType,
-        severity: rule.Severity,
-        executionOrder: rule.ExecutionOrder,
-        expression: rule.SqlQuery,
-        table: rule.Table,
-        naturalLanguageText: rule.NaturalLanguageText ?? null,
-    })),
+    contract: version.Contract,
     definitionMetadata: version.DefinitionMetadata
         ? {
             ...version.DefinitionMetadata,

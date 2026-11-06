@@ -1,16 +1,7 @@
 import { Rule } from '../models/Rule.model';
 import type { IRule } from '../interfaces/rule.interface';
-import type { RuleConfig } from '../contracts/rule-config';
 import { DefinitionVersionService } from './DefinitionVersion.service';
 import { ForbiddenError } from '../utils/httpError';
-
-function legacyRuleType(type: RuleConfig['type']): IRule['RuleType'] {
-    switch (type) {
-        case 'enum': return 'Enum Check';
-        case 'range': return 'Range Check';
-        default: return 'Natural Language';
-    }
-}
 
 export async function getRulesByFileDefinitionId(
     fileDefinitionId: string,
@@ -34,31 +25,22 @@ export async function getPublishedRules(
         return { rules: await Rule.findEnabledByFileDefinitionId(fileDefinitionId), versionNumber: null };
     }
 
-    const rules = activeVersion.Rules.map(rule => {
-        const config = activeVersion.Contract.rules.find(candidate => candidate.id.toLowerCase() === rule.Id.toLowerCase());
-        if (!config) throw new Error(`Published rule ${rule.Id} is missing from its contract.`);
-        return {
-            Id: rule.Id,
-            FileDefinitionId: fileDefinitionId,
-            Config: config,
-            ConfigSchemaVersion: 1,
-            Name: config.name,
-            Description: config.description,
-            RuleType: legacyRuleType(config.type),
-            Severity: config.severity,
-            ExecutionOrder: config.executionOrder,
-            SqlQuery: rule.SqlQuery,
-            TableName: config.table,
-            NaturalLanguageText: config.type === 'naturalLanguage' && typeof config.params.request === 'string'
-                ? config.params.request
-                : null,
-            IsEnabled: config.enabled,
-            CreatedBy: activeVersion.CreatedBy,
-            CreatorName: activeVersion.CreatedByName,
-            CreatedAt: activeVersion.ActivatedAt,
-            UpdatedAt: activeVersion.ActivatedAt,
-        };
-    });
+    const rules = activeVersion.Contract.rules.map(config => ({
+        Id: config.id,
+        FileDefinitionId: fileDefinitionId,
+        Config: config,
+        ConfigSchemaVersion: 1,
+        Name: config.name,
+        Description: config.description,
+        Severity: config.severity,
+        ExecutionOrder: config.executionOrder,
+        TableName: config.table,
+        IsEnabled: config.enabled,
+        CreatedBy: activeVersion.CreatedBy,
+        CreatorName: activeVersion.CreatedByName,
+        CreatedAt: activeVersion.ActivatedAt,
+        UpdatedAt: activeVersion.ActivatedAt,
+    })).sort((left, right) => left.ExecutionOrder - right.ExecutionOrder);
     return { rules, versionNumber: activeVersion.VersionNumber };
 }
 

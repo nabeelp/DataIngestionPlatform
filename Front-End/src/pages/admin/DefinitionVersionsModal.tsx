@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ChevronDown, ChevronRight, History, UploadCloud, X } from 'lucide-react';
+import { columnRequirementLabel } from '../../contracts/columnRequirement';
+import { describeRule, ruleTypeLabel } from '../../features/definition-rules';
 import {
   getFileDefinitionVersions,
   publishFileDefinitionVersion,
@@ -43,9 +45,7 @@ function ChangeList({ label, changes }: { label: string; changes: ContractChange
 }
 
 function VersionDetails({ version }: { version: DefinitionVersion }) {
-  const tables = version.tables && version.tables.length > 0
-    ? version.tables
-    : [{ sheet: null as string | null, columns: version.columns }];
+  const { tables, rules } = version.contract;
   return (
     <div className="mt-3 space-y-3 text-sm">
       {version.definitionMetadata ? (
@@ -72,7 +72,7 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
               {table.columns.map(column => (
                 <li key={column.name}>
                   <span className="font-medium">{column.name}</span>{' '}
-                  <span className="text-gray-500">{column.type}{column.required ? ', required' : ''}</span>
+                  <span className="text-gray-500">{[column.type, columnRequirementLabel(column)].filter(Boolean).join(', ')}</span>
                 </li>
               ))}
             </ul>
@@ -81,16 +81,16 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
       </div>
       <div>
         <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Rules</p>
-        {version.rules.length === 0 ? (
+        {rules.length === 0 ? (
           <p className="text-gray-500">No rules</p>
         ) : (
           <ul className="space-y-1">
-            {version.rules.map(rule => (
+            {rules.map(rule => (
               <li key={rule.id}>
                 <span className="font-medium">{rule.name}</span>{' '}
                 {rule.table && <span className="text-xs text-gray-500">[{rule.table}] </span>}
                 <span className="text-gray-500">
-                  {rule.ruleType} ({rule.severity}): {rule.naturalLanguageText ? <q>{rule.naturalLanguageText}</q> : <code>{rule.expression}</code>}
+                  {ruleTypeLabel(rule.type)} ({rule.severity}): {rule.type === 'naturalLanguage' ? <q>{describeRule(rule)}</q> : <code>{describeRule(rule)}</code>}
                 </span>
               </li>
             ))}
@@ -236,9 +236,9 @@ export default function DefinitionVersionsModal({ definitionId, definitionName, 
                                 {version.status}
                               </span>
                               <span className="text-xs text-gray-500">
-                                {version.tables && version.tables.length > 0
-                                  ? `${plural(version.tables.length, 'sheet')} · ${plural(version.tables.reduce((sum, t) => sum + t.columns.length, 0), 'column')}`
-                                  : plural(version.columns.length, 'column')} · {plural(version.rules.length, 'rule')}
+                                {version.contract.layout === 'sheets'
+                                  ? `${plural(version.contract.tables.length, 'sheet')} · ${plural(version.contract.tables.reduce((sum, t) => sum + t.columns.length, 0), 'column')}`
+                                  : plural(version.contract.tables[0]?.columns.length ?? 0, 'column')} · {plural(version.contract.rules.length, 'rule')}
                               </span>
                             </div>
                             <p className="text-xs text-gray-500 mt-1">

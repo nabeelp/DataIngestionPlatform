@@ -4,21 +4,17 @@
  */
 
 import { apiConfig } from '../config/api';
-import type { DefinitionContract } from '../contracts/definition-contract';
-
-// Reuse types from adminApi (same structure)
-export interface FileDefinitionColumn {
-  name: string;
-  type: string;
-  required: boolean;
-}
+import type { Column, DefinitionContract } from '../contracts/definition-contract';
 
 export interface DefinitionSummary {
   id: string;
   name: string;
   description: string;
-  columns: FileDefinitionColumn[];
-  tables: { sheet: string | null; columns: FileDefinitionColumn[] }[];
+  /** All columns (across sheet tables) for the summary chips. */
+  columns: Column[];
+  /** The published tables uploads are validated against; sheet is null for a single table. */
+  tables: { sheet: string | null; columns: Column[] }[];
+  /** The active version's contract; null until a version is published. */
   contract: DefinitionContract | null;
   status: string;
   createdAt: string;
@@ -41,22 +37,8 @@ export interface GetFileDefinitionsResponse {
 const pick = <T,>(value: T | undefined, fallback: T | undefined): T | undefined => value ?? fallback;
 
 export const mapDefinitionSummary = (raw: Record<string, unknown>): DefinitionSummary => {
-  const contract = pick(raw.Contract, raw.contract) as DefinitionContract | undefined;
-  const rawTables = (pick(raw.Tables, raw.tables) as Array<Record<string, unknown>> | undefined) ?? [];
-  const rawColumns = (pick(raw.Columns, raw.columns) as FileDefinitionColumn[] | undefined) ?? [];
-  const tables = rawTables.length > 0
-    ? rawTables.map(table => ({
-        sheet: String(pick(table.Sheet, table.sheet) ?? ''),
-        columns: (pick(table.Columns, table.columns) as FileDefinitionColumn[] | undefined) ?? [],
-      }))
-    : contract?.tables.map(table => ({
-        sheet: table.sheet,
-        columns: table.columns.map(column => ({
-          name: column.name,
-          type: column.type,
-          required: column.mustExist && !column.nullable,
-        })),
-      })) ?? [{ sheet: null, columns: rawColumns }];
+  const contract = pick(raw.Contract, raw.contract) as DefinitionContract | null | undefined;
+  const tables = contract?.tables.map(table => ({ sheet: table.sheet, columns: table.columns })) ?? [];
   const rules = contract?.rules ?? [];
   const activeVersion = pick(raw.ActiveVersion, raw.activeVersion) as DefinitionSummary['activeVersion'] | undefined;
 

@@ -11,7 +11,6 @@ import {
 } from './ruleDraft';
 import { ruleColumnReferences, ruleProblems, structureOf } from './ruleReferences';
 import { describeRule, RULE_TYPE_DESCRIPTIONS, RULE_TYPE_OPTIONS } from './ruleText';
-import { ruleConfigFromSuggestion } from './ruleSuggestions';
 import { mapPreflightErrors, ruleHealth } from './preflight';
 
 const rule = (id: string, overrides: Partial<RuleConfig> = {}): RuleConfig => ({
@@ -67,6 +66,15 @@ describe('rule draft reducer', () => {
     expect(next.rules[2].executionOrder).toBe(4);
     expect(ruleStatus(next, '9')).toBe('new');
     expect(ruleStatus(next, '1')).toBe('unchanged');
+  });
+
+  it('numbers appended example suggestions sequentially, all starting as new rules', () => {
+    // The example analysis proposes every rule with execution order 1.
+    const suggestions = [rule('a', { executionOrder: 1 }), rule('b', { executionOrder: 1 })];
+    const next = ruleDraftReducer(initialRuleDraft(), { type: 'append', rules: suggestions });
+
+    expect(next.rules.map(item => [item.id, item.executionOrder])).toEqual([['a', 1], ['b', 2]]);
+    expect(next.rules.every(item => ruleStatus(next, item.id) === 'new')).toBe(true);
   });
 
   it('marks edited rules as changed and unmarks them when edited back', () => {
@@ -220,25 +228,6 @@ describe('describeRule', () => {
     expect(text({ type: 'unique', params: { columns: ['A', 'B'] } } as Partial<RuleConfig>)).toBe('A, B must not repeat across rows');
     expect(text({ type: 'compare', params: { left: 'Start', op: 'le', right: 'End', as: 'date' } } as Partial<RuleConfig>)).toBe('Start must be at most End');
     expect(text({ type: 'naturalLanguage', params: { request: 'No refunds on Sundays' } } as Partial<RuleConfig>)).toBe('No refunds on Sundays');
-  });
-});
-
-describe('ruleConfigFromSuggestion', () => {
-  const id = () => 'new-id';
-  const base = { name: 'Suggested', severity: 'Error' as const };
-
-  it('converts the suggestion kinds an example file produces', () => {
-    expect(ruleConfigFromSuggestion({ ...base, ruleType: 'Enum Check', expression: 'Status: A, B' }, 1, id))
-      .toMatchObject({ type: 'enum', params: { column: 'Status', values: ['A', 'B'] }, table: null });
-    expect(ruleConfigFromSuggestion({ ...base, ruleType: 'Range Check', expression: 'Amount: 0..100', table: 'Orders' }, 2, id))
-      .toMatchObject({ type: 'range', params: { column: 'Amount', min: 0, max: 100 }, table: 'Orders', executionOrder: 2 });
-  });
-
-  it('rejects suggestions it cannot represent', () => {
-    expect(ruleConfigFromSuggestion({ ...base, ruleType: 'Mystery', expression: 'A: b' }, 1, id)).toBeNull();
-    expect(ruleConfigFromSuggestion({ ...base, ruleType: 'Required Values', expression: 'Id: required' }, 1, id)).toBeNull();
-    expect(ruleConfigFromSuggestion({ ...base, ruleType: 'Range Check', expression: 'A: soon' }, 1, id)).toBeNull();
-    expect(ruleConfigFromSuggestion({ ...base, ruleType: 'Enum Check', expression: 'no separator' }, 1, id)).toBeNull();
   });
 });
 

@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from samplegen import examples_and_handling, large, sheet_tables, single_table  # noqa: E402
-from samplegen.definitions import DEFINITIONS, definitions_sql  # noqa: E402
+from samplegen.definitions import DEFINITIONS, definitions_json, definitions_sql  # noqa: E402
 from samplegen.readme import render_readme  # noqa: E402
 from samplegen.writers import MANIFEST, ROOT  # noqa: E402
 
@@ -54,7 +54,7 @@ def main():
 
     definitions_dir = ROOT / 'definitions'
     definitions_dir.mkdir(exist_ok=True)
-    (definitions_dir / 'sample_definitions.json').write_text(json.dumps(DEFINITIONS, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    (definitions_dir / 'sample_definitions.json').write_text(json.dumps(definitions_json(), indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     (definitions_dir / 'sample_definitions.sql').write_text(definitions_sql(), encoding='utf-8')
     (ROOT / 'manifest.json').write_text(json.dumps({
         'generatedBy': 'samples/tools/generate_samples.py',

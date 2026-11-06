@@ -26,16 +26,6 @@ const validateRequest = (req: Request, res: Response, next: NextFunction) => {
 router.use(authenticate);
 router.use(authorize('admin'));
 
-// One table per workbook sheet (optional); the controller checks sheet names and layout.
-const sheetTableValidators = [
-    body('tables').optional({ values: 'null' }).isArray({ max: 50 }),
-    body('tables.*.sheet').isString().isLength({ min: 1, max: 31 }),
-    body('tables.*.columns').isArray({ min: 1 }),
-    body('tables.*.columns.*.name').isString().isLength({ min: 1, max: 100 }),
-    body('tables.*.columns.*.type').isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
-    body('tables.*.columns.*.required').isBoolean(),
-];
-
 // ============================================================================
 // Dashboard Stats
 // ============================================================================
@@ -182,19 +172,9 @@ router.post(
     [
         body('name').isLength({ min: 1, max: 200 }).trim(),
         body('description').optional().isLength({ max: 1000 }),
-        body('columns').optional().isArray(),
-        body('columns.*.name').isString().isLength({ min: 1, max: 100 }),
-        body('columns.*.type').isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
-        body('columns.*.required').isBoolean(),
-        ...sheetTableValidators,
-        body('contract').optional().isObject(),
+        body('contract').isObject(),
         body('status').optional().isIn(['Active', 'Inactive']),
         body('rules').optional({ values: 'null' }).isArray({ max: 50 }),
-        body('rules.*.name').optional().isString().isLength({ min: 1, max: 255 }),
-        body('rules.*.ruleType').optional().isString(),
-        body('rules.*.expression').optional().isString().isLength({ max: 4000 }),
-        body('rules.*.severity').optional().isIn(['Error', 'Warning']),
-        body('rules.*.table').optional({ values: 'null' }).isString().isLength({ max: 255 }),
     ],
     validateRequest,
     AdminController.createFileDefinition
@@ -209,11 +189,6 @@ router.put(
     [
         body('name').optional().isLength({ min: 1, max: 200 }).trim(),
         body('description').optional().isLength({ max: 1000 }),
-        body('columns').optional().isArray(),
-        body('columns.*.name').optional().isString().isLength({ min: 1, max: 100 }),
-        body('columns.*.type').optional().isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
-        body('columns.*.required').optional().isBoolean(),
-        ...sheetTableValidators,
         body('contract').optional().isObject(),
         body('rules').optional().isArray({ max: 50 }),
         body('revision').optional({ values: 'null' }).isString().isLength({ max: 64 }),

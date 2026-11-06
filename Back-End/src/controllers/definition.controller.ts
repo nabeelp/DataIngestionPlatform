@@ -9,10 +9,6 @@ import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { TemplateStorage, getTemplateContentType, getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { logger } from '../utils/logger';
-import type { 
-    ICreateFileDefinitionDto, 
-    IUpdateFileDefinitionDto
-} from '../interfaces/fileDefinition.interface';
 
 const unauthorized = () => new HttpError('Unauthorized', 401);
 
@@ -30,7 +26,7 @@ export const getDefinitions = asyncHandler(async (req, res) => {
         throw unauthorized();
     }
 
-    const definitions = await DefinitionVersionService.withPublishedColumns(await FileDefinition.findForUser(userId));
+    const definitions = await DefinitionVersionService.withPublishedContract(await FileDefinition.findForUser(userId));
 
     logger.debug('[DEFINITION_CONTROLLER] Found definitions:', definitions.length);
 
@@ -60,7 +56,7 @@ export const getDefinitionById = asyncHandler(async (req, res) => {
     }
 
     const found = await FileDefinition.findById(id);
-    const [definition] = found ? await DefinitionVersionService.withPublishedColumns([found]) : [null];
+    const [definition] = found ? await DefinitionVersionService.withPublishedContract([found]) : [null];
 
     if (!definition) {
         throw new NotFoundError('Definition not found');
@@ -69,85 +65,6 @@ export const getDefinitionById = asyncHandler(async (req, res) => {
     res.json({
         success: true,
         definition
-    });
-});
-
-/**
- * Create a new definition (Admin only)
- */
-export const createDefinition = asyncHandler(async (req, res) => {
-    const userId = req.user?.userId;
-    const userRole = req.user?.role;
-
-    if (!userId) {
-        throw unauthorized();
-    }
-
-    // Only admins can create definitions
-    if (userRole !== 'admin') {
-        throw new ForbiddenError('Only admins can create file definitions');
-    }
-
-    const { Name, Description, Columns, Status, AllowedUserIds } = req.body;
-
-    // Validate required fields
-    if (!Name || !Columns || !Array.isArray(Columns)) {
-        throw new BadRequestError('Name and Columns are required');
-    }
-
-    const dto: ICreateFileDefinitionDto = {
-        Name,
-        Description: Description || '',
-        Columns,
-        Status: Status || 'Active',
-        AllowedUserIds
-    };
-
-    const definition = await FileDefinitionService.createDefinition(dto, userId);
-
-    res.status(201).json({
-        success: true,
-        definition,
-        message: 'Definition created successfully'
-    });
-});
-
-/**
- * Update a definition (Admin only)
- */
-export const updateDefinition = asyncHandler(async (req, res) => {
-    const id = req.params.id as string;
-    const userId = req.user?.userId;
-    const userRole = req.user?.role;
-
-    if (!userId) {
-        throw unauthorized();
-    }
-
-    // Only admins can update definitions
-    if (userRole !== 'admin') {
-        throw new ForbiddenError('Only admins can update file definitions');
-    }
-
-    const { Name, Description, Columns, Status } = req.body;
-
-    const updates: IUpdateFileDefinitionDto = {};
-
-    if (Name !== undefined) updates.Name = Name;
-    if (Description !== undefined) updates.Description = Description;
-    if (Columns !== undefined) updates.Columns = Columns;
-    if (Status !== undefined) updates.Status = Status;
-
-    const definition = await FileDefinition.update(id, updates);
-
-    if (!definition) {
-        throw new NotFoundError('Definition not found');
-    }
-
-    res.json({
-        success: true,
-        definition,
-        message: 'Definition updated successfully'
     });
 });
 

@@ -139,8 +139,8 @@ export class UploadController {
 
             // Definitions with one table per sheet can only validate workbooks.
             const activeVersion = await DefinitionVersionService.ensureActiveVersion(definitionId, userId);
-            if (activeVersion.Tables.length > 0 && !EXCEL_FILE_TYPES.includes(fileType)) {
-                const sheets = activeVersion.Tables.map(table => `"${table.sheet}"`).join(', ');
+            if (activeVersion.Contract.layout === 'sheets' && !EXCEL_FILE_TYPES.includes(fileType)) {
+                const sheets = activeVersion.Contract.tables.map(table => `"${table.sheet}"`).join(', ');
                 throw new BadRequestError(`This definition expects an Excel workbook (.xlsx or .xls) with the sheets ${sheets}`);
             }
             logger.info(`[UPLOAD-START] UserId: ${userId}, DefinitionId: ${definitionId}, Size: ${fileSize}B, Type: ${fileType}`);
