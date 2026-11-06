@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck } from 'lucide-react';
-import type { RuleConfig } from '../../contracts/rule-config';
+import { queryKeys } from '../../services/queryKeys';
 import RuleList from './RuleList';
 import { getPublishedRules } from './ruleDraftApi';
 
@@ -14,26 +14,13 @@ interface Props {
 
 /** The rules new uploads of a definition are validated against (read only). */
 export default function PublishedRulesSection({ definitionId, layout, editHref }: Props) {
-  const [rules, setRules] = useState<RuleConfig[] | null>(null);
-  const [versionNumber, setVersionNumber] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    setRules(null);
-    setError(null);
-    getPublishedRules(definitionId)
-      .then(result => {
-        if (!active) return;
-        setRules(result.rules.filter(rule => rule.enabled));
-        setVersionNumber(result.versionNumber);
-      })
-      .catch(failure => {
-        if (active) setError(failure instanceof Error ? failure.message : 'Failed to load the rules');
-      });
-    return () => { active = false; };
-  }, [definitionId]);
-
+  const published = useQuery({
+    queryKey: queryKeys.definitions.publishedRules(definitionId),
+    queryFn: () => getPublishedRules(definitionId),
+  });
+  const rules = published.data ? published.data.rules.filter(rule => rule.enabled) : null;
+  const versionNumber = published.data?.versionNumber ?? null;
+  const error = published.isError ? published.error.message || 'Failed to load the rules' : null;
   return (
     <section className="mt-4 border-t border-gray-200 pt-4" aria-label="Validation rules">
       <div className="mb-3 flex items-center justify-between gap-2">

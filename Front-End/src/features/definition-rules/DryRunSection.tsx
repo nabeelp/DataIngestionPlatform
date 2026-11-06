@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { getRecentUploads } from '../../services/uploadApi';
+import { useEffect, useMemo, useState } from 'react';
+import { useRecentUploadsQuery } from '../../services/hooks/uploads';
 import { runDraftDryRun, type DraftContext } from './ruleDraftApi';
 
 interface Props {
@@ -15,30 +15,26 @@ interface UploadOption {
 }
 
 const PREVIEWABLE = ['VALIDATED', 'VALIDATION_PASSED', 'VALIDATION_FAILED', 'DELIVERED'];
+const RECENT_UPLOAD_LIMIT = 50;
 
 /** Preview the unsaved structure and rules on a past upload of the definition. */
 export default function DryRunSection({ context, definitionId }: Props) {
-  const [uploads, setUploads] = useState<UploadOption[]>([]);
+  const recent = useRecentUploadsQuery(RECENT_UPLOAD_LIMIT, Boolean(definitionId));
+  const uploads: UploadOption[] = useMemo(
+    () => (recent.data?.uploads ?? [])
+      .filter(upload => upload.FileDefinitionId === definitionId && PREVIEWABLE.includes(upload.Status))
+      .map(upload => ({ Id: upload.Id, OriginalFilename: upload.OriginalFilename, Status: upload.Status })),
+    [recent.data, definitionId],
+  );
   const [selected, setSelected] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [runError, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const error = runError ?? (recent.isError ? recent.error.message || 'Could not load recent uploads.' : null);
 
   useEffect(() => {
-    if (!definitionId) return;
-    let active = true;
-    getRecentUploads(50).then(response => {
-      if (!active) return;
-      const matching = response.uploads
-        .filter(upload => upload.FileDefinitionId === definitionId && PREVIEWABLE.includes(upload.Status))
-        .map(upload => ({ Id: upload.Id, OriginalFilename: upload.OriginalFilename, Status: upload.Status }));
-      setUploads(matching);
-      setSelected(matching[0]?.Id ?? '');
-    }).catch(failure => {
-      if (active) setError(failure instanceof Error ? failure.message : 'Could not load recent uploads.');
-    });
-    return () => { active = false; };
-  }, [definitionId]);
+    setSelected(uploads[0]?.Id ?? '');
+  }, [uploads]);
 
   const run = async () => {
     if (!selected) return;

@@ -61,7 +61,7 @@ const Topbar = () => {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const data = await apiRequest<SearchResults>(`/search?q=${encodeURIComponent(query)}`);
+        const data = await apiRequest<SearchResults>('/search', { query: { q: query } });
         if (cancelled) return;
         setResults([
           ...data.definitions.map((def) => ({

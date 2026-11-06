@@ -27,7 +27,6 @@ interface Props {
   context: DraftContext;
   structure: RuleStructure;
   lookups: Array<{ id: string; name: string }>;
-  token: string | null;
   /** The saved definition, for dry runs; null while it is being created. */
   definitionId: string | null;
   onSave: (rule: RuleConfig) => void;
@@ -35,7 +34,7 @@ interface Props {
 }
 
 /** Edits one rule of the workspace's draft. Nothing is saved to the server; Save hands the rule back to the draft. */
-export default function RuleEditorPanel({ rule, context, structure, lookups, token, definitionId, onSave, onCancel }: Props) {
+export default function RuleEditorPanel({ rule, context, structure, lookups, definitionId, onSave, onCancel }: Props) {
   const [base, setBase] = useState<RuleConfig | null>(rule);
   const [form, setForm] = useState<FormState>(() => initialForm(rule));
   const [validation, setValidation] = useState<RuleConfigValidationResult | null>(null);
@@ -182,9 +181,8 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
     setRegenerationError(null);
     setActivity([{ level: 'info', message: 'Sending the revised rule to the server', elapsedMs: 0 }]);
     try {
-      const result = await proposeNaturalLanguageRule({
-        token,
-        context,
+      const result = await       proposeNaturalLanguageRule({
+              context,
         request: request.trim(),
         existing: base,
         signal: controller.signal,

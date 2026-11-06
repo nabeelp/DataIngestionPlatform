@@ -1,9 +1,8 @@
-import { AlertTriangle, CheckCircle2, Columns3, FileSpreadsheet, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Columns3, FileSpreadsheet, ShieldCheck } from 'lucide-react';
 import type { DefinitionSummary } from '../services/definitionApi';
 
 interface Props {
   definition: DefinitionSummary;
-  showDraftState?: boolean;
   actions?: React.ReactNode;
   compact?: boolean;
 }
@@ -12,7 +11,6 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 
 export default function DefinitionContextCard({
   definition,
-  showDraftState = false,
   actions,
   compact = false,
 }: Props) {
@@ -39,12 +37,6 @@ export default function DefinitionContextCard({
             ) : (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
                 Not published
-              </span>
-            )}
-            {showDraftState && definition.hasUnpublishedChanges && (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                <AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden="true" />
-                Draft changes
               </span>
             )}
           </div>

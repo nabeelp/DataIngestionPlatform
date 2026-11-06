@@ -68,8 +68,7 @@ resolved items are removed. Update this file in the same change that fixes or ad
 
 | ID | Item | Next action |
 |---|---|---|
-| MAINT-03 | Front-End data layer: pages and `uploadApi.ts` duplicate fetch/auth/error handling instead of `services/http.ts`; React Query is installed but unused for server state; `UploadDetails.tsx` still normalises PascalCase and camelCase fallbacks the API never returns | Route all services through `apiRequest`; adopt React Query for lists and details; normalise to the real response shape |
-| MAINT-06 | Test coverage gaps: `Upload.service`, `AzureStorage`, `FileDefinition.service`, `Stats`/`Dashboard` services; Front-End `AuthContext`, `lookupApi` and most pages; Python `config`, `io/blob`, `api/app` lifecycle | Add focused tests (blob failure and cleanup, authorization, error mapping, auth/session handling) |
+| MAINT-06 | Remaining test gaps: Front-End page components and hooks are covered only by Playwright and pure-function tests because no DOM test environment (jsdom with Testing Library) is installed; the `Upload.service` state machine (start, delivery retry) and `Dashboard` KPI queries have no unit tests beyond creation, validation events and search | Add a DOM test environment and component/hook tests for the main pages; add focused tests for upload delivery retry and the dashboard KPI aggregation |
 
 ## Later
 

@@ -1,4 +1,5 @@
 import { mapValidationCheckStatus, parseValidationIssues } from '../validationIssues';
+import type { IUploadDetailResponse } from '../../services/uploadApi';
 import type { DeliveryRecordSummary, RuleResult, SheetSummary, UploadDetail } from './types';
 
 export const mapStatusToDisplay = (status: string): string => {
@@ -66,65 +67,50 @@ export const canDelete = (status: string): boolean => {
   return status !== 'VALIDATION_IN_PROGRESS' && status !== 'DELIVERY_IN_PROGRESS';
 };
 
-/** Transforms the `GET /uploads/:id` response (PascalCase or camelCase fields) into the page model. */
-export const normalizeUploadDetails = (data: any): UploadDetail => {
-  const upload = data.upload;
-  const sheets = data.sheets || [];
-  const ruleDetails = data.ruleDetails || data.validationResult?.ruleDetails || [];
+/** Transforms the `GET /uploads/:id` response into the page model. */
+export const normalizeUploadDetails = (data: IUploadDetailResponse): UploadDetail => {
+  const { upload } = data;
 
-  const mappedSheets: SheetSummary[] = sheets.map((sheet: any) => ({
-    index: String(sheet.SheetIndex || sheet.sheetIndex || 0),
-    name: sheet.SheetName || sheet.sheetName || 'Unknown',
-    rows: sheet.RowCountNo || sheet.rowCountNo || 0,
-    status: mapSheetStatus(sheet.Status || sheet.status),
-    deliveryPath: sheet.DeliveryPath || sheet.deliveryPath || sheet.delivery_path || sheet.Path || sheet.path || '',
-  })).sort((a: SheetSummary, b: SheetSummary) => Number(a.index) - Number(b.index));
+  const sheets: SheetSummary[] = data.sheets.map(sheet => ({
+    index: String(sheet.SheetIndex),
+    name: sheet.SheetName || 'Unknown',
+    rows: sheet.RowCountNo ?? 0,
+    status: mapSheetStatus(sheet.Status),
+    deliveryPath: sheet.DeliveryPath ?? '',
+  })).sort((a, b) => Number(a.index) - Number(b.index));
 
-  // Map validation rules - handle empty arrays
-  const mappedRules: RuleResult[] = ruleDetails.map((rule: any) => {
-    const status = mapValidationCheckStatus(rule.Status);
-    const errors = parseValidationIssues(rule.Issues);
-    const errorCount = rule.IssueCount ?? errors.length;
-    const elapsedMs = rule.ElapsedMs ?? 0;
+  const rules: RuleResult[] = data.ruleDetails.map(rule => ({
+    title: rule.RuleName || 'Unknown Rule',
+    type: rule.RuleType || 'Unknown',
+    sheet: rule.Sheet ?? null,
+    time: `${rule.ElapsedMs}ms`,
+    status: mapValidationCheckStatus(rule.Status),
+    errorCount: rule.IssueCount,
+    errors: parseValidationIssues(rule.Issues),
+  }));
 
-    return {
-      title: rule.RuleName || 'Unknown Rule',
-      type: rule.RuleType || 'Unknown',
-      sheet: rule.Sheet ?? null,
-      time: `${elapsedMs}ms`,
-      status,
-      errorCount,
-      errors,
-    };
-  });
-
-  const deliveryRecords: DeliveryRecordSummary[] = (data.deliveryRecords || []).map((record: any) => {
-    const destinationPath = String(record.DestinationPath || record.destinationPath || '');
-    return {
-      id: record.Id || record.id,
-      filename: destinationPath.split(/[\\/]/).pop() || 'delivered file',
-      status: record.Status || record.status || '',
-    };
-  });
+  const deliveryRecords: DeliveryRecordSummary[] = data.deliveryRecords.map(record => ({
+    id: record.Id,
+    filename: record.DestinationPath.split(/[\\/]/).pop() || 'delivered file',
+    status: record.Status,
+  }));
 
   return {
-    id: upload.Id || upload.id,
-    filename: upload.OriginalFilename || upload.originalFilename || 'Unknown',
-    fileType: upload.FileType || upload.fileType || 'XLSX Upload',
-    status: mapStatusToDisplay(upload.Status || upload.status),
-    statusCode: upload.Status || upload.status,
-    fileSize: formatFileSize(upload.FileSize || upload.fileSize || 0),
-    rowCount: upload.RowCountNo || upload.rowCountNo || 0,
-    uploaded: formatDate(upload.UploadedAt || upload.uploadedAt),
-    validated: upload.ValidationCompletedAt || upload.validationCompletedAt 
-      ? formatDate(upload.ValidationCompletedAt || upload.validationCompletedAt) 
-      : null,
-    deliveredTo: upload.DeliveredTo || upload.deliveredTo || '',
-    definitionId: upload.FileDefinitionId || upload.fileDefinitionId || '',
-    definitionName: upload.DefinitionName || upload.definitionName || 'Unknown definition',
+    id: upload.Id,
+    filename: upload.OriginalFilename || 'Unknown',
+    fileType: upload.FileType || 'XLSX Upload',
+    status: mapStatusToDisplay(upload.Status),
+    statusCode: upload.Status,
+    fileSize: formatFileSize(upload.FileSize),
+    rowCount: upload.RowCountNo ?? 0,
+    uploaded: formatDate(upload.UploadedAt),
+    validated: upload.ValidationCompletedAt ? formatDate(upload.ValidationCompletedAt) : null,
+    deliveredTo: upload.DeliveredTo ?? '',
+    definitionId: upload.FileDefinitionId,
+    definitionName: upload.DefinitionName || 'Unknown definition',
     definitionVersion: data.definitionVersion?.versionNumber ?? null,
-    sheets: mappedSheets,
-    rules: mappedRules,
+    sheets,
+    rules,
     deliveryRecords,
   };
 };

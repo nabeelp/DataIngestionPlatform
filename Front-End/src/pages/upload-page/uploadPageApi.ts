@@ -1,4 +1,6 @@
-import { apiConfig } from '../../config/api';
+import { useQuery } from '@tanstack/react-query';
+import { getUploads, type IUpload, type IUploadsResponse, type UploadStatus } from '../../services/uploadApi';
+import { queryKeys } from '../../services/queryKeys';
 
 export interface UploadRecord {
   id: string;
@@ -21,80 +23,43 @@ export interface UploadRecord {
   statusCode?: string;
 }
 
-const mapStatusToDisplay = (status: string): string => {
-  const statusMap: Record<string, string> = {
-    'UPLOADED': 'Pending',
-    'VALIDATION_QUEUED': 'Pending',
-    'VALIDATION_IN_PROGRESS': 'Validation In Progress',
-    'VALIDATION_FAILED': 'Validation Failed',
-    'VALIDATION_PASSED': 'Validation Passed',
-    'VALIDATED': 'Validation Passed',
-    'DELIVERY_QUEUED': 'Delivery Pending',
-    'DELIVERY_IN_PROGRESS': 'Delivery In Progress',
-    'DELIVERED': 'Delivered',
-    'DELIVERY_FAILED': 'Failed',
-  };
-  return statusMap[status] || status;
+const STATUS_LABELS: Record<UploadStatus, UploadRecord['status']> = {
+  UPLOADED: 'Pending',
+  VALIDATION_QUEUED: 'Pending',
+  VALIDATION_IN_PROGRESS: 'Validation In Progress',
+  VALIDATION_FAILED: 'Validation Failed',
+  VALIDATION_PASSED: 'Validation Passed',
+  VALIDATED: 'Validation Passed',
+  DELIVERY_QUEUED: 'Delivery Pending',
+  DELIVERY_IN_PROGRESS: 'Delivery In Progress',
+  DELIVERED: 'Delivered',
+  DELIVERY_FAILED: 'Failed',
 };
 
-export const fetchUploads = async (page: number): Promise<{ uploads: UploadRecord[]; total: number }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  const response = await fetch(`${baseUrl}/uploads?page=${page}&pageSize=20`, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch uploads');
-  }
-  
-  const data = await response.json();
-  
-  if (data.success && data.uploads) {
-    return {
-      uploads: data.uploads.map((upload: any) => ({
-        id: upload.Id || upload.id,
-        filename: upload.OriginalFilename || upload.originalFilename,
-        definitionId: upload.FileDefinitionId || upload.fileDefinitionId,
-        definitionName: upload.DefinitionName || upload.definitionName || 'Unknown definition',
-        definitionVersion: upload.DefinitionVersionNumber || upload.definitionVersionNumber || null,
-        size: upload.FileSize || upload.fileSize || 0,
-        rows: upload.RowCountNo || upload.rowCountNo || 0,
-        status: mapStatusToDisplay(upload.Status || upload.status),
-        uploadedAt: upload.UploadedAt || upload.uploadedAt,
-        statusCode: upload.Status || upload.status,
-      })),
-      total: data.total ?? data.uploads.length,
-    };
-  }
-  
-  return { uploads: [], total: 0 };
-};
+export const toUploadRecord = (upload: IUpload): UploadRecord => ({
+  id: upload.Id,
+  filename: upload.OriginalFilename,
+  definitionId: upload.FileDefinitionId,
+  definitionName: upload.DefinitionName || 'Unknown definition',
+  definitionVersion: upload.DefinitionVersionNumber || null,
+  size: upload.FileSize || 0,
+  rows: upload.RowCountNo || 0,
+  status: STATUS_LABELS[upload.Status] ?? (upload.Status as UploadRecord['status']),
+  uploadedAt: upload.UploadedAt,
+  statusCode: upload.Status,
+});
 
-export const uploadFile = async (file: File, definitionId: string): Promise<any> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('definitionId', definitionId);
-  
-  const response = await fetch(`${baseUrl}/uploads`, {
-    method: 'POST',
-    headers: {
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: formData,
+export const selectUploadRecords = (response: IUploadsResponse): { uploads: UploadRecord[]; total: number } => ({
+  uploads: response.uploads.map(toUploadRecord),
+  total: response.total,
+});
+
+/** One page of the user's uploads as display records; the previous page stays visible while the next loads. */
+export const useUploadRecordsQuery = (page: number) =>
+  useQuery({
+    queryKey: queryKeys.uploads.list(page),
+    queryFn: () => getUploads(page),
+    select: selectUploadRecords,
+    staleTime: 0,
+    placeholderData: previous => previous,
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to upload file');
-  }
-  
-  return response.json();
-};

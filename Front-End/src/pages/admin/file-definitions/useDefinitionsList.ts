@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { exportFileDefinition, type FileDefinitionAdmin } from '../../../services/adminApi';
 import {
-  deleteFileDefinitionAdmin,
-  exportFileDefinition,
-  getFileDefinitionsAdmin,
-  getFileDefinitionUserCounts,
-  type FileDefinitionAdmin,
-} from '../../../services/adminApi';
+  useAdminDefinitionsQuery,
+  useDefinitionUserCountsQuery,
+  useDeleteDefinitionMutation,
+} from '../../../services/hooks/definitions';
 
 export type StatusFilter = 'all' | 'active' | 'inactive' | 'unpublished';
+
+const NO_DEFINITIONS: FileDefinitionAdmin[] = [];
+const NO_COUNTS: Record<string, number> = {};
 
 const matchesFilters = (definition: FileDefinitionAdmin, searchTerm: string, statusFilter: StatusFilter): boolean => {
   const query = searchTerm.trim().toLowerCase();
@@ -32,19 +34,22 @@ export function useDefinitionsList({ isDefinitionWorkspace, setError }: Options)
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const handledDeepLink = useRef('');
-  const [definitions, setDefinitions] = useState<FileDefinitionAdmin[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [definitionUserCounts, setDefinitionUserCounts] = useState<Record<string, number>>({});
+  const definitionsQuery = useAdminDefinitionsQuery();
+  const definitions = definitionsQuery.data?.definitions ?? NO_DEFINITIONS;
+  const [reloading, setReloading] = useState(false);
+  const loading = definitionsQuery.isPending || reloading;
+  const userCountsQuery = useDefinitionUserCountsQuery(definitions.length > 0);
+  const definitionUserCounts = userCountsQuery.data ?? NO_COUNTS;
+  const { mutateAsync: removeDefinition } = useDeleteDefinitionMutation();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   const filteredDefinitions = definitions.filter(definition => matchesFilters(definition, searchTerm, statusFilter));
 
-  // Initial load only; later refreshes are explicit.
+  const initialLoadFailed = definitionsQuery.isError && !definitionsQuery.data;
   useEffect(() => {
-    fetchDefinitions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (initialLoadFailed) setError('Failed to load file definitions');
+  }, [initialLoadFailed, setError]);
 
   useEffect(() => {
     if (isDefinitionWorkspace) return;
@@ -63,45 +68,29 @@ export function useDefinitionsList({ isDefinitionWorkspace, setError }: Options)
     }
   }, [definitions, isDefinitionWorkspace, navigate, searchParams]);
 
-  // Fetch user counts for table
-  useEffect(() => {
-    const fetchUserCounts = async () => {
-      if (definitions.length === 0) return;
-      try {
-        const counts = await getFileDefinitionUserCounts();
-        setDefinitionUserCounts(counts);
-      } catch (error) {
-        console.error('Failed to fetch user counts:', error);
-      }
-    };
-
-    fetchUserCounts();
-  }, [definitions]);
+  // Joins a refresh that a mutation already started instead of cancelling and repeating it.
+  const refetchDefinitions = () => definitionsQuery.refetch({ cancelRefetch: false });
 
   const fetchDefinitions = async (): Promise<FileDefinitionAdmin[]> => {
+    setReloading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      const data = await getFileDefinitionsAdmin();
-      setDefinitions(data.definitions);
-      return data.definitions;
-    } catch (err) {
-      console.error('Failed to fetch file definitions:', err);
-      setError('Failed to load file definitions');
-      return [];
+      const result = await refetchDefinitions();
+      if (result.isError) {
+        console.error('Failed to fetch file definitions:', result.error);
+        setError('Failed to load file definitions');
+        return [];
+      }
+      return result.data?.definitions ?? [];
     } finally {
-      setLoading(false);
+      setReloading(false);
     }
   };
 
   // Refresh version metadata without replacing the current workspace with the page spinner.
   const refreshVersionStates = async () => {
-    try {
-      const data = await getFileDefinitionsAdmin();
-      setDefinitions(data.definitions);
-    } catch (err) {
-      console.error('Failed to refresh file definitions:', err);
-    }
+    const result = await refetchDefinitions();
+    if (result.isError) console.error('Failed to refresh file definitions:', result.error);
   };
 
   const handleDelete = async (id: string) => {
@@ -109,7 +98,7 @@ export function useDefinitionsList({ isDefinitionWorkspace, setError }: Options)
     
     try {
       setError(null);
-      await deleteFileDefinitionAdmin(id);
+      await removeDefinition(id);
       await fetchDefinitions();
     } catch (err) {
       console.error('Failed to delete file definition:', err);

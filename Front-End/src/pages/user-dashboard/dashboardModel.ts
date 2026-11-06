@@ -1,4 +1,6 @@
+import { saveBlob } from '../../services/download';
 import { apiRequest } from '../../services/http';
+import { getRecentUploads, type IUpload } from '../../services/uploadApi';
 
 export interface FormattedUpload {
   id: string;
@@ -102,29 +104,24 @@ export const formatDateTime = (dateString: string): string => {
 
 export const exportActivityCsv = (dashboard: DashboardData) => {
   const lines = ['date,uploads,failed', ...dashboard.activity.map(day => `${day.date},${day.uploads},${day.failed}`)];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `upload-activity-${dashboard.activity[0]?.date || 'period'}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  saveBlob(
+    new Blob([lines.join('\n')], { type: 'text/csv' }),
+    `upload-activity-${dashboard.activity[0]?.date || 'period'}.csv`,
+  );
 };
 
-export const fetchRecentUploads = async (limit: number = 5): Promise<FormattedUpload[]> => {
-  const data = await apiRequest<{ uploads?: any[] }>(`/uploads/recent?limit=${limit}`);
-  return (data.uploads || []).map((upload: any) => ({
-    id: upload.Id || upload.id,
-    filename: upload.OriginalFilename || upload.originalFilename,
-    status: mapStatusToDisplay(upload.Status || upload.status),
-    statusCode: upload.Status || upload.status,
-    info: formatFileSize(upload.FileSize || upload.fileSize || 0) + ' • ' + formatDateTime(upload.UploadedAt || upload.uploadedAt),
-    variant: getVariant(upload.Status || upload.status),
-    uploadedAt: upload.UploadedAt || upload.uploadedAt,
-  }));
-};
+export const formatRecentUpload = (upload: IUpload): FormattedUpload => ({
+  id: upload.Id,
+  filename: upload.OriginalFilename,
+  status: mapStatusToDisplay(upload.Status),
+  statusCode: upload.Status,
+  info: formatFileSize(upload.FileSize || 0) + ' • ' + formatDateTime(upload.UploadedAt),
+  variant: getVariant(upload.Status),
+  uploadedAt: upload.UploadedAt,
+});
+
+export const fetchRecentUploads = async (limit: number = 5): Promise<FormattedUpload[]> =>
+  (await getRecentUploads(limit)).uploads.map(formatRecentUpload);
 
 export const fetchDashboard = async (days: number): Promise<DashboardData> =>
-  (await apiRequest<{ dashboard: DashboardData }>(`/uploads/dashboard?days=${days}`)).dashboard;
+  (await apiRequest<{ dashboard: DashboardData }>('/uploads/dashboard', { query: { days } })).dashboard;

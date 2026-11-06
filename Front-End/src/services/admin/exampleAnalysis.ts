@@ -1,7 +1,7 @@
 // Example file analysis
 import type { Column as ContractColumn } from '../../contracts/definition-contract';
 import type { RuleConfig } from '../../contracts/rule-config';
-import { getAuthToken, getBaseUrl } from './shared';
+import { apiRequest } from '../http';
 
 export interface ExampleColumn extends ContractColumn {
   filledRows: number;
@@ -37,17 +37,11 @@ export interface ExampleAnalysis {
 export const analyzeExampleFile = async (file: File): Promise<ExampleAnalysis> => {
   const formData = new FormData();
   formData.append('file', file);
-  const token = getAuthToken();
 
-  const response = await fetch(`${getBaseUrl()}/admin/file-definitions/analyze-example`, {
+  const data = await apiRequest<ExampleAnalysis>('/admin/file-definitions/analyze-example', {
     method: 'POST',
-    headers: token ? { Authorization: 'Bearer ' + token } : undefined,
     body: formData,
+    fallbackMessage: 'Failed to analyze the example file',
   });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to analyze the example file');
-  }
   return { fileName: data.fileName, fileType: data.fileType, sheets: data.sheets, warnings: data.warnings || [] };
 };

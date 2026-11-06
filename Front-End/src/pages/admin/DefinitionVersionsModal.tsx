@@ -1,14 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, ChevronDown, ChevronRight, History, UploadCloud, X } from 'lucide-react';
 import { columnRequirementLabel } from '../../contracts/columnRequirement';
 import { describeRule, ruleTypeLabel } from '../../features/definition-rules';
-import {
-  getFileDefinitionVersions,
-  publishFileDefinitionVersion,
-  type ContractChanges,
-  type DefinitionVersion,
-  type DefinitionVersionHistory,
-} from '../../services/adminApi';
+import type { ContractChanges, DefinitionVersion } from '../../services/adminApi';
+import { useDefinitionVersionsQuery, usePublishDefinitionVersionMutation } from '../../services/hooks/definitions';
 
 interface Props {
   definitionId: string;
@@ -103,36 +98,23 @@ function VersionDetails({ version }: { version: DefinitionVersion }) {
 }
 
 export default function DefinitionVersionsModal({ definitionId, definitionName, onClose, onPublished, embedded = false }: Props) {
-  const [history, setHistory] = useState<DefinitionVersionHistory | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const versionsQuery = useDefinitionVersionsQuery(definitionId);
+  const history = versionsQuery.data ?? null;
+  const loading = versionsQuery.isFetching;
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? (versionsQuery.isError ? versionsQuery.error.message || 'Failed to load versions' : null);
   const [changeNote, setChangeNote] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setHistory(await getFileDefinitionVersions(definitionId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load versions');
-    } finally {
-      setLoading(false);
-    }
-  }, [definitionId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { mutateAsync: publishVersion } = usePublishDefinitionVersionMutation(definitionId);
 
   const handlePublish = async () => {
     try {
       setPublishing(true);
       setError(null);
-      const version = await publishFileDefinitionVersion(definitionId, changeNote);
+      const version = await publishVersion(changeNote);
       setChangeNote('');
       onPublished(version);
-      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to publish version');
     } finally {

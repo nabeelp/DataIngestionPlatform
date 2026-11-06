@@ -8,7 +8,6 @@ import { ruleConfigExpression } from '../../services/ruleConfig';
 
 interface Props {
   context: DraftContext;
-  token: string | null;
   onAdd: (rule: RuleConfig, options: { review: boolean }) => void;
   onCancel: () => void;
 }
@@ -21,7 +20,7 @@ type Outcome =
  * Describe a rule in plain language. The server reviews it against the unsaved definition and proposes a rule,
  * which only joins the draft once the admin accepts it.
  */
-export default function NaturalLanguageRuleForm({ context, token, onAdd, onCancel }: Props) {
+export default function NaturalLanguageRuleForm({ context, onAdd, onCancel }: Props) {
   const [request, setRequest] = useState('');
   const [running, setRunning] = useState(false);
   const [activity, setActivity] = useState<ReviewActivity[]>([]);
@@ -52,9 +51,8 @@ export default function NaturalLanguageRuleForm({ context, token, onAdd, onCance
     setOutcome(null);
     setActivity([{ level: 'info', message: 'Sending the rule to the server', elapsedMs: 0 }]);
     try {
-      const result = await proposeNaturalLanguageRule({
-        token,
-        context,
+      const result = await       proposeNaturalLanguageRule({
+              context,
         request: request.trim(),
         signal: controller.signal,
         onActivity: entry => setActivity(previous => [...previous, entry]),

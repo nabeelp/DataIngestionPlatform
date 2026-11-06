@@ -1,5 +1,5 @@
 //#region IMPORTS
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   UploadCloud, 
@@ -28,53 +28,40 @@ import { roleBasePath } from '../config/routes';
 import Trend from './user-dashboard/Trend';
 import {
   exportActivityCsv,
-  fetchDashboard,
-  fetchRecentUploads,
   formatDateTime,
   formatDuration,
   formatShortDate,
   getGreeting,
-  type DashboardData,
-  type FormattedUpload,
 } from './user-dashboard/dashboardModel';
+import { useLastData } from '../services/hooks/useLastData';
+import { useRecentUploadsListQuery, useUserDashboardQuery } from './user-dashboard/useDashboardQueries';
 //#endregion
 
 //#region MAIN DASHBOARD COMPONENT
 const PERIOD_OPTIONS = [7, 14, 30];
 const OUTCOME_COLORS = { successful: '#22c55e', failed: '#ef4444', inProgress: '#2563eb' };
+const RECENT_UPLOAD_LIMIT = 5;
 
 export default function Dashboard() {
   //#region STATE
   const { user } = useAuth();
   const basePath = roleBasePath(user?.Role);
   const [periodDays, setPeriodDays] = useState(7);
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [recentUploads, setRecentUploads] = useState<FormattedUpload[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const dashboardQuery = useUserDashboardQuery(periodDays);
+  const recentQuery = useRecentUploadsListQuery(RECENT_UPLOAD_LIMIT);
+  // A failed refresh keeps showing the last loaded dashboard (with an error banner).
+  const dashboard = useLastData(dashboardQuery.data) ?? null;
+  const recentUploads = recentQuery.data ?? [];
+  const failure = dashboardQuery.error ?? recentQuery.error;
+  const error = failure ? failure.message || 'Failed to load dashboard' : null;
+  const loading = dashboardQuery.isPending || recentQuery.isPending;
   //#endregion
 
   //#region EFFECTS
-  const loadDashboardData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [uploadsData, dashboardData] = await Promise.all([
-        fetchRecentUploads(5),
-        fetchDashboard(periodDays),
-      ]);
-      setRecentUploads(uploadsData);
-      setDashboard(dashboardData);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-    } finally {
-      setLoading(false);
-    }
-  }, [periodDays]);
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+  const loadDashboardData = () => {
+    void dashboardQuery.refetch();
+    void recentQuery.refetch();
+  };
   //#endregion
 
   if (loading && !dashboard) {

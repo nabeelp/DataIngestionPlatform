@@ -1,55 +1,40 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { IFileDefinitionUser } from '../../../services/adminApi';
 import {
-  addUsersToFileDefinition,
-  getAvailableUsers,
-  getFileDefinitionUsers,
-  removeUserFromFileDefinition,
-  type IFileDefinitionUser,
-} from '../../../services/adminApi';
+  useAssignDefinitionUsersMutation,
+  useDefinitionAccessQuery,
+  useRemoveDefinitionUserMutation,
+} from '../../../services/hooks/definitions';
+
+const NO_USERS: IFileDefinitionUser[] = [];
 
 /** State and handlers of the "Manage Users" dialog of a file definition. */
 export function useDefinitionUsers(setError: (message: string | null) => void) {
   const [showUserModal, setShowUserModal] = useState(false);
   const [selectedDefinitionId, setSelectedDefinitionId] = useState('');
-  const [assignedUsers, setAssignedUsers] = useState<IFileDefinitionUser[]>([]);
-  const [availableUsers, setAvailableUsers] = useState<IFileDefinitionUser[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+  const accessQuery = useDefinitionAccessQuery(selectedDefinitionId || null);
+  const assignedUsers = accessQuery.data?.assignedUsers ?? NO_USERS;
+  const availableUsers = accessQuery.data?.availableUsers ?? NO_USERS;
+  const loadingUsers = Boolean(selectedDefinitionId) && accessQuery.isPending;
+  const { mutateAsync: assignUsers } = useAssignDefinitionUsersMutation();
+  const { mutateAsync: removeUser } = useRemoveDefinitionUserMutation();
 
-  // Loads the assigned users, then the available users without the already assigned ones.
-  const loadUserLists = async (definitionId: string) => {
-    const assignedData = await getFileDefinitionUsers(definitionId);
-    setAssignedUsers(assignedData.users);
+  const loadFailed = accessQuery.isError;
+  useEffect(() => {
+    if (loadFailed) setError('Failed to load users for this definition');
+  }, [loadFailed, setError]);
 
-    const availableData = await getAvailableUsers();
-    const allAvailable = availableData.users || [];
-    const filteredAvailable = allAvailable.filter(
-      user => !assignedData.users.some((assigned: IFileDefinitionUser) => assigned.id === user.id)
-    );
-    setAvailableUsers(filteredAvailable);
-  };
-
-  const handleManageUsers = async (defId: string) => {
-    try {
-      setLoadingUsers(true);
-      setSelectedDefinitionId(defId);
-      setSelectedUserIds([]);
-      await loadUserLists(defId);
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      setError('Failed to load users for this definition');
-    } finally {
-      setLoadingUsers(false);
-      setShowUserModal(true);
-    }
+  const handleManageUsers = (defId: string) => {
+    setSelectedDefinitionId(defId);
+    setSelectedUserIds([]);
+    setShowUserModal(true);
   };
 
   const handleCloseUserModal = () => {
     setShowUserModal(false);
     setSelectedDefinitionId('');
-    setAssignedUsers([]);
-    setAvailableUsers([]);
     setSelectedUserIds([]);
     setUserSearch('');
   };
@@ -58,8 +43,7 @@ export function useDefinitionUsers(setError: (message: string | null) => void) {
     if (!confirm('Remove this user from the file definition?')) return;
     
     try {
-      await removeUserFromFileDefinition(selectedDefinitionId, userId);
-      await loadUserLists(selectedDefinitionId);
+      await removeUser({ definitionId: selectedDefinitionId, userId });
       setError(null);
     } catch (err) {
       console.error('Failed to remove user:', err);
@@ -79,8 +63,7 @@ export function useDefinitionUsers(setError: (message: string | null) => void) {
     if (selectedUserIds.length === 0) return;
     
     try {
-      await addUsersToFileDefinition(selectedDefinitionId, selectedUserIds);
-      await loadUserLists(selectedDefinitionId);
+      await assignUsers({ definitionId: selectedDefinitionId, userIds: selectedUserIds });
       setSelectedUserIds([]);
       setError(null);
     } catch (err) {

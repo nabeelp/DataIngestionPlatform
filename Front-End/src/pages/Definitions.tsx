@@ -1,72 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Plus, Download } from 'lucide-react';
-import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { isRequiredColumn } from '../contracts/columnRequirement';
-import { downloadTemplate, mapDefinitionSummary, type DefinitionSummary } from '../services/definitionApi';
+import { downloadTemplate, type DefinitionSummary } from '../services/definitionApi';
+import { useDefinitionsQuery } from '../services/hooks/definitions';
 import PublishedRulesSection from '../features/definition-rules/PublishedRulesSection';
 
 export default function Definitions() {
-  const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedDef, setSelectedDef] = useState<DefinitionSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const definitionsQuery = useDefinitionsQuery();
+  const definitions: DefinitionSummary[] = definitionsQuery.data?.definitions ?? [];
+  const [selectedDefId, setSelectedDefId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const isAdmin = user?.Role === 'admin';
-
-  useEffect(() => {
-    fetchDefinitions();
-  }, []);
-
-  const fetchDefinitions = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const baseUrl = apiConfig.getBaseUrl();
-      const url = `${baseUrl}/definitions`;
-
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-
-      // Add auth token if available
-      const storedToken = localStorage.getItem('token');
-      if (storedToken) {
-        headers['Authorization'] = `Bearer ${storedToken}`;
-      }
-
-      const response = await fetch(url, { headers });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch definitions');
-      }
-
-      const data = await response.json();
-      
-      if (data.success && data.definitions) {
-        const mappedDefinitions: DefinitionSummary[] = data.definitions.map((def: Record<string, unknown>) => mapDefinitionSummary(def));
-        setDefinitions(mappedDefinitions);
-        
-        // Select first definition if available
-        if (mappedDefinitions.length > 0) {
-          setSelectedDef(mappedDefinitions[0]);
-        }
-      } else {
-        throw new Error('Invalid response format');
-      }
-    } catch (err) {
-      console.error('Error fetching definitions:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load definitions');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = definitionsQuery.isPending || (definitionsQuery.isError && definitionsQuery.isFetching);
+  const error = definitionsQuery.isError ? definitionsQuery.error.message || 'Failed to load definitions' : null;
+  // The first definition is selected until the user picks another one.
+  const selectedDef = definitions.find(def => def.id === selectedDefId) ?? definitions[0] ?? null;
+  const setSelectedDef = (def: DefinitionSummary) => setSelectedDefId(def.id);
+  const fetchDefinitions = () => { void definitionsQuery.refetch(); };
 
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);

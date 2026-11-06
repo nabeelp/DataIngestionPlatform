@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  createFileDefinitionAdmin,
-  publishFileDefinitionVersion,
-  removeTemplate,
-  updateFileDefinitionAdmin,
-  uploadTemplate,
-  type FileDefinitionAdmin,
-} from '../../../services/adminApi';
+import { useSaveDefinitionMutation } from '../../../services/hooks/definitions';
+import type { FileDefinitionAdmin } from '../../../services/adminApi';
 import {
   isRuleDraftDirty,
   ruleHealth,
@@ -54,6 +48,7 @@ export function useDefinitionEditor({ route, definitions, fetchDefinitions, setE
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const initializedWorkspace = useRef('');
+  const { mutateAsync: saveDefinition } = useSaveDefinitionMutation();
   const savedSnapshot = useRef('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<DefinitionForm>(EMPTY_FORM);
@@ -219,24 +214,18 @@ export function useDefinitionEditor({ route, definitions, fetchDefinitions, setE
       setUploading(true);
       setError(null);
 
-      const saved = editingId
-        ? await updateFileDefinitionAdmin(editingId, { ...payload, rules: draftRules, revision: draftRevision.current })
-        : await createFileDefinitionAdmin({ ...payload, rules: draftRules });
-      savedId = saved?.id || editingId;
-      const savedRevision = (saved as { revision?: string | null }).revision;
-      if (savedRevision) draftRevision.current = savedRevision;
-      if (templateFile) {
-        if (!savedId) {
-          throw new Error('Definition was saved, but its id was not returned');
-        }
-        await uploadTemplate(savedId, templateFile);
-      } else if (editingId && removeTemplateRequested && currentTemplateFilename) {
-        await removeTemplate(editingId);
-      }
-      if (editingId) {
-        const published = await publishFileDefinitionVersion(editingId, changeNote || undefined);
-        publishedVersion = { versionNumber: published.versionNumber };
-      }
+      const saved = await saveDefinition({
+        editingId,
+        payload,
+        rules: draftRules,
+        revision: draftRevision.current,
+        templateFile,
+        removeStoredTemplate: removeTemplateRequested && Boolean(currentTemplateFilename),
+        changeNote,
+        onRevision: revision => { draftRevision.current = revision; },
+      });
+      savedId = saved.savedId;
+      publishedVersion = saved.publishedVersion;
       succeeded = true;
       savedSnapshot.current = JSON.stringify(formData);
       rules.dispatchRules({ type: 'load', rules: draftRules });

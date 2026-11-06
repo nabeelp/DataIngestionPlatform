@@ -1,33 +1,15 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Activity, AlertTriangle, Clock, PlayCircle, FileText } from 'lucide-react';
-import { getQueueStats, type QueueStats, type RecentUploadThroughput } from '../../services/adminApi';
+import { useQueueStatsQuery } from '../../services/hooks/admin';
 
 export default function Monitoring() {
-  const [queueStats, setQueueStats] = useState<QueueStats | null>(null);
-  const [throughput, setThroughput] = useState<RecentUploadThroughput | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-
-  const fetchData = async () => {
-    try {
-      setError(null);
-      const data = await getQueueStats();
-      setQueueStats(data.stats);
-      setThroughput(data.recentUploadThroughput);
-      setLastRefresh(new Date());
-    } catch {
-      setError('Failed to load monitoring data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void fetchData();
-    const interval = setInterval(() => void fetchData(), 10000);
-    return () => clearInterval(interval);
-  }, []);
+  const queueQuery = useQueueStatsQuery();
+  const queueStats = queueQuery.data?.stats ?? null;
+  const throughput = queueQuery.data?.recentUploadThroughput ?? null;
+  const loading = queueQuery.isPending;
+  const error = queueQuery.isError ? 'Failed to load monitoring data' : null;
+  const lastRefresh = new Date(queueQuery.dataUpdatedAt || Date.now());
+  const fetchData = () => queueQuery.refetch();
 
   if (loading) {
     return (

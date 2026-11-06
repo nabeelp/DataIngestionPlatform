@@ -1,70 +1,57 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { UploadCloud, ChevronDown, XCircle } from 'lucide-react';
 import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
 import type { UploadProgressEvent } from '../types/websocket';
 import DefinitionContextCard from '../components/DefinitionContextCard';
-import { getFileDefinitions, type DefinitionSummary } from '../services/definitionApi';
+import type { DefinitionSummary } from '../services/definitionApi';
+import { useDefinitionsQuery } from '../services/hooks/definitions';
+import { useUploadFileMutation } from '../services/hooks/uploads';
+import { invalidateUploadLists } from '../services/queryKeys';
 import UploadHistoryPanel from './upload-page/UploadHistoryPanel';
-import { fetchUploads, uploadFile, type UploadRecord } from './upload-page/uploadPageApi';
+import { useUploadRecordsQuery, type UploadRecord } from './upload-page/uploadPageApi';
+
+const NO_DEFINITIONS: DefinitionSummary[] = [];
+const NO_UPLOADS: UploadRecord[] = [];
 
 const Upload = () => {
   const auth = useAuth();
   const socket = auth?.socket;
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedDefinition, setSelectedDefinition] = useState<string>(() => searchParams.get('definitionId') ?? '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
-  const [uploadHistory, setUploadHistory] = useState<UploadRecord[]>([]);
+  const definitionsQuery = useDefinitionsQuery();
+  const definitions = definitionsQuery.data?.definitions ?? NO_DEFINITIONS;
+  const loadingDefinitions = definitionsQuery.isPending;
   const [historyPage, setHistoryPage] = useState(1);
-  const [historyTotal, setHistoryTotal] = useState(0);
+  const historyQuery = useUploadRecordsQuery(historyPage);
+  const uploadHistory = historyQuery.data?.uploads ?? NO_UPLOADS;
+  const historyTotal = historyQuery.data?.total ?? 0;
+  const loading = historyQuery.isPending;
+  const uploadMutation = useUploadFileMutation();
   const [latestUploadId, setLatestUploadId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingDefinitions, setLoadingDefinitions] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-  // Load definitions on mount
-  useEffect(() => {
-    const loadDefinitions = async () => {
-      try {
-        const result = await getFileDefinitions();
-        setDefinitions(result.definitions);
-        setSelectedDefinition(current => {
-          if (result.definitions.some(definition => definition.id === current)) return current;
-          return result.definitions.length === 1 ? result.definitions[0].id : '';
-        });
-      } catch (error) {
-        console.error('Error fetching definitions:', error);
-      } finally {
-        setLoadingDefinitions(false);
-      }
-    };
-    
-    loadDefinitions();
-  }, []);
 
-  // Load uploads on mount
-  const loadUploads = useCallback(async () => {
-    try {
-      const result = await fetchUploads(historyPage);
-      setUploadHistory(result.uploads);
-      setHistoryTotal(result.total);
-    } catch (error) {
-      console.error('Error fetching uploads:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [historyPage]);
-
+  // Keep the chosen definition valid for the loaded list; a single definition is chosen automatically.
   useEffect(() => {
-    loadUploads();
-  }, [loadUploads]);
+    if (!definitionsQuery.data) return;
+    const loaded = definitionsQuery.data.definitions;
+    setSelectedDefinition(current => {
+      if (loaded.some(definition => definition.id === current)) return current;
+      return loaded.length === 1 ? loaded[0].id : '';
+    });
+  }, [definitionsQuery.data]);
+
+  const loadUploads = useCallback(() => invalidateUploadLists(queryClient), [queryClient]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -114,24 +101,19 @@ const handleFileUpload = async (file: File) => {
     setUploadMessage(null);
 
     try {
-      const result = await uploadFile(file, selectedDefinition);
-      const uploadId = result.upload?.Id || result.uploadId || result.id;
-      
-      if (result.success) {
-        // The backend queues validation as part of the upload; subscribe for live progress.
-        if (uploadId && socket) socket.emit('subscribeToUpload', uploadId);
-        setUploadMessage({ type: 'success', text: result.message || `✅ File uploaded! ID: ${uploadId || 'N/A'}` });
-        setLatestUploadId(uploadId || null);
-      } else {
-        setUploadMessage({ type: 'error', text: result.message || 'Upload failed' });
-      }
-      
-      await loadUploads();
+      const result = await uploadMutation.mutateAsync({ file, definitionId: selectedDefinition });
+      const uploadId = result.upload.Id;
+
+      // The backend queues validation as part of the upload; subscribe for live progress.
+      if (socket) socket.emit('subscribeToUpload', uploadId);
+      setUploadMessage({ type: 'success', text: result.message || `✅ File uploaded! ID: ${uploadId}` });
+      setLatestUploadId(uploadId);
+
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
-    } catch (error: any) {
-      setUploadMessage({ type: 'error', text: error.message || 'Failed to upload file' });
+    } catch (error) {
+      setUploadMessage({ type: 'error', text: error instanceof Error && error.message ? error.message : 'Failed to upload file' });
     } finally {
       setIsUploading(false);
     }
@@ -151,7 +133,7 @@ const handleFileUpload = async (file: File) => {
 
     // Progress updates are frequent; refresh the list only on stage changes.
     if (data.type !== 'VALIDATION_UPDATE') {
-      loadUploads();
+      void loadUploads();
     }
   };
 

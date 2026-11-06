@@ -17,7 +17,6 @@ interface DefinitionWorkspaceProps {
   editor: DefinitionEditor;
   route: DefinitionRoute;
   error: string | null;
-  token: string | null;
   setNotice: (notice: DefinitionNotice | null) => void;
   refreshVersionStates: () => Promise<void>;
 }
@@ -27,7 +26,6 @@ export default function DefinitionWorkspace({
   editor,
   route,
   error,
-  token,
   setNotice,
   refreshVersionStates,
 }: DefinitionWorkspaceProps) {
@@ -142,7 +140,6 @@ export default function DefinitionWorkspace({
                 dispatch={editor.dispatchRules}
                 contract={editor.draftContract}
                 definitionId={editingId}
-                token={token}
                 health={editor.health}
                 preflight={editor.preflight}
                 loading={Boolean(editingId) && editor.rulesState === 'loading'}

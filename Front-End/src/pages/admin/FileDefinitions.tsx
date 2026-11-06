@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
 import DefinitionsTable from './file-definitions/DefinitionsTable';
 import DefinitionWorkspace from './file-definitions/DefinitionWorkspace';
 import ManageUsersModal from './file-definitions/ManageUsersModal';
@@ -15,7 +14,6 @@ export type { DefinitionForm } from './file-definitions/definitionForm';
 
 export default function FileDefinitions() {
   const navigate = useNavigate();
-  const { token } = useAuth();
   const route = useDefinitionRoute();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<DefinitionNotice | null>(null);
@@ -102,7 +100,6 @@ export default function FileDefinitions() {
           editor={editor}
           route={route}
           error={error}
-          token={token}
           setNotice={setNotice}
           refreshVersionStates={list.refreshVersionStates}
         />

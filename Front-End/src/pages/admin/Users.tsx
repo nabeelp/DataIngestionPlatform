@@ -1,13 +1,18 @@
-import { useState, useEffect, useCallback } from 'react';
-import { getUsers, createUser, updateUser, unlockUser, deleteUser, AdminUser } from '../../services/adminApi';
+import { useState } from 'react';
+import type { AdminUser } from '../../services/adminApi';
+import {
+  useAdminUsersQuery,
+  useCreateUserMutation,
+  useDeleteUserMutation,
+  useUnlockUserMutation,
+  useUpdateUserMutation,
+} from '../../services/hooks/users';
 import { Plus, Edit, Trash2, X, Check, Unlock, Search } from 'lucide-react';
 import CreateUserModal, { EMPTY_NEW_USER, type NewUserForm } from './user-management/CreateUserModal';
 import EditUserModal, { EMPTY_EDIT_USER, type EditUserForm } from './user-management/EditUserModal';
 
 export default function AdminUsers() {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -17,23 +22,14 @@ export default function AdminUsers() {
   const [newUser, setNewUser] = useState<NewUserForm>(EMPTY_NEW_USER);
   const [formData, setFormData] = useState<EditUserForm>(EMPTY_EDIT_USER);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getUsers({ search });
-      setUsers(data.users);
-    } catch (err) {
-      console.error('Failed to fetch users:', err);
-      setError('Failed to load users');
-    } finally {
-      setLoading(false);
-    }
-  }, [search]);
-
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  const usersQuery = useAdminUsersQuery({ search });
+  const users = usersQuery.data?.users ?? [];
+  const loading = usersQuery.isFetching;
+  const error = actionError ?? (usersQuery.isError ? 'Failed to load users' : null);
+  const { mutateAsync: createUser } = useCreateUserMutation();
+  const { mutateAsync: updateUser } = useUpdateUserMutation();
+  const { mutateAsync: unlockUser } = useUnlockUserMutation();
+  const { mutateAsync: deleteUser } = useDeleteUserMutation();
 
   const handleEdit = (user: AdminUser) => {
     setEditingUser(user);
@@ -52,8 +48,7 @@ export default function AdminUsers() {
 
     try {
       setError(null);
-      await updateUser(editingUser.id, formData);
-      await fetchUsers();
+      await updateUser({ id: editingUser.id, updates: formData });
       closeModal();
     } catch (err) {
       console.error('Failed to update user:', err);
@@ -75,7 +70,6 @@ export default function AdminUsers() {
     try {
       await createUser(newUser);
       closeCreateModal();
-      await fetchUsers();
     } catch (err) {
       console.error('Failed to create user:', err);
       setCreateError(err instanceof Error ? err.message : 'Failed to create user');
@@ -88,7 +82,6 @@ export default function AdminUsers() {
     try {
       setError(null);
       await unlockUser(userId);
-      await fetchUsers();
     } catch (err) {
       console.error('Failed to unlock user:', err);
       setError('Failed to unlock user');
@@ -101,7 +94,6 @@ export default function AdminUsers() {
     try {
       setError(null);
       await deleteUser(userId);
-      await fetchUsers();
     } catch (err) {
       console.error('Failed to delete user:', err);
       setError('Failed to delete user');
@@ -111,8 +103,7 @@ export default function AdminUsers() {
   const handleToggleActive = async (user: AdminUser) => {
     try {
       setError(null);
-      await updateUser(user.id, { isActive: !user.isActive });
-      await fetchUsers();
+      await updateUser({ id: user.id, updates: { isActive: !user.isActive } });
     } catch (err) {
       console.error('Failed to update user status:', err);
       setError('Failed to update user status');

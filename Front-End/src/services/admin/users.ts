@@ -1,5 +1,5 @@
 // User management
-import { getBaseUrl, getFetchOptions } from './shared';
+import { apiRequest } from '../http';
 
 export interface AdminUser {
   id: string;
@@ -15,27 +15,21 @@ export interface AdminUser {
   lockedUntil: string | null;
 }
 
-export const getUsers = async (params?: { page?: number; limit?: number; search?: string }): Promise<{
+export interface UserListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+export interface UserList {
   users: AdminUser[];
   total: number;
   page: number;
   limit: number;
-}> => {
-  const queryParams = new URLSearchParams();
-  if (params?.page) queryParams.append('page', params.page.toString());
-  if (params?.limit) queryParams.append('limit', params.limit.toString());
-  if (params?.search) queryParams.append('search', params.search);
+}
 
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users?${queryParams}`,
-    getFetchOptions('GET')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to fetch users');
-  }
-  return data;
-};
+export const getUsers = (params?: UserListParams): Promise<UserList> =>
+  apiRequest<UserList>('/admin/users', { query: { ...params }, fallbackMessage: 'Failed to fetch users' });
 
 export const createUser = async (userData: {
   email: string;
@@ -45,14 +39,11 @@ export const createUser = async (userData: {
   lastName?: string;
   role?: string;
 }): Promise<AdminUser> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users`,
-    getFetchOptions('POST', userData)
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to create user');
-  }
+  const data = await apiRequest<{ user: AdminUser }>('/admin/users', {
+    method: 'POST',
+    body: userData,
+    fallbackMessage: 'Failed to create user',
+  });
   return data.user;
 };
 
@@ -62,35 +53,24 @@ export const updateUser = async (id: string, updates: {
   role?: string;
   isActive?: boolean;
 }): Promise<AdminUser> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${id}`,
-    getFetchOptions('PUT', updates)
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to update user');
-  }
+  const data = await apiRequest<{ user: AdminUser }>(`/admin/users/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: updates,
+    fallbackMessage: 'Failed to update user',
+  });
   return data.user;
 };
 
 export const unlockUser = async (id: string): Promise<void> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${id}/unlock`,
-    getFetchOptions('POST')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to unlock user');
-  }
+  await apiRequest(`/admin/users/${encodeURIComponent(id)}/unlock`, {
+    method: 'POST',
+    fallbackMessage: 'Failed to unlock user',
+  });
 };
 
 export const deleteUser = async (id: string): Promise<void> => {
-  const response = await fetch(
-    `${getBaseUrl()}/admin/users/${id}`,
-    getFetchOptions('DELETE')
-  );
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to delete user');
-  }
+  await apiRequest(`/admin/users/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    fallbackMessage: 'Failed to delete user',
+  });
 };

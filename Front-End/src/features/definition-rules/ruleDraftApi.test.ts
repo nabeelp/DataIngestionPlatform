@@ -57,7 +57,7 @@ const rule = (id: string): RuleConfig => ({
 const context: DraftContext = { contract, rules: [rule('a'), rule('b')] };
 
 const propose = (onActivity: (activity: ReviewActivity) => void = () => undefined, signal?: AbortSignal, existing?: RuleConfig) =>
-  proposeNaturalLanguageRule({ token: 'tkn', context, request: 'Email must not end with microsoft.com', existing, signal, onActivity });
+  proposeNaturalLanguageRule({ context, request: 'Email must not end with microsoft.com', existing, signal, onActivity });
 
 describe('readNdjson', () => {
   it('parses lines split across chunks, including multi-byte characters and a final line without a newline', async () => {

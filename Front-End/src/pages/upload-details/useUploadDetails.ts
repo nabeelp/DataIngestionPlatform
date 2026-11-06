@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { NavigateFunction } from 'react-router-dom';
 import type { Socket } from 'socket.io-client';
+import { ApiError } from '../../services/http';
+import {
+  useDeleteUploadMutation,
+  useRetryValidationMutation,
+  useStartVerificationMutation,
+} from '../../services/hooks/uploads';
+import { queryKeys } from '../../services/queryKeys';
 import { downloadUploadDelivery, downloadUploadReport } from '../../services/uploadApi';
-import type { UploadDetail } from './types';
-import { deleteUpload, fetchUploadDetails, retryValidation, startVerification } from './uploadDetailsApi';
+import { useUploadDetailsQuery } from './uploadDetailsApi';
 
 type ActionMessageState = { type: 'success' | 'error'; text: string } | null;
 
@@ -14,35 +21,29 @@ interface Options {
   historyBase: string;
 }
 
+const RELOAD_AFTER_ACTION_MS = 2000;
+const PROGRESS_REFRESH_MS = 1000;
+
+const actionError = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
+
 /** Loads one upload (with live progress refreshes) and exposes its verify/retry/delete/download actions. */
 export function useUploadDetails({ id, socket, navigate, historyBase }: Options) {
-  const [upload, setUpload] = useState<UploadDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const query = useUploadDetailsQuery(id);
+  const upload = query.data ?? null;
+  const loading = query.isPending;
+  const error = !upload && query.isError ? query.error.message || 'Failed to load upload details' : null;
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<ActionMessageState>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [deliveryLoadingId, setDeliveryLoadingId] = useState<string | null>(null);
+  const { mutateAsync: verifyUpload } = useStartVerificationMutation();
+  const { mutateAsync: retryUpload } = useRetryValidationMutation();
+  const { mutateAsync: removeUpload } = useDeleteUploadMutation();
 
-  const loadUploadDetails = useCallback(async (options: { silent?: boolean } = {}) => {
-    if (!id) return;
-    
-    if (!options.silent) setLoading(true);
-    setError(null);
-    try {
-      const details = await fetchUploadDetails(id);
-      setUpload(details);
-    } catch (err) {
-      console.error('Failed to fetch upload details');
-      setError(err instanceof Error ? err.message : 'Failed to load upload details');
-    } finally {
-      if (!options.silent) setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    loadUploadDetails();
-  }, [loadUploadDetails]);
+  const refreshDetails = useCallback(() => {
+    if (id) void queryClient.invalidateQueries({ queryKey: queryKeys.uploads.detail(id) });
+  }, [id, queryClient]);
 
   // Live updates: subscribe to this upload and refresh (at most once per second) on progress events.
   useEffect(() => {
@@ -54,8 +55,8 @@ export function useUploadDetails({ id, socket, navigate, historyBase }: Options)
       if (event?.uploadId?.toLowerCase() !== id.toLowerCase() || pending) return;
       pending = setTimeout(() => {
         pending = null;
-        loadUploadDetails({ silent: true });
-      }, 1000);
+        refreshDetails();
+      }, PROGRESS_REFRESH_MS);
     };
 
     subscribe();
@@ -67,49 +68,30 @@ export function useUploadDetails({ id, socket, navigate, historyBase }: Options)
       socket.off('connect', subscribe);
       socket.off('uploadProgress', handleProgress);
     };
-  }, [socket, id, loadUploadDetails]);
+  }, [socket, id, refreshDetails]);
 
-  const handleVerify = async () => {
+  const runAction = async (
+    action: (uploadId: string) => Promise<{ message: string }>,
+    messages: { success: string; failure: string },
+  ) => {
     if (!id || !upload) return;
-    
+
     setActionLoading(true);
     setActionMessage(null);
     try {
-      const result = await startVerification(id);
-      if (result.success) {
-        setActionMessage({ type: 'success', text: result.message || 'Verification started!' });
-        // Reload details after a short delay
-        setTimeout(() => loadUploadDetails(), 2000);
-      } else {
-        setActionMessage({ type: 'error', text: result.message || 'Failed to start verification' });
-      }
+      const result = await action(id);
+      setActionMessage({ type: 'success', text: result.message || messages.success });
+      setTimeout(refreshDetails, RELOAD_AFTER_ACTION_MS);
     } catch (err) {
-      setActionMessage({ type: 'error', text: 'Failed to start verification' });
+      setActionMessage({ type: 'error', text: actionError(err, messages.failure) });
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleRetry = async () => {
-    if (!id || !upload) return;
-    
-    setActionLoading(true);
-    setActionMessage(null);
-    try {
-      const result = await retryValidation(id);
-      if (result.success) {
-        setActionMessage({ type: 'success', text: result.message || 'Retry started!' });
-        // Reload details after a short delay
-        setTimeout(() => loadUploadDetails(), 2000);
-      } else {
-        setActionMessage({ type: 'error', text: result.message || 'Failed to retry' });
-      }
-    } catch (err) {
-      setActionMessage({ type: 'error', text: 'Failed to retry validation' });
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  const handleVerify = () => runAction(verifyUpload, { success: 'Verification started!', failure: 'Failed to start verification' });
+
+  const handleRetry = () => runAction(retryUpload, { success: 'Retry started!', failure: 'Failed to retry validation' });
 
   const handleDelete = async () => {
     if (!id || !upload) return;
@@ -119,14 +101,10 @@ export function useUploadDetails({ id, socket, navigate, historyBase }: Options)
     setActionLoading(true);
     setActionMessage(null);
     try {
-      const result = await deleteUpload(id);
-      if (result.success) {
-        navigate(historyBase);
-      } else {
-        setActionMessage({ type: 'error', text: result.message || 'Failed to delete upload' });
-      }
+      await removeUpload(id);
+      navigate(historyBase);
     } catch (err) {
-      setActionMessage({ type: 'error', text: 'Failed to delete upload' });
+      setActionMessage({ type: 'error', text: actionError(err, 'Failed to delete upload') });
     } finally {
       setActionLoading(false);
     }

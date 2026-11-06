@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getAuditLogs, AuditLog } from '../../services/adminApi';
+import { useState } from 'react';
+import { useAuditLogsQuery } from '../../services/hooks/admin';
 import { Clock, User, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const ACTION_LABELS: Record<string, string> = {
@@ -26,11 +26,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
 };
 
 export default function AuditLogs() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({
     action: '',
     entityType: '',
@@ -39,31 +35,11 @@ export default function AuditLogs() {
   });
 
   const limit = 20;
-
-  useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const params: any = { page, limit };
-        if (filters.action) params.action = filters.action;
-        if (filters.entityType) params.entityType = filters.entityType;
-        if (filters.startDate) params.startDate = filters.startDate;
-        if (filters.endDate) params.endDate = filters.endDate;
-        
-        const data = await getAuditLogs(params);
-        setLogs(data.logs);
-        setTotal(data.total);
-      } catch (err) {
-        console.error('Failed to fetch audit logs:', err);
-        setError('Failed to load audit logs');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLogs();
-  }, [page, filters]);
+  const logsQuery = useAuditLogsQuery({ page, limit, ...filters });
+  const logs = logsQuery.data?.logs ?? [];
+  const total = logsQuery.data?.total ?? 0;
+  const loading = logsQuery.isFetching;
+  const error = logsQuery.isError ? 'Failed to load audit logs' : null;
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
