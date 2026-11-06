@@ -28,8 +28,7 @@ See [the architecture](../docs/architecture.md) for where it fits and [natural-l
 
 ## Rules API
 
-`/healthz` is public. Every `/v1` route requires authentication: locally the `X-Rules-Service-Key` header must match `RULES_SERVICE_DEV_KEY`
-(`RULES_SERVICE_AUTH_MODE=shared-key`, the default); in Azure `RULES_SERVICE_AUTH_MODE=entra` makes the service accept only the API managed identity, whose principal
+`/healthz` is public. Every `/v1` route requires authentication, and `RULES_SERVICE_AUTH_MODE` must be set explicitly (there is no default; an unset or unknown value makes every `/v1` call fail with 503). Locally use `shared-key`: the `X-Rules-Service-Key` header must match `RULES_SERVICE_DEV_KEY`, and the root `start.ps1` sets this mode when it is not already configured. In Azure `RULES_SERVICE_AUTH_MODE=entra` makes the service accept only the API managed identity, whose principal
 ID (`RULES_SERVICE_API_PRINCIPAL_ID`) Container Apps Easy Auth forwards (see [deployment](../docs/deployment.md)).
 Keep the development key in `Back-End/.env`, which the root `start.ps1` loads for both processes.
 

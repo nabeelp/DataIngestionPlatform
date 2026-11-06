@@ -16,7 +16,7 @@ The files are validated against five sample definitions. The one-table ones reus
 | `finance` | Sample - Finance Workbook | One table per sheet | `Invoices`, `Payments`, `Credit Notes`; 6 rules |
 | `hr` | Sample - HR Onboarding Workbook | One table per sheet | `Employees`, `Benefits (2026)`, `Employee Emergency Contacts '26`; 6 rules |
 
-1. Run [definitions/sample_definitions.sql](definitions/sample_definitions.sql) against the application database (after the scripts in `Back-End/database`, including `seed_local_users.sql`), using the database configured by `SQLCMD_DATABASE` in `Back-End/.env`.
+1. Run [definitions/sample_definitions.sql](definitions/sample_definitions.sql) against the application database (after the scripts in `Back-End/database`, including `local/seed_local_users.sql`), using the database configured by `SQLCMD_DATABASE` in `Back-End/.env`.
 2. Publish each draft definition in the application to create its version snapshot.
 3. The script gives the seeded test user access. Alternatively, create the definitions in the UI from [definitions/sample_definitions.json](definitions/sample_definitions.json).
 

@@ -54,3 +54,19 @@ def test_shared_key_auth_remains_available_for_local_development(monkeypatch: py
     monkeypatch.setenv("RULES_SERVICE_DEV_KEY", "local-test-key")
 
     require_internal_auth(_request({"x-rules-service-key": "local-test-key"}))
+
+
+@pytest.mark.parametrize("mode", [None, "", "unknown"])
+def test_auth_fails_closed_without_an_explicit_known_mode(
+    monkeypatch: pytest.MonkeyPatch, mode: str | None
+) -> None:
+    if mode is None:
+        monkeypatch.delenv("RULES_SERVICE_AUTH_MODE", raising=False)
+    else:
+        monkeypatch.setenv("RULES_SERVICE_AUTH_MODE", mode)
+    monkeypatch.setenv("RULES_SERVICE_DEV_KEY", "local-test-key")
+
+    with pytest.raises(HTTPException) as error:
+        require_internal_auth(_request({"x-rules-service-key": "local-test-key"}))
+
+    assert error.value.status_code == 503

@@ -1,33 +1,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { apiConfig } from '../config/api';
+import { devBypassAuth, isMockToken, tryMockLogin } from '../dev/mockAuth';
 import { io } from 'socket.io-client';
 import type { Socket as SocketType } from 'socket.io-client';
-
-const devBypassAuth = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true';
-
-// Local-only test users (enabled explicitly via VITE_DEV_BYPASS_AUTH)
-const HARDCODED_USERS = [
-  {
-    id: '63BD96E4-1229-4399-8964-0795E50B3574',
-    email: 'admin@company.com',
-    username: 'admin',
-    firstName: 'System',
-    lastName: 'Administrator',
-    Role: 'admin',
-    loginMethod: 'password',
-  },
-  {
-    id: '1C5E6A9B-BF1F-40E8-99DA-7893A8960CBA',
-    email: 'user@company.com',
-    username: 'user',
-    firstName: 'Test',
-    lastName: 'User',
-    Role: 'user',
-    loginMethod: 'password',
-  },
-];
-
-const HARDCODED_PASSWORD = 'password123';
 
 // INTERFACES
 interface User {
@@ -108,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedToken = localStorage.getItem('token');
         const storedUser = localStorage.getItem('user');
 
-        if (storedToken?.startsWith('mock_token_') && !devBypassAuth) {
+        if (storedToken && isMockToken(storedToken) && !devBypassAuth) {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           return;
@@ -131,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         const isValidToken = 
           storedToken.split('.').length === 3 || 
-          (devBypassAuth && storedToken.startsWith('mock_token_'));
+          (devBypassAuth && isMockToken(storedToken));
         
         if (!isValidToken) {
           localStorage.removeItem('token');
@@ -167,21 +142,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     
     try {
-      const normalizedEmail = email.toLowerCase().trim();
-      const hardcodedUser = HARDCODED_USERS.find(
-        u => u.email.toLowerCase() === normalizedEmail
-      );
+      const mockSession = tryMockLogin(email, password);
+      if (mockSession) {
+        localStorage.setItem('token', mockSession.token);
+        localStorage.setItem('user', JSON.stringify(mockSession.user));
 
-      if (devBypassAuth && hardcodedUser && password === HARDCODED_PASSWORD) {
-        const mockToken = `mock_token_${hardcodedUser.id}_${Date.now()}`;
-        
-        localStorage.setItem('token', mockToken);
-        localStorage.setItem('user', JSON.stringify(hardcodedUser));
-        
-        setToken(mockToken);
-        setUser(hardcodedUser);
+        setToken(mockSession.token);
+        setUser(mockSession.user);
         setIsLoading(false);
-        return hardcodedUser;
+        return mockSession.user;
       }
 
       const baseUrl = apiConfig.getBaseUrl();

@@ -91,7 +91,7 @@ def render_readme(manifest, definitions):
     lines += [
         '',
         '1. Run [definitions/sample_definitions.sql](definitions/sample_definitions.sql) against the application database '
-        '(after the scripts in `Back-End/database`, including `seed_local_users.sql`), using the database configured '
+        '(after the scripts in `Back-End/database`, including `local/seed_local_users.sql`), using the database configured '
         'by `SQLCMD_DATABASE` in `Back-End/.env`.',
         '2. Publish each draft definition in the application to create its version snapshot.',
         '3. The script gives the seeded test user access. Alternatively, create the definitions in the UI from '

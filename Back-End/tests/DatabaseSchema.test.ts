@@ -57,7 +57,7 @@ describe('clean-slate database schema', () => {
         const sql = schema('apply.ps1');
         const localBranch = sql.split("if ($Authentication -eq 'Local')")[1]?.split("if ([string]::IsNullOrWhiteSpace($Server))")[0] ?? '';
         expect(localBranch).toContain("$seedScript = 'seed_local_users.sql'");
-        expect(localBranch).toContain('"/var/opt/mssql/scripts/$seedScript"');
+        expect(localBranch).toContain('"/var/opt/mssql/scripts/local/$seedScript"');
         expect(sql.split("if ([string]::IsNullOrWhiteSpace($Server))")[1]).not.toContain('seed_local_users.sql');
     });
 });
