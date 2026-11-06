@@ -73,20 +73,3 @@ export interface IUpdateRuleDto {
     TableName?: string | null;
     NaturalLanguageText?: string | null;
 }
-
-/**
- * API Response for rules list
- */
-export interface IRulesResponse {
-    success: boolean;
-    rules: IRule[];
-    total?: number;
-}
-
-/**
- * API Response for single rule
- */
-export interface IRuleResponse {
-    success: boolean;
-    rule: IRule;
-}

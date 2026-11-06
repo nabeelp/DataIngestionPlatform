@@ -204,7 +204,6 @@ export class UploadController {
                 BlobContainer: uploadResult.containerName,
                 BlobName: uploadResult.blobName,
                 FileSha256: uploadResult.sha256,
-                AzureBlobUrl: uploadResult.blobUrl,
                 ValidationDate: new Date(),
                 FileSize: fileSize,
                 FileType: fileType,

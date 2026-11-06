@@ -87,7 +87,6 @@ export interface IUpload {
     EngineVersion: string | null;
     ReportBlobName: string | null;
     ParquetPrefix: string | null;
-    AzureBlobUrl: string | null;
     FileSize: number;
     FileType: string;
     RetryCount: number;
@@ -188,28 +187,6 @@ export interface IDeliveryRecord {
     RecordsDelivered: number | null;
 }
 
-/**
- * Upload access interface
- */
-export interface IUploadAccess {
-    Id: string;
-    UploadId: string;
-    UserId: string;
-    AccessLevel: 'READ' | 'WRITE' | 'ADMIN';
-    GrantedAt: Date;
-    GrantedBy: string;
-}
-
-/**
- * Error row interface for validation failures
- */
-export interface IErrorRow {
-    row_num: number;
-    column: string;
-    value: string;
-    error: string;
-}
-
 // ============================================================================
 // DTOs (Data Transfer Objects)
 // ============================================================================
@@ -230,7 +207,6 @@ export interface ICreateUploadDto {
     EngineVersion?: string | null;
     ReportBlobName?: string | null;
     ParquetPrefix?: string | null;
-    AzureBlobUrl?: string;
     FileSize: number;
     FileType: string;
     RetryCount?: number;
@@ -256,7 +232,6 @@ export interface IUpdateUploadDto {
     RetryCount?: number;
     RowCountNo?: number;
     SheetCount?: number;
-    AzureBlobUrl?: string;
     DeliveredTo?: string;
     DeliveredAt?: Date | null;
     ErrorMessage?: string | null;
@@ -348,25 +323,6 @@ export interface IUpdateDeliveryRecordDto {
 // ============================================================================
 
 /**
- * Upload list response
- */
-export interface IUploadsResponse {
-    success: boolean;
-    uploads: IUpload[];
-    total: number;
-    page: number;
-    pageSize: number;
-}
-
-/**
- * Single upload response
- */
-export interface IUploadResponse {
-    success: boolean;
-    upload: IUpload;
-}
-
-/**
  * Upload detail with related data (for details page)
  */
 export interface IUploadDetailResponse {
@@ -378,62 +334,4 @@ export interface IUploadDetailResponse {
     validationResult: IValidationResult | null;
     ruleDetails: IValidationRuleDetail[];
     deliveryRecords: IDeliveryRecord[];
-}
-
-/**
- * Upload progress response
- */
-export interface IUploadProgressResponse {
-    success: boolean;
-    uploadId: string;
-    status: UploadStatus;
-    progress: {
-        validation: {
-            percent: number;
-            currentRule: string | null;
-            passedRules: number;
-            totalRules: number;
-        } | null;
-        delivery: {
-            percent: number;
-            recordsDelivered: number;
-        } | null;
-    };
-}
-
-// ============================================================================
-// Queue Job Types
-// ============================================================================
-
-/**
- * Validation job data
- */
-export interface IValidationJobData {
-    uploadId: string;
-    fileDefinitionId: string;
-    fileUrl: string;
-    userId: string;
-}
-
-
-/**
- * Delivery job data
- */
-export interface IDeliveryJobData {
-    uploadId: string;
-    uploadSheetId?: string;
-    deliveryType: DeliveryType;
-    destinationPath: string;
-    azureBlobUrl: string;
-    userId: string;
-}
-
-/**
- * Retry job data
- */
-export interface IRetryJobData {
-    originalJobId: string;
-    uploadId: string;
-    jobType: string;
-    retryCount: number;
 }

@@ -35,7 +35,6 @@ export interface IUpload {
   UploadedBy: string;
   OriginalFilename: string;
   StoredFilename: string;
-  AzureBlobUrl: string | null;
   FileSize: number;
   FileType: string;
   RowCountNo: number | null;

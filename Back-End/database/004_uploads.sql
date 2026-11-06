@@ -29,7 +29,6 @@ BEGIN
         EngineVersion NVARCHAR(100) NULL,
         ReportBlobName NVARCHAR(1024) NULL,
         ParquetPrefix NVARCHAR(1024) NULL,
-        AzureBlobUrl NVARCHAR(1000) NULL,
         FileSize BIGINT NOT NULL CONSTRAINT DF_Uploads_FileSize DEFAULT 0,
         FileType NVARCHAR(50) NOT NULL,
         RetryCount INT NOT NULL CONSTRAINT DF_Uploads_RetryCount DEFAULT 0,
@@ -58,6 +57,8 @@ IF COL_LENGTH(N'dbo.Uploads', N'CompressedBlobUrl') IS NOT NULL
     ALTER TABLE dbo.Uploads DROP COLUMN CompressedBlobUrl;
 IF COL_LENGTH(N'dbo.Uploads', N'DeliveryJobId') IS NOT NULL
     ALTER TABLE dbo.Uploads DROP COLUMN DeliveryJobId;
+IF COL_LENGTH(N'dbo.Uploads', N'AzureBlobUrl') IS NOT NULL
+    ALTER TABLE dbo.Uploads DROP COLUMN AzureBlobUrl;
 IF COL_LENGTH(N'dbo.Uploads', N'ProcessingNode') IS NOT NULL
     ALTER TABLE dbo.Uploads DROP COLUMN ProcessingNode;
 GO

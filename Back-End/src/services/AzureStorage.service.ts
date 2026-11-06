@@ -13,7 +13,6 @@ import { Readable, Transform } from 'stream';
 import path from 'path';
 
 export interface UploadedFileInfo {
-    blobUrl: string;
     containerName: string;
     blobName: string;
     size: number;
@@ -84,7 +83,6 @@ export class AzureStorageService {
 
         logger.info(`File uploaded; bytes=${size}`);
         return {
-            blobUrl: blockBlobClient.url,
             containerName: this.containerName,
             blobName,
             size,
