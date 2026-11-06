@@ -5,7 +5,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 import { HttpError } from '../utils/httpError';
-import { RulesServiceError } from '../services/RulesService.service';
+import { RulesServiceError } from '../services/RulesServiceClient';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 export interface HttpFailure {

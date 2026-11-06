@@ -1,5 +1,5 @@
 import { parseRuleConfig } from '../src/models/contractMapper';
-import { AuthoringInputError, parseDraftRules } from '../src/services/RuleAuthoring.service';
+import { AuthoringInputError, parseDraftRules } from '../src/services/RuleDraft.service';
 
 jest.mock('../src/config/database', () => ({ getConnection: jest.fn() }));
 

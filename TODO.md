@@ -68,7 +68,6 @@ resolved items are removed. Update this file in the same change that fixes or ad
 
 | ID | Item | Next action |
 |---|---|---|
-| MAINT-02 | Oversized modules: `FileDefinitions.tsx` (about 1,800 lines), `NaturalLanguageRule.service.ts` (about 1,400), `admin.controller.ts` (about 900), `Upload.service.ts`, `upload.controller.ts`, `UploadDetails.tsx`, `adminApi.ts`, Python `engine.py` and `api/validation.py` | Split along the existing seams (editor hooks and subcomponents; prompt, model call, validate/retry; controllers by domain; rule registry, issue formatting, query runner, structural checks) and rename the four overlapping rule services (`Rule`, `RuleAuthoring`, `RulesService`, `NaturalLanguageRule`) by responsibility |
 | MAINT-03 | Front-End data layer: pages and `uploadApi.ts` duplicate fetch/auth/error handling instead of `services/http.ts`; React Query is installed but unused for server state; `UploadDetails.tsx` still normalises PascalCase and camelCase fallbacks the API never returns | Route all services through `apiRequest`; adopt React Query for lists and details; normalise to the real response shape |
 | MAINT-06 | Test coverage gaps: `Upload.service`, `AzureStorage`, `FileDefinition.service`, `Stats`/`Dashboard` services; Front-End `AuthContext`, `lookupApi` and most pages; Python `config`, `io/blob`, `api/app` lifecycle | Add focused tests (blob failure and cleanup, authorization, error mapping, auth/session handling) |
 

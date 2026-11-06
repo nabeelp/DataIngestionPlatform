@@ -19,8 +19,19 @@ See [the architecture](../docs/architecture.md) for where it fits and [natural-l
 | `contracts/` | Pydantic models for the definition, rule and message contracts. The JSON Schemas in [`../contracts`](../contracts/README.md) are the source of truth |
 | `io/` | Blob access and CSV/Excel/Parquet readers (encoding sniffing, sheet and table detection) |
 | `rules/` | One module per rule type, the SQL guard (`sqlguard.py`) and example execution |
-| `engine.py` | Orchestrates structural checks, rule evaluation, issue limits and outputs |
+| `engine.py` | Orchestrates a validation run (`validate_file`, `validate_parsed`) and re-exports the public engine names |
+| `results.py` | `CheckResult`, `ReportIssue`, `ValidationOutcome` and the per-check and report issue limits |
+| `rule_registry.py` | Rule-type to module registry, rule/table matching and rule context creation |
+| `rule_checks.py` | Rule compilation and the row, file-level, missing-target and reconcile checks |
+| `structural_checks.py` | File structure, column-definition and table row-count checks |
+| `query_runner.py` | Query-mode natural-language rules: isolated SQL execution with a timeout and result mapping |
+| `issue_format.py` | Issue message and value formatting, check status and error checks |
+| `report_output.py` | Writes the Parquet tables and the capped `issues.csv` report |
 | `api/` | FastAPI app, authentication and request validation |
+| `api/validation.py` | Rule, contract and example-test payload validation (public entry points) |
+| `api/schema_errors.py` | JSON Schema and Pydantic error translation into authoring messages |
+| `api/contract_checks.py` | Contract structure and rule-reference checks |
+| `api/rule_compile.py` | Compiles a candidate rule against sample data to surface configuration errors |
 | `messaging/` | Service Bus worker (validation requests in, events out) |
 | `persist/` | SQL persistence of results (one idempotent transaction per upload) |
 | `analyze/` | Example-file analysis that proposes tables, columns and suggested rules |

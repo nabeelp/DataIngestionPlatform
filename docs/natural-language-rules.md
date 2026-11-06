@@ -6,7 +6,7 @@ current behaviour, and how to evaluate generation quality.
 ## Pipeline
 
 ```
-Admin request ──► Back-End NaturalLanguageRule.service.ts ──► Foundry model (strict JSON schema)
+Admin request ──► Back-End services/naturalLanguageRule/ ──► Foundry model (strict JSON schema)
                          │ passingExamples + failingExamples are combined; sheet names/aliases canonicalised;
                          │ deterministic fields normalised (see below); proposal → RuleConfig
                          ▼

@@ -2,10 +2,10 @@ import type { NextFunction, Request, Response } from 'express';
 import { asyncHandler } from '../src/middleware/asyncHandler';
 import { errorHandler, toHttpFailure } from '../src/middleware/errorHandler';
 import { BadRequestError, ForbiddenError, HttpError, NotFoundError } from '../src/utils/httpError';
-import { RulesServiceError } from '../src/services/RulesService.service';
+import { RulesServiceError } from '../src/services/RulesServiceClient';
 import { DefinitionVersionError } from '../src/services/DefinitionVersion.service';
-import { AuthoringInputError } from '../src/services/RuleAuthoring.service';
-import { RuleGenerationError } from '../src/services/NaturalLanguageRule.service';
+import { AuthoringInputError } from '../src/services/RuleDraft.service';
+import { RuleGenerationError } from '../src/services/naturalLanguageRule';
 
 jest.mock('../src/utils/logger', () => ({
     logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },

@@ -10,7 +10,7 @@ import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
 import { TemplateStorage, getTemplateDisplayName, sanitizeFilename } from '../services/TemplateStorage.service';
 import { azureStorage } from '../services/AzureStorage.service';
-import { RulesService, RulesServiceError } from '../services/RulesService.service';
+import { RulesServiceClient, RulesServiceError } from '../services/RulesServiceClient';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { BadRequestError, ForbiddenError } from '../utils/httpError';
 import { appConfig } from '../config/appConfig';
@@ -265,7 +265,7 @@ export const analyzeExample = asyncHandler(async (req, res) => {
         if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
         const uploaded = await azureStorage.uploadFile(file.path, blobName);
         blobContainer = uploaded.containerName;
-        analysis = await RulesService.analyzeExample({ container: uploaded.containerName, name: uploaded.blobName });
+        analysis = await RulesServiceClient.analyzeExample({ container: uploaded.containerName, name: uploaded.blobName });
     } catch (error) {
         operationError = error;
     }

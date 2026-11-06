@@ -1,8 +1,8 @@
 import {
     proposeNaturalLanguageRule,
     type RuleDiagnosticEvent,
-} from '../src/services/NaturalLanguageRule.service';
-import { RulesService } from '../src/services/RulesService.service';
+} from '../src/services/naturalLanguageRule';
+import { RulesServiceClient } from '../src/services/RulesServiceClient';
 import { appConfig } from '../src/config/appConfig';
 import { goldenContract, loadGoldenCorpus, modelOutput, type GoldenCase } from './helpers/goldenCorpus';
 
@@ -14,9 +14,9 @@ jest.mock('@azure/ai-projects', () => ({
 }));
 jest.mock('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.mock('../src/models/Rule.model', () => ({ Rule: { create: jest.fn(), update: jest.fn() } }));
-jest.mock('../src/services/RulesService.service', () => ({
-    ...jest.requireActual('../src/services/RulesService.service'),
-    RulesService: { validateRule: jest.fn(), testRule: jest.fn() },
+jest.mock('../src/services/RulesServiceClient', () => ({
+    ...jest.requireActual('../src/services/RulesServiceClient'),
+    RulesServiceClient: { validateRule: jest.fn(), testRule: jest.fn() },
 }));
 
 let responseCounter = 0;
@@ -60,10 +60,10 @@ const withBadRelatedColumn = (): GoldenCase['referenceProposal'] => {
 beforeEach(() => {
     jest.clearAllMocks();
     appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
-    jest.mocked(RulesService.validateRule).mockImplementation(async (_contract, rule) => ({
+    jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_contract, rule) => ({
         ok: true, errors: [], normalizedRule: rule, explanation: null,
     }));
-    jest.mocked(RulesService.testRule).mockImplementation(async (_contract, _rule, examples) => ({
+    jest.mocked(RulesServiceClient.testRule).mockImplementation(async (_contract, _rule, examples) => ({
         ok: true,
         errors: [],
         results: (examples ?? []).map((example, index) => ({
@@ -142,7 +142,7 @@ describe('correction feedback names the exact example, sheet and column', () => 
     it('lists the failing example by label when the rule accepts or rejects the wrong case', async () => {
         const proposal = modelOutput(fk.referenceProposal);
         createResponse.mockResolvedValue(streamOf(proposal));
-        jest.mocked(RulesService.testRule).mockResolvedValue({
+        jest.mocked(RulesServiceClient.testRule).mockResolvedValue({
             ok: false,
             errors: [],
             results: [
@@ -198,7 +198,7 @@ describe('only the examples are regenerated when their shape is wrong', () => {
         const params = result.config.params as unknown as { query: string; examples: unknown[] };
         expect(params.query).toBe(fk.referenceProposal.params.query);
         expect(params.examples).toHaveLength(3);
-        expect(RulesService.validateRule).toHaveBeenCalledTimes(1);
+        expect(RulesServiceClient.validateRule).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to a full correction when the examples are still wrong, then stops', async () => {
@@ -295,7 +295,7 @@ describe('deterministic proposal fields are normalised instead of rejected', () 
         const result = await proposeNaturalLanguageRule(contacts, 'If the country is US the phone must start with +1.');
 
         expect(result.outcome).toBe('rejected');
-        expect(RulesService.validateRule).not.toHaveBeenCalled();
+        expect(RulesServiceClient.validateRule).not.toHaveBeenCalled();
     });
 
     it('drops the internal __row id when the model lists it as a column', async () => {
@@ -352,7 +352,7 @@ describe('deterministic proposal fields are normalised instead of rejected', () 
         if (result.outcome === 'rejected') throw new Error(result.reason);
         expect(result.outcome).toBe('mapped');
         expect(result.config.params).not.toHaveProperty('examples');
-        expect(RulesService.testRule).not.toHaveBeenCalled();
+        expect(RulesServiceClient.testRule).not.toHaveBeenCalled();
     });
 });
 

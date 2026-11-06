@@ -16,7 +16,7 @@ from dq_engine.contracts.models import (
     ValidationEvent,
     ValidationRequest,
 )
-from dq_engine.engine import _RULE_MODULES
+from dq_engine.rule_registry import RULE_MODULES as _RULE_MODULES
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACTS = ROOT / "contracts"

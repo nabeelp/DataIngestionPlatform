@@ -3,16 +3,16 @@
 // =============================================================================
 
 import type { Request } from 'express';
-import * as RuleService from '../services/Rule.service';
+import * as RuleQueryService from '../services/RuleQuery.service';
 import {
     proposeNaturalLanguageRule,
     RuleGenerationCancelledError,
-} from '../services/NaturalLanguageRule.service';
+} from '../services/naturalLanguageRule';
 import { DefinitionVersionService } from '../services/DefinitionVersion.service';
-import { buildAuthoringContract, getDraftRevision } from '../services/RuleAuthoring.service';
+import { buildAuthoringContract, getDraftRevision } from '../services/RuleDraft.service';
 import { getConnection } from '../config/database';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import { RulesService } from '../services/RulesService.service';
+import { RulesServiceClient } from '../services/RulesServiceClient';
 import { Rule } from '../models/Rule.model';
 import type { RuleConfig } from '../contracts/rule-config';
 import { asyncHandler } from '../middleware/asyncHandler';
@@ -49,8 +49,8 @@ export const getRules = asyncHandler(async (req, res) => {
     // active version that uploads are validated against.
     const published = req.user?.role !== 'admin' || req.query.published === 'true';
     const { rules, versionNumber } = published
-        ? await RuleService.getPublishedRules(fileDefinitionId, userId)
-        : { rules: await RuleService.getRulesByFileDefinitionId(fileDefinitionId, userId), versionNumber: null };
+        ? await RuleQueryService.getPublishedRules(fileDefinitionId, userId)
+        : { rules: await RuleQueryService.getRulesByFileDefinitionId(fileDefinitionId, userId), versionNumber: null };
 
     const revision = published ? null : await getDraftRevision(await getConnection(), fileDefinitionId);
 
@@ -90,7 +90,7 @@ export const validateRuleConfiguration = asyncHandler(async (req, res) => {
     if (!userId) throw unauthorized();
     if (!config) throw new BadRequestError('RuleConfig is required');
     const contract = await resolveAuthoringContract(req, config);
-    const result = await RulesService.validateRule(contract, config);
+    const result = await RulesServiceClient.validateRule(contract, config);
     res.json({ success: true, ...result });
 });
 
@@ -101,7 +101,7 @@ export const testRuleConfiguration = asyncHandler(async (req, res) => {
     if (!userId) throw unauthorized();
     if (!config) throw new BadRequestError('RuleConfig is required');
     const contract = await resolveAuthoringContract(req, config);
-    const result = await RulesService.testRule(contract, config, examples);
+    const result = await RulesServiceClient.testRule(contract, config, examples);
     res.json({ success: true, ...result });
 });
 
@@ -170,7 +170,7 @@ export const getRuleById = asyncHandler(async (req, res) => {
         throw new BadRequestError('Rule ID is required');
     }
 
-    const rule = await RuleService.getRuleById(ruleId, userId);
+    const rule = await RuleQueryService.getRuleById(ruleId, userId);
 
     if (!rule) {
         throw new NotFoundError('Rule not found');

@@ -3,10 +3,10 @@ import {
     RuleGenerationCancelledError,
     RuleGenerationError,
     type RuleProgressEvent,
-} from '../src/services/NaturalLanguageRule.service';
+} from '../src/services/naturalLanguageRule';
 import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { Rule } from '../src/models/Rule.model';
-import { RulesService, RulesServiceError } from '../src/services/RulesService.service';
+import { RulesServiceClient, RulesServiceError } from '../src/services/RulesServiceClient';
 import { logger } from '../src/utils/logger';
 import { appConfig } from '../src/config/appConfig';
 
@@ -20,9 +20,9 @@ jest.mock('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.mock('../src/models/Rule.model', () => ({
     Rule: { create: jest.fn(), update: jest.fn() },
 }));
-jest.mock('../src/services/RulesService.service', () => ({
-    ...jest.requireActual('../src/services/RulesService.service'),
-    RulesService: { validateRule: jest.fn(), testRule: jest.fn() },
+jest.mock('../src/services/RulesServiceClient', () => ({
+    ...jest.requireActual('../src/services/RulesServiceClient'),
+    RulesServiceClient: { validateRule: jest.fn(), testRule: jest.fn() },
 }));
 
 const contract = {
@@ -114,13 +114,13 @@ describe('RuleConfig natural-language authoring', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
-        jest.mocked(RulesService.validateRule).mockImplementation(async (_schema, rule) => ({
+        jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_schema, rule) => ({
             ok: true,
             errors: [],
             normalizedRule: rule,
             explanation: null,
         }));
-        jest.mocked(RulesService.testRule).mockImplementation(async (_schema, _rule, examples) => ({
+        jest.mocked(RulesServiceClient.testRule).mockImplementation(async (_schema, _rule, examples) => ({
             ok: true,
             errors: [],
             results: (examples ?? []).map((example, index) => ({
@@ -139,12 +139,12 @@ describe('RuleConfig natural-language authoring', () => {
         const result = await proposeNaturalLanguageRule(contract, 'Amount must be between 0 and 100');
 
         expect(result).toMatchObject({ outcome: 'mapped', config: { type: 'range', params: { column: 'Amount', min: 0, max: 100 } } });
-        expect(RulesService.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
+                expect(RulesServiceClient.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
             type: 'range',
             table: 'Orders',
             params: { column: 'Amount', min: 0, max: 100, minInclusive: true, maxInclusive: true },
         }));
-        expect(RulesService.testRule).not.toHaveBeenCalled();
+        expect(RulesServiceClient.testRule).not.toHaveBeenCalled();
         expect(result).toMatchObject({ config: { type: 'range', enabled: true, name: 'Valid amount', table: 'Orders' } });
         expect(Rule.create).not.toHaveBeenCalled();
         expect(Rule.update).not.toHaveBeenCalled();
@@ -214,11 +214,11 @@ describe('RuleConfig natural-language authoring', () => {
         const savedConfig = result.config;
 
         expect(result).toMatchObject({ outcome: 'natural_language', config: { type: 'naturalLanguage' } });
-        expect(RulesService.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
+                expect(RulesServiceClient.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
             type: 'naturalLanguage',
             params: expect.objectContaining({ failWhen: "NOT ENDS_WITH(Email, '@contoso.example')" }),
         }));
-        expect(RulesService.testRule).toHaveBeenCalledWith(contract, savedConfig, savedConfig.params.examples);
+        expect(RulesServiceClient.testRule).toHaveBeenCalledWith(contract, savedConfig, savedConfig.params.examples);
         expect(savedConfig.params.examples).toHaveLength(3);
         expect(savedConfig.params.examples).toEqual(expect.arrayContaining([
             expect.objectContaining({ source: 'model', expectedValid: true }),
@@ -261,10 +261,10 @@ describe('RuleConfig natural-language authoring', () => {
         const result = await proposeNaturalLanguageRule(contract, request);
 
         expect(result).toMatchObject({ outcome: 'natural_language', config: { table: null, params: { mode: 'query' } } });
-        expect(RulesService.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
+                expect(RulesServiceClient.validateRule).toHaveBeenCalledWith(contract, expect.objectContaining({
             params: expect.objectContaining({ query: queryProposal.params.query, columns: { Orders: ['Email'] } }),
         }));
-        expect(RulesService.testRule).toHaveBeenCalledTimes(1);
+        expect(RulesServiceClient.testRule).toHaveBeenCalledTimes(1);
     });
 
     it('normalizes model table aliases and mapped Natural Language decisions for a single-table rule', async () => {
@@ -296,7 +296,7 @@ describe('RuleConfig natural-language authoring', () => {
                 },
             },
         });
-        expect(RulesService.validateRule).toHaveBeenCalledWith(singleContract, expect.objectContaining({ table: null }));
+        expect(RulesServiceClient.validateRule).toHaveBeenCalledWith(singleContract, expect.objectContaining({ table: null }));
         expect(Rule.create).not.toHaveBeenCalled();
     });
 
@@ -304,7 +304,7 @@ describe('RuleConfig natural-language authoring', () => {
         createResponse
             .mockResolvedValueOnce(response(naturalProposal))
             .mockResolvedValueOnce(response(mappedProposal));
-        jest.mocked(RulesService.validateRule)
+                    jest.mocked(RulesServiceClient.validateRule)
             .mockResolvedValueOnce({ ok: false, errors: [{ path: '$.params.failWhen', message: 'Function is not allowed.' }], normalizedRule: null, explanation: null })
             .mockResolvedValueOnce({ ok: true, errors: [], normalizedRule: {
                 id: 'new-id', name: 'Valid amount', description: '', severity: 'Error', executionOrder: 1,
@@ -327,7 +327,7 @@ describe('RuleConfig natural-language authoring', () => {
 
     it('does not return a proposal if a model example fails the Python test endpoint', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.testRule).mockResolvedValue({
+            jest.mocked(RulesServiceClient.testRule).mockResolvedValue({
             ok: true,
             errors: [],
             results: [
@@ -339,14 +339,14 @@ describe('RuleConfig natural-language authoring', () => {
 
         const result = await proposeNaturalLanguageRule(contract, request);
         expect(result).toMatchObject({ outcome: 'rejected' });
-        expect(RulesService.testRule).toHaveBeenCalledTimes(2);
+        expect(RulesServiceClient.testRule).toHaveBeenCalledTimes(2);
         expect(Rule.create).not.toHaveBeenCalled();
         expect(createResponse).toHaveBeenCalledTimes(2);
     });
 
     it('preserves one correction and rejects if the corrected proposal also fails Python', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.validateRule).mockResolvedValue({
+            jest.mocked(RulesServiceClient.validateRule).mockResolvedValue({
             ok: false,
             errors: [{ path: '$.params.failWhen', message: 'Function is not allowed.' }],
             normalizedRule: null,
@@ -362,7 +362,7 @@ describe('RuleConfig natural-language authoring', () => {
     it('reports candidate validation paths and logs safe failure metadata without raw Python messages', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
         const sensitiveMessage = 'PRIVATE-CUSTOMER-PAYLOAD is not valid under any schema';
-        jest.mocked(RulesService.validateRule).mockResolvedValue({
+                jest.mocked(RulesServiceClient.validateRule).mockResolvedValue({
             ok: false,
             errors: [
                 { path: '$.params.failWhen', message: sensitiveMessage },
@@ -409,7 +409,7 @@ describe('RuleConfig natural-language authoring', () => {
 
     it('identifies failing example indices even when the Python endpoint returns no errors', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.testRule).mockResolvedValue({
+            jest.mocked(RulesServiceClient.testRule).mockResolvedValue({
             ok: false,
             errors: [],
             results: [
@@ -441,7 +441,7 @@ describe('RuleConfig natural-language authoring', () => {
             'The rule references a column that is not declared in the definition.', 'defined column names'],
     ])('explains the validation reason and next step for %s', async (message, explanation, action) => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.validateRule).mockResolvedValue({
+            jest.mocked(RulesServiceClient.validateRule).mockResolvedValue({
             ok: false, errors: [{ path: '$.params.failWhen', message }],
             normalizedRule: null, explanation: null,
         });
@@ -460,7 +460,7 @@ describe('RuleConfig natural-language authoring', () => {
 
     it('explains example mismatches without exposing example values', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.testRule).mockResolvedValue({
+            jest.mocked(RulesServiceClient.testRule).mockResolvedValue({
             ok: false, errors: [], results: [
                 { index: 1, table: 'Orders', expectedValid: true, actualValid: false, passed: false, error: null },
                 { index: 2, table: 'Orders', expectedValid: false, actualValid: false, passed: true, error: null },
@@ -479,7 +479,7 @@ describe('RuleConfig natural-language authoring', () => {
 
     it('identifies an invalid existing draft rule without asking the model to repair the candidate', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.validateRule).mockResolvedValue({
+            jest.mocked(RulesServiceClient.validateRule).mockResolvedValue({
             ok: false, errors: [{ path: '$.rules[3]', message: 'PRIVATE-RULE-PAYLOAD is not valid under any schema' }],
             normalizedRule: null, explanation: null,
         });
@@ -510,7 +510,7 @@ describe('RuleConfig natural-language authoring', () => {
 
     it('explains incomplete example results rather than claiming an example mismatch', async () => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.testRule).mockResolvedValue({ ok: true, errors: [], results: [] });
+        jest.mocked(RulesServiceClient.testRule).mockResolvedValue({ ok: true, errors: [], results: [] });
 
         const result = await proposeNaturalLanguageRule(contract, request);
 
@@ -528,7 +528,7 @@ describe('RuleConfig natural-language authoring', () => {
         [502, 'could not complete validation', 'connectivity and service health'],
     ])('explains rules service failures with status %s', async (status, explanation, action) => {
         createResponse.mockResolvedValue(response(naturalProposal));
-        jest.mocked(RulesService.validateRule).mockRejectedValue(new RulesServiceError('PRIVATE-SERVICE-DETAIL', status));
+        jest.mocked(RulesServiceClient.validateRule).mockRejectedValue(new RulesServiceError('PRIVATE-SERVICE-DETAIL', status));
         const progress: RuleProgressEvent[] = [];
 
         await expect(proposeNaturalLanguageRule(contract, request, {

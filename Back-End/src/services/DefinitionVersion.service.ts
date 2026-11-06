@@ -16,7 +16,7 @@ import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../int
 import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
 import { parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
-import { RulesService } from './RulesService.service';
+import { RulesServiceClient } from './RulesServiceClient';
 import { HttpError } from '../utils/httpError';
 
 export class DefinitionVersionError extends HttpError {
@@ -304,7 +304,7 @@ export class DefinitionVersionService {
                 throw new DefinitionVersionError(`There are no changes to publish; version ${active.VersionNumber} is already active`, 409);
             }
             if (options.validate) {
-                const validation = await RulesService.validateContract(draft.contract);
+                const validation = await RulesServiceClient.validateContract(draft.contract);
                 if (!validation.ok) {
                     const details = validation.errors
                         .map(item => `${item.path}: ${item.message}`)

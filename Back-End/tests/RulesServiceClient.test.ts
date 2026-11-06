@@ -1,5 +1,5 @@
 import { appConfig } from '../src/config/appConfig';
-import { RulesService } from '../src/services/RulesService.service';
+import { RulesServiceClient } from '../src/services/RulesServiceClient';
 import { DefaultAzureCredential } from '@azure/identity';
 import type { DefinitionContract } from '../src/contracts/definition-contract';
 import type { RuleConfig } from '../src/contracts/rule-config';
@@ -17,7 +17,7 @@ const rule: RuleConfig = {
     params: { column: 'Email', values: ['a@x.com'] },
 };
 
-describe('RulesService HTTP client', () => {
+describe('RulesServiceClient HTTP client', () => {
     const originalKey = appConfig.rulesService.internalKey;
     const originalAadScope = appConfig.rulesService.aadScope;
     const originalUrl = appConfig.rulesService.url;
@@ -50,7 +50,7 @@ describe('RulesService HTTP client', () => {
             json: async () => result,
         } as Response);
 
-        await expect(RulesService.validateRule(contract, rule)).resolves.toEqual(result);
+        await expect(RulesServiceClient.validateRule(contract, rule)).resolves.toEqual(result);
 
         const [url, init] = fetchMock.mock.calls[0];
         expect(String(url)).toBe('http://127.0.0.1:8000/v1/rules/validate');
@@ -65,8 +65,8 @@ describe('RulesService HTTP client', () => {
         fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true, errors: [] }) } as Response);
         const disabled = { ...rule, enabled: false };
 
-        await RulesService.validateRule(contract, disabled);
-        await RulesService.testRule(contract, disabled, []);
+        await RulesServiceClient.validateRule(contract, disabled);
+                await RulesServiceClient.testRule(contract, disabled, []);
 
         for (const [, init] of fetchMock.mock.calls) {
             expect(JSON.parse(String(init?.body)).rule).toEqual({ ...rule, enabled: true });
@@ -91,15 +91,15 @@ describe('RulesService HTTP client', () => {
         const candidate: RuleConfig = { ...rule, type: 'rowCount', params: {} };
         const withRules: DefinitionContract = { ...contract, rules: [candidate] };
 
-        await expect(RulesService.validateRule(withRules, candidate)).resolves.toEqual(candidateError);
-        await expect(RulesService.validateContract(withRules)).resolves.toEqual(contractError);
+        await expect(RulesServiceClient.validateRule(withRules, candidate)).resolves.toEqual(candidateError);
+                await expect(RulesServiceClient.validateContract(withRules)).resolves.toEqual(contractError);
     });
 
     it('validates a contract without its disabled rules', async () => {
         fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true, errors: [] }) } as Response);
         const withRules = { schemaVersion: 1, rules: [rule, { ...rule, id: 'rule-2', enabled: false }] } as DefinitionContract;
 
-        await RulesService.validateContract(withRules);
+        await RulesServiceClient.validateContract(withRules);
 
         const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
         expect(body.contract.rules.map((item: RuleConfig) => item.id)).toEqual(['rule-1']);
@@ -114,7 +114,7 @@ describe('RulesService HTTP client', () => {
             json: async () => ({ ok: true, errors: [], normalizedRule: rule, explanation: null }),
         } as Response);
 
-        await RulesService.validateRule(contract, rule);
+        await RulesServiceClient.validateRule(contract, rule);
 
         expect(getToken).toHaveBeenCalledWith('api://rules-service/.default');
         expect(fetchMock.mock.calls[0][1]?.headers).toEqual({
@@ -128,14 +128,14 @@ describe('RulesService HTTP client', () => {
     it('maps validation HTTP errors to client validation responses', async () => {
         fetchMock.mockResolvedValue({ ok: false, status: 422 } as Response);
 
-        await expect(RulesService.validateRule(contract, rule))
+        await expect(RulesServiceClient.validateRule(contract, rule))
             .rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('fails explicitly when the internal credential is missing', async () => {
         appConfig.rulesService.internalKey = '';
 
-        await expect(RulesService.validateRule(contract, rule))
+        await expect(RulesServiceClient.validateRule(contract, rule))
             .rejects.toMatchObject({ statusCode: 503 });
         expect(fetchMock).not.toHaveBeenCalled();
     });

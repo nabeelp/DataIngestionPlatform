@@ -14,7 +14,7 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { appConfig } from '../src/config/appConfig';
-import { proposeNaturalLanguageRule, type RuleDiagnosticEvent } from '../src/services/NaturalLanguageRule.service';
+import { proposeNaturalLanguageRule, type RuleDiagnosticEvent } from '../src/services/naturalLanguageRule';
 import { goldenContract, loadGoldenCorpus } from '../tests/helpers/goldenCorpus';
 
 const args = process.argv.slice(2);

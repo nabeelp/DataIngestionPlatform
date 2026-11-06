@@ -24,8 +24,8 @@ class TestRulesServiceError extends Error {
 jest.mock('../src/services/AzureStorage.service', () => ({
     azureStorage: { uploadFile: mockUploadFile, deleteBlob: mockDeleteBlob },
 }));
-jest.mock('../src/services/RulesService.service', () => ({
-    RulesService: { analyzeExample: mockAnalyzeExample },
+jest.mock('../src/services/RulesServiceClient', () => ({
+    RulesServiceClient: { analyzeExample: mockAnalyzeExample },
     RulesServiceError: TestRulesServiceError,
 }));
 

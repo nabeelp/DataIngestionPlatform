@@ -6,7 +6,7 @@ import {
     getDraftRevision,
     parseDraftRules,
     saveDraftRules,
-} from '../src/services/RuleAuthoring.service';
+} from '../src/services/RuleDraft.service';
 import { DefinitionVersionError } from '../src/services/DefinitionVersion.service';
 
 jest.mock('../src/config/database', () => ({ getConnection: jest.fn() }));

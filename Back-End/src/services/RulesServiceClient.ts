@@ -104,7 +104,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 // contract is checked with its enabled rules (disabled rules take no part in validation).
 const asEnabled = (rule: RuleConfig): RuleConfig => (rule.enabled ? rule : { ...rule, enabled: true });
 
-export const RulesService = {
+export const RulesServiceClient = {
     validateRule(contract: DefinitionContract, rule: RuleConfig): Promise<RuleValidationResponse> {
         return post('/v1/rules/validate', { contract, rule: asEnabled(rule) });
     },

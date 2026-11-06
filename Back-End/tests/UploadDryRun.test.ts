@@ -3,7 +3,7 @@ import type { DefinitionContract } from '../src/contracts/definition-contract';
 import { UploadController } from '../src/controllers/upload.controller';
 import { Upload } from '../src/models/Upload.model';
 import { DefinitionVersionService } from '../src/services/DefinitionVersion.service';
-import { RulesService } from '../src/services/RulesService.service';
+import { RulesServiceClient } from '../src/services/RulesServiceClient';
 
 describe('upload dry run', () => {
     afterEach(() => jest.restoreAllMocks());
@@ -26,7 +26,7 @@ describe('upload dry run', () => {
         jest.spyOn(Upload, 'hasAccessToUpload').mockResolvedValue(true);
         jest.spyOn(Upload, 'findById').mockResolvedValue(upload as Awaited<ReturnType<typeof Upload.findById>>);
         const getDraftContract = jest.spyOn(DefinitionVersionService, 'getDraftContract').mockResolvedValue(draftContract);
-        const dryRun = jest.spyOn(RulesService, 'dryRun').mockResolvedValue(result);
+        const dryRun = jest.spyOn(RulesServiceClient, 'dryRun').mockResolvedValue(result);
         const req = { params: { id: 'upload-id' }, user: { userId: 'user-id' } } as unknown as Request;
         const res = {
             status: jest.fn().mockReturnThis(),
