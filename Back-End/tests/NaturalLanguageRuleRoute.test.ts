@@ -18,6 +18,7 @@ jest.mock('../src/services/RuleAuthoring.service', () => ({
 }));
 
 const { proposeRuleFromDescription } = require('../src/controllers/rule.controller') as typeof import('../src/controllers/rule.controller');
+const { errorHandler } = require('../src/middleware/errorHandler') as typeof import('../src/middleware/errorHandler');
 const { RuleGenerationError, RuleGenerationCancelledError } = require('../src/services/NaturalLanguageRule.service') as typeof import('../src/services/NaturalLanguageRule.service');
 const { AuthoringInputError } = require('../src/services/RuleAuthoring.service') as typeof import('../src/services/RuleAuthoring.service');
 
@@ -36,6 +37,7 @@ describe('natural-language rule proposal endpoint', () => {
             (req as { user?: unknown }).user = { userId: 'admin-id', role: 'admin' };
             next();
         }, proposeRuleFromDescription);
+        app.use(errorHandler);
         await new Promise<void>(resolve => { server = app.listen(0, () => resolve()); });
         url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/rules/natural-language/propose`;
     });

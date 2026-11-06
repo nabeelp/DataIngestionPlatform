@@ -18,10 +18,11 @@ import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
 import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
 import { RulesService } from './RulesService.service';
+import { HttpError } from '../utils/httpError';
 
-export class DefinitionVersionError extends Error {
+export class DefinitionVersionError extends HttpError {
     constructor(message: string, readonly statusCode: 400 | 404 | 409) {
-        super(message);
+        super(message, statusCode);
         this.name = 'DefinitionVersionError';
     }
 }

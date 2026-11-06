@@ -44,13 +44,14 @@ describeDb('definition version routes', () => {
         app.use('/api/admin', require('../src/routes/admin.routes').default);
         app.use('/api/definitions', require('../src/routes/definition.routes').default);
         app.use('/api/rules', require('../src/routes/rule.routes').default);
+        app.use(require('../src/middleware/errorHandler').errorHandler);
         await new Promise<void>(resolve => { server = app.listen(0, () => resolve()); });
         baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
 
         const pool = await db.getConnection();
         const result = await pool.request().query(`SELECT Id, Role FROM Users WHERE Role IN ('admin', 'user') AND IsActive = 1`);
         for (const row of result.recordset) users[row.Role as 'admin' | 'user'] ||= row.Id;
-        if (!users.admin || !users.user) throw new Error('The test database needs an admin and a user (run seed_local_users.sql)');
+        if (!users.admin || !users.user) throw new Error('The test database needs an admin and a user (run database/local/seed_local_users.sql)');
     });
 
     afterAll(async () => {

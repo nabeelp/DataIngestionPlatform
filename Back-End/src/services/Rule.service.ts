@@ -2,6 +2,7 @@ import { Rule } from '../models/Rule.model';
 import type { IRule } from '../interfaces/rule.interface';
 import type { RuleConfig } from '../contracts/rule-config';
 import { DefinitionVersionService } from './DefinitionVersion.service';
+import { ForbiddenError } from '../utils/httpError';
 
 function legacyRuleType(type: RuleConfig['type']): IRule['RuleType'] {
     switch (type) {
@@ -16,7 +17,7 @@ export async function getRulesByFileDefinitionId(
     userId: string,
 ): Promise<(IRule & { CreatorName?: string })[]> {
     if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
-        throw new Error('Access denied to this file definition');
+        throw new ForbiddenError('Access denied to this file definition');
     }
     return Rule.findByFileDefinitionIdWithCreator(fileDefinitionId);
 }
@@ -26,7 +27,7 @@ export async function getPublishedRules(
     userId: string,
 ): Promise<{ rules: (IRule & { CreatorName?: string | null })[]; versionNumber: number | null }> {
     if (!await Rule.hasAccessToFileDefinition(fileDefinitionId, userId)) {
-        throw new Error('Access denied to this file definition');
+        throw new ForbiddenError('Access denied to this file definition');
     }
     const { activeVersion } = await DefinitionVersionService.getDraftState(fileDefinitionId);
     if (!activeVersion) {
@@ -63,7 +64,7 @@ export async function getPublishedRules(
 
 export async function getRuleById(ruleId: string, userId: string): Promise<IRule | null> {
     if (!await Rule.hasAccessToRule(ruleId, userId)) {
-        throw new Error('Access denied to this rule');
+        throw new ForbiddenError('Access denied to this rule');
     }
     return Rule.findById(ruleId);
 }

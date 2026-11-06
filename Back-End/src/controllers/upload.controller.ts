@@ -2,7 +2,6 @@
 // Upload Controller - API endpoints for file uploads
 // =============================================================================
 
-import { Request, Response } from 'express';
 import { UploadService } from '../services/Upload.service';
 import { Upload } from '../models/Upload.model';
 import { DeliveryRecord } from '../models/DeliveryRecord.model';
@@ -17,6 +16,8 @@ import fs from 'fs';
 import { pipeline } from 'stream/promises';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { BadRequestError, ForbiddenError, HttpError, NotFoundError } from '../utils/httpError';
 import { RulesService, RulesServiceError } from '../services/RulesService.service';
 import {
     AZURE_BLOB_DELIVERY,
@@ -31,91 +32,64 @@ export class UploadController {
     /**
      * Get all uploads accessible to the user
      */
-    static async getUploads(req: Request, res: Response): Promise<void> {
-        try {
-            const userId = (req as any).user?.userId;
-            const page = Array.isArray(req.query.page) ? (req.query.page[0] as string) || '1' : (req.query.page as string) || '1';
-            const pageSize = Array.isArray(req.query.pageSize) ? (req.query.pageSize[0] as string) || '20' : (req.query.pageSize as string) || '20';
-            const status = Array.isArray(req.query.status) ? (req.query.status[0] as string) : (req.query.status as string);
+    static getUploads = asyncHandler(async (req, res) => {
+        const userId = req.user!.userId;
+        const page = Array.isArray(req.query.page) ? (req.query.page[0] as string) || '1' : (req.query.page as string) || '1';
+        const pageSize = Array.isArray(req.query.pageSize) ? (req.query.pageSize[0] as string) || '20' : (req.query.pageSize as string) || '20';
+        const status = Array.isArray(req.query.status) ? (req.query.status[0] as string) : (req.query.status as string);
 
-            const result = await UploadService.getUploadsForUser(userId, {
-                page: parseInt(page),
-                pageSize: parseInt(pageSize),
-                status: status || undefined
-            });
+        const result = await UploadService.getUploadsForUser(userId, {
+            page: parseInt(page),
+            pageSize: parseInt(pageSize),
+            status: status || undefined
+        });
 
-            res.json({
-                success: true,
-                uploads: result.uploads,
-                total: result.total,
-                page: parseInt(page),
-                pageSize: parseInt(pageSize)
-            });
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Listing failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to fetch uploads'
-            });
-        }
-    }
+        res.json({
+            success: true,
+            uploads: result.uploads,
+            total: result.total,
+            page: parseInt(page),
+            pageSize: parseInt(pageSize)
+        });
+    });
 
     /**
      * Get single upload details
      */
-    static async getUploadById(req: Request, res: Response): Promise<void> {
-        try {
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-            const userId = (req as any).user?.userId;
-
-            // Check if user has access to this upload
-            const hasAccess = await Upload.hasAccessToUpload(id, userId);
-            if (!hasAccess) {
-                res.status(403).json({
-                    success: false,
-                    message: 'Access denied'
-                });
-                return;
-            }
-
-            const result = await UploadService.getUploadDetails(id);
-
-            if (!result.success || !result.upload) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Upload not found'
-                });
-                return;
-            }
-
-            res.json(result);
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to fetch upload'
-            });
-        }
-    }
-
-    static async dryRun(req: Request, res: Response): Promise<void> {
+    static getUploadById = asyncHandler(async (req, res) => {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const userId = (req as any).user?.userId;
+        const userId = req.user!.userId;
+
+        // Check if user has access to this upload
+        const hasAccess = await Upload.hasAccessToUpload(id, userId);
+        if (!hasAccess) {
+            throw new ForbiddenError();
+        }
+
+        const result = await UploadService.getUploadDetails(id);
+
+        if (!result.success || !result.upload) {
+            throw new NotFoundError('Upload not found');
+        }
+
+        res.json(result);
+    });
+
+    static dryRun = asyncHandler(async (req, res) => {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const userId = req.user!.userId;
         try {
             if (!await Upload.hasAccessToUpload(id, userId)) {
-                res.status(403).json({ success: false, message: 'Access denied' });
-                return;
+                throw new ForbiddenError();
             }
             const upload = await Upload.findById(id);
             if (!upload) {
-                res.status(404).json({ success: false, message: 'Upload not found' });
-                return;
+                throw new NotFoundError('Upload not found');
             }
             // The definition workspace previews its unsaved structure and rules (admins only).
             const draftBody = req.body?.Contract;
-            if (draftBody && (req as any).user?.role !== 'admin') {
-                res.status(403).json({ success: false, message: 'Admin access required' });
-                return;
+            if (draftBody && req.user?.role !== 'admin') {
+                throw new ForbiddenError('Admin access required');
             }
             const draftContract = draftBody
                 ? await buildAuthoringContract(draftBody, req.body?.Rules)
@@ -123,53 +97,41 @@ export class UploadController {
             const result = await RulesService.dryRun(draftContract, upload.Id);
             res.json({ success: true, ...result });
         } catch (error) {
+            if (error instanceof HttpError) throw error;
             logger.error(`[UPLOAD-DRY-RUN] Failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
             if (error instanceof AuthoringInputError) {
-                res.status(400).json({ success: false, message: error.message });
-                return;
+                throw new BadRequestError(error.message);
             }
             if (error instanceof RulesServiceError && error.statusCode === 400) {
-                res.status(422).json({ success: false, message: 'The uploaded file could not be previewed.' });
-                return;
+                throw new HttpError('The uploaded file could not be previewed.', 422);
             }
-            res.status(500).json({ success: false, message: 'Failed to run validation preview' });
+            throw new HttpError('Failed to run validation preview', 500);
         }
-    }
+    });
+
 
     /**
      * Upload a file (multipart form data)
      */
-    static async uploadFile(req: Request, res: Response): Promise<void> {
+    static uploadFile = asyncHandler(async (req, res) => {
         let uploadId = '';
         let uploadedBlobName: string | null = null;
         let uploadRecordCreationAttempted = false;
         try {
-            const userId = (req as any).user?.userId;
+            const userId = req.user!.userId;
             const definitionId = Array.isArray(req.body.definitionId) ? req.body.definitionId[0] : req.body.definitionId as string;
 
             if (!definitionId) {
-                res.status(400).json({
-                    success: false,
-                    message: 'File definition ID is required'
-                });
-                return;
+                throw new BadRequestError('File definition ID is required');
             }
 
             if (!req.file) {
-                res.status(400).json({
-                    success: false,
-                    message: 'No file uploaded'
-                });
-                return;
+                throw new BadRequestError('No file uploaded');
             }
 
             const hasDefinitionAccess = await FileDefinition.hasAccess(definitionId, userId);
             if (!hasDefinitionAccess) {
-                res.status(403).json({
-                    success: false,
-                    message: 'You do not have access to this file definition'
-                });
-                return;
+                throw new ForbiddenError('You do not have access to this file definition');
             }
 
             const fileSize = req.file.size;
@@ -179,11 +141,7 @@ export class UploadController {
             const activeVersion = await DefinitionVersionService.ensureActiveVersion(definitionId, userId);
             if (activeVersion.Tables.length > 0 && !EXCEL_FILE_TYPES.includes(fileType)) {
                 const sheets = activeVersion.Tables.map(table => `"${table.sheet}"`).join(', ');
-                res.status(400).json({
-                    success: false,
-                    message: `This definition expects an Excel workbook (.xlsx or .xls) with the sheets ${sheets}`
-                });
-                return;
+                throw new BadRequestError(`This definition expects an Excel workbook (.xlsx or .xls) with the sheets ${sheets}`);
             }
             logger.info(`[UPLOAD-START] UserId: ${userId}, DefinitionId: ${definitionId}, Size: ${fileSize}B, Type: ${fileType}`);
 
@@ -219,8 +177,10 @@ export class UploadController {
                 message: 'File uploaded and queued for validation.'
             });
 
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Failed for upload ${uploadId || 'not-created'}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+        } catch (error) {
+            if (!(error instanceof HttpError)) {
+                logger.error(`[UPLOAD] Failed for upload ${uploadId || 'not-created'}: ${error instanceof Error ? error.name : 'UnknownError'}`);
+            }
             if (uploadedBlobName && !uploadRecordCreationAttempted && azureStorage) {
                 try {
                     await azureStorage.deleteBlob(uploadedBlobName);
@@ -228,10 +188,7 @@ export class UploadController {
                     logger.warn(`[UPLOAD] Blob cleanup failed for upload ${uploadId}: ${cleanupError instanceof Error ? cleanupError.name : 'UnknownError'}`);
                 }
             }
-            res.status(500).json({
-                success: false,
-                message: error instanceof Error ? error.message : 'Failed to upload file'
-            });
+            throw error;
         } finally {
             if (req.file?.path) {
                 try {
@@ -241,209 +198,146 @@ export class UploadController {
                 }
             }
         }
-    }
+    });
 
 
     /**
      * Start validation for an uploaded file
      */
-    static async startVerification(req: Request, res: Response): Promise<void> {
-        try {
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-            const userId = (req as any).user?.userId;
+    static startVerification = asyncHandler(async (req, res) => {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const userId = req.user!.userId;
 
-            // Check access
-            const hasAccess = await Upload.hasAccessToUpload(id, userId);
-            if (!hasAccess) {
-                res.status(403).json({
-                    success: false,
-                    message: 'Access denied'
-                });
-                return;
-            }
-
-            const upload = await Upload.findById(id);
-            if (!upload) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Upload not found'
-                });
-                return;
-            }
-            // Check if upload is in valid state for verification
-            if (upload.Status !== 'UPLOADED' && upload.Status !== 'VALIDATION_FAILED') {
-                res.status(400).json({
-                    success: false,
-                    message: `Cannot start validation. Current status: ${upload.Status}`
-                });
-                return;
-            }
-
-            // Start validation
-            await UploadService.startValidation(id);
-
-            res.json({
-                success: true,
-                message: 'Validation started successfully'
-            });
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Validation request failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to start verification'
-            });
+        // Check access
+        const hasAccess = await Upload.hasAccessToUpload(id, userId);
+        if (!hasAccess) {
+            throw new ForbiddenError();
         }
-    }
+
+        const upload = await Upload.findById(id);
+        if (!upload) {
+            throw new NotFoundError('Upload not found');
+        }
+        // Check if upload is in valid state for verification
+        if (upload.Status !== 'UPLOADED' && upload.Status !== 'VALIDATION_FAILED') {
+            throw new BadRequestError(`Cannot start validation. Current status: ${upload.Status}`);
+        }
+
+        // Start validation
+        await UploadService.startValidation(id);
+
+        res.json({
+            success: true,
+            message: 'Validation started successfully'
+        });
+    });
 
     /**
      * Retry validation for a failed upload
      */
-    static async retryValidation(req: Request, res: Response): Promise<void> {
-        try {
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-            const userId = (req as any).user?.userId;
+    static retryValidation = asyncHandler(async (req, res) => {
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const userId = req.user!.userId;
 
-            // Check access
-            const hasAccess = await Upload.hasAccessToUpload(id, userId);
-            if (!hasAccess) {
-                res.status(403).json({
-                    success: false,
-                    message: 'Access denied'
-                });
-                return;
-            }
-
-            const upload = await Upload.findById(id);
-            if (!upload) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Upload not found'
-                });
-                return;
-            }
-
-            // Check if upload can be retried
-            if (upload.Status !== 'VALIDATION_FAILED' && upload.Status !== 'DELIVERY_FAILED') {
-                res.status(400).json({
-                    success: false,
-                    message: `Cannot retry. Current status: ${upload.Status}`
-                });
-                return;
-            }
-
-            // Reset status and start validation again
-            await Upload.updateStatus(id, 'UPLOADED');
-            await UploadService.startValidation(id);
-
-            res.json({
-                success: true,
-                message: 'Validation retry started successfully'
-            });
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Validation retry failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to retry validation'
-            });
+        // Check access
+        const hasAccess = await Upload.hasAccessToUpload(id, userId);
+        if (!hasAccess) {
+            throw new ForbiddenError();
         }
-    }
+
+        const upload = await Upload.findById(id);
+        if (!upload) {
+            throw new NotFoundError('Upload not found');
+        }
+
+        // Check if upload can be retried
+        if (upload.Status !== 'VALIDATION_FAILED' && upload.Status !== 'DELIVERY_FAILED') {
+            throw new BadRequestError(`Cannot retry. Current status: ${upload.Status}`);
+        }
+
+        // Reset status and start validation again
+        await Upload.updateStatus(id, 'UPLOADED');
+        await UploadService.startValidation(id);
+
+        res.json({
+            success: true,
+            message: 'Validation retry started successfully'
+        });
+    });
 
     /**
      * Delete an upload
      */
-    static async deleteUpload(req: Request, res: Response): Promise<void> {
+    static deleteUpload = asyncHandler(async (req, res) => {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        try {
-            const userId = (req as any).user?.userId;
+        const userId = req.user!.userId;
 
-            // Check access
-            const hasAccess = await Upload.hasAccessToUpload(id, userId);
-            if (!hasAccess) {
-                res.status(403).json({
-                    success: false,
-                    message: 'Access denied'
-                });
-                return;
-            }
-
-            const upload = await Upload.findById(id);
-            if (!upload) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Upload not found'
-                });
-                return;
-            }
-
-            // Check if upload can be deleted
-            if (upload.Status === 'VALIDATION_IN_PROGRESS' || upload.Status === 'DELIVERY_IN_PROGRESS') {
-                res.status(400).json({
-                    success: false,
-                    message: 'Cannot delete upload that is currently being processed'
-                });
-                return;
-            }
-
-            const deliveryRecords = await DeliveryRecord.findByUploadId(id);
-            for (const record of deliveryRecords) {
-                if (record.DeliveryType === AZURE_BLOB_DELIVERY) {
-                    if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
-                    assertSafeDeliveryBlobName(record.DestinationPath);
-                    await azureStorage.deleteBlob(
-                        record.DestinationPath,
-                        appConfig.azure.storage.deliveriesContainerName,
-                    );
-                } else if (record.DeliveryType === FILE_COPY_DELIVERY) {
-                    const destination = path.resolve(record.DestinationPath);
-                    assertInsideDeliveryRoot(destination);
-                    try {
-                        await fs.promises.unlink(destination);
-                    } catch (error) {
-                        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-                    }
-                }
-            }
-
-            if (azureStorage) {
-                await azureStorage.deleteBlob(upload.BlobName, upload.BlobContainer);
-                if (upload.ReportBlobName) {
-                    await azureStorage.deleteBlob(upload.ReportBlobName, appConfig.azure.storage.reportsContainerName);
-                }
-            }
-
-            // Delete from database (cascades to related records)
-            await Upload.delete(id);
-
-            res.json({
-                success: true,
-                message: 'Upload deleted successfully'
-            });
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Delete failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to delete upload'
-            });
+        // Check access
+        const hasAccess = await Upload.hasAccessToUpload(id, userId);
+        if (!hasAccess) {
+            throw new ForbiddenError();
         }
-    }
 
-    static async downloadReport(req: Request, res: Response): Promise<void> {
+        const upload = await Upload.findById(id);
+        if (!upload) {
+            throw new NotFoundError('Upload not found');
+        }
+
+        // Check if upload can be deleted
+        if (upload.Status === 'VALIDATION_IN_PROGRESS' || upload.Status === 'DELIVERY_IN_PROGRESS') {
+            throw new BadRequestError('Cannot delete upload that is currently being processed');
+        }
+
+        const deliveryRecords = await DeliveryRecord.findByUploadId(id);
+        for (const record of deliveryRecords) {
+            if (record.DeliveryType === AZURE_BLOB_DELIVERY) {
+                if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
+                assertSafeDeliveryBlobName(record.DestinationPath);
+                await azureStorage.deleteBlob(
+                    record.DestinationPath,
+                    appConfig.azure.storage.deliveriesContainerName,
+                );
+            } else if (record.DeliveryType === FILE_COPY_DELIVERY) {
+                const destination = path.resolve(record.DestinationPath);
+                assertInsideDeliveryRoot(destination);
+                try {
+                    await fs.promises.unlink(destination);
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                }
+            }
+        }
+
+        if (azureStorage) {
+            await azureStorage.deleteBlob(upload.BlobName, upload.BlobContainer);
+            if (upload.ReportBlobName) {
+                await azureStorage.deleteBlob(upload.ReportBlobName, appConfig.azure.storage.reportsContainerName);
+            }
+        }
+
+        // Delete from database (cascades to related records)
+        await Upload.delete(id);
+
+        res.json({
+            success: true,
+            message: 'Upload deleted successfully'
+        });
+    });
+
+    static downloadReport = asyncHandler(async (req, res) => {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const userId = (req as any).user?.userId;
+        const userId = req.user!.userId;
         try {
             if (!await Upload.hasAccessToUpload(id, userId)) {
-                res.status(403).json({ success: false, message: 'Access denied' });
-                return;
+                throw new ForbiddenError();
             }
 
             const upload = await Upload.findById(id);
             if (!upload) {
-                res.status(404).json({ success: false, message: 'Upload not found' });
-                return;
+                throw new NotFoundError('Upload not found');
             }
             if (!upload.ReportBlobName) {
-                res.status(404).json({ success: false, message: 'Issues report is not available' });
-                return;
+                throw new NotFoundError('Issues report is not available');
             }
             if (!azureStorage) throw new Error('Azure Blob Storage is not configured.');
 
@@ -456,44 +350,39 @@ export class UploadController {
             res.setHeader('Content-Type', path.extname(filename).toLowerCase() === '.csv' ? 'text/csv' : 'application/octet-stream');
             await pipeline(stream, res);
         } catch (error) {
-            const statusCode = (error as { statusCode?: unknown })?.statusCode;
-            if (statusCode === 404) {
-                res.status(404).json({ success: false, message: 'Issues report is not available' });
-                return;
+            if (error instanceof HttpError) throw error;
+            if ((error as { statusCode?: unknown } | null)?.statusCode === 404) {
+                throw new NotFoundError('Issues report is not available');
             }
             logger.error(`[UPLOAD-REPORT] Download failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
             if (res.headersSent) {
                 res.destroy();
                 return;
             }
-            res.status(500).json({ success: false, message: 'Failed to download issues report' });
+            throw new HttpError('Failed to download issues report', 500);
         }
-    }
+    });
 
-    static async downloadDelivery(req: Request, res: Response): Promise<void> {
+    static downloadDelivery = asyncHandler(async (req, res) => {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         const deliveryId = Array.isArray(req.params.deliveryId) ? req.params.deliveryId[0] : req.params.deliveryId;
-        const userId = (req as any).user?.userId;
+        const userId = req.user!.userId;
         try {
             if (!await Upload.hasAccessToUpload(id, userId)) {
-                res.status(403).json({ success: false, message: 'Access denied' });
-                return;
+                throw new ForbiddenError();
             }
 
             const upload = await Upload.findById(id);
             if (!upload) {
-                res.status(404).json({ success: false, message: 'Upload not found' });
-                return;
+                throw new NotFoundError('Upload not found');
             }
 
             const record = await DeliveryRecord.findById(deliveryId);
             if (!record || record.UploadId !== id) {
-                res.status(404).json({ success: false, message: 'Delivery output not found' });
-                return;
+                throw new NotFoundError('Delivery output not found');
             }
             if (record.Status !== 'DELIVERED') {
-                res.status(409).json({ success: false, message: 'Delivery output is not ready' });
-                return;
+                throw new HttpError('Delivery output is not ready', 409);
             }
 
             let stream: NodeJS.ReadableStream;
@@ -510,8 +399,7 @@ export class UploadController {
                 await fs.promises.access(destination);
                 stream = fs.createReadStream(destination);
             } else {
-                res.status(404).json({ success: false, message: 'Delivery output is not downloadable' });
-                return;
+                throw new NotFoundError('Delivery output is not downloadable');
             }
 
             const filename = sanitizeFilename(record.DestinationPath.split(/[\\/]/).pop() || 'delivery');
@@ -522,47 +410,39 @@ export class UploadController {
             );
             await pipeline(stream, res);
         } catch (error) {
-            const statusCode = (error as { statusCode?: unknown })?.statusCode;
-            const errorCode = (error as NodeJS.ErrnoException)?.code;
+            if (error instanceof HttpError) throw error;
+            const statusCode = (error as { statusCode?: unknown } | null)?.statusCode;
+            const errorCode = (error as NodeJS.ErrnoException | null)?.code;
             if (statusCode === 404 || errorCode === 'ENOENT') {
-                if (!res.headersSent) {
-                    res.status(404).json({ success: false, message: 'Delivery output is not available' });
-                } else {
+                if (res.headersSent) {
                     res.destroy();
+                    return;
                 }
-                return;
+                throw new NotFoundError('Delivery output is not available');
             }
             logger.error(`[UPLOAD-DELIVERY] Download failed for upload ${id}: ${error instanceof Error ? error.name : 'UnknownError'}`);
             if (res.headersSent) {
                 res.destroy();
                 return;
             }
-            res.status(500).json({ success: false, message: 'Failed to download delivery output' });
+            throw new HttpError('Failed to download delivery output', 500);
         }
-    }
+    });
 
     /**
      * Get recent uploads (for dashboard)
      */
-    static async getRecentUploads(req: Request, res: Response): Promise<void> {
-        try {
-            const userId = (req as any).user?.userId;
-            const limitStr = Array.isArray(req.query.limit) ? (req.query.limit[0] as string) : (req.query.limit as string);
-            const limit = limitStr || '10';
+    static getRecentUploads = asyncHandler(async (req, res) => {
+        const userId = req.user!.userId;
+        const limitStr = Array.isArray(req.query.limit) ? (req.query.limit[0] as string) : (req.query.limit as string);
+        const limit = limitStr || '10';
 
-            const uploads = await Upload.findRecentForUser(userId, parseInt(limit));
+        const uploads = await Upload.findRecentForUser(userId, parseInt(limit));
 
-            res.json({
-                success: true,
-                uploads
-            });
-        } catch (error: any) {
-            logger.error(`[UPLOAD] Recent uploads lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to fetch recent uploads'
-            });
-        }
-    }
+        res.json({
+            success: true,
+            uploads
+        });
+    });
 
 }

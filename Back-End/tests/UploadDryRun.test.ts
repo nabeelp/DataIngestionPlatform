@@ -33,7 +33,7 @@ describe('upload dry run', () => {
             json: jest.fn(),
         } as unknown as Response;
 
-        await UploadController.dryRun(req, res);
+        await UploadController.dryRun(req, res, jest.fn());
 
         expect(getDraftContract).toHaveBeenCalledWith('definition-id');
         expect(dryRun).toHaveBeenCalledWith(draftContract, 'upload-id');

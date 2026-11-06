@@ -46,7 +46,7 @@ describeDb('definition versioning (SQL Server)', () => {
         const pool = await m.db.getConnection();
         const admin = await pool.request().query(`SELECT TOP 1 Id FROM Users WHERE Role = 'admin'`);
         adminId = admin.recordset[0]?.Id;
-        if (!adminId) throw new Error('The test database needs an admin user (run seed_local_users.sql)');
+        if (!adminId) throw new Error('The test database needs an admin user (run database/local/seed_local_users.sql)');
     });
 
     afterAll(async () => {

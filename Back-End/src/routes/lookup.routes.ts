@@ -9,11 +9,10 @@ import { authenticate, authorize } from '../middleware/authMiddleware';
 import { Lookup, type ILookupInput } from '../models/Lookup.model';
 import { logAction } from '../models/AuditLog.model';
 import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
-import type { IJwtPayload } from '../interfaces/user.interface';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { HttpError, NotFoundError } from '../utils/httpError';
 
 const router = Router();
-
-type AuthRequest = Request & { user?: IJwtPayload };
 
 const validateRequest = (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);
@@ -40,8 +39,19 @@ const toInput = (req: Request): ILookupInput => ({
     values: Array.from(new Set<string>((req.body.values as string[]).map(value => value.trim()))),
 });
 
-const isDuplicateKeyError = (error: any): boolean =>
-    error?.number === 2627 || error?.number === 2601 || /UQ_Lookups_Name/.test(error?.message || '');
+const isDuplicateKeyError = (error: unknown): boolean => {
+    if (typeof error !== 'object' || error === null) return false;
+    const { number, message } = error as { number?: unknown; message?: unknown };
+    return number === 2627 || number === 2601 || (typeof message === 'string' && /UQ_Lookups_Name/.test(message));
+};
+
+const mapDuplicateName = async <T>(operation: Promise<T>): Promise<T> => {
+    try {
+        return await operation;
+    } catch (error) {
+        throw isDuplicateKeyError(error) ? new HttpError('A lookup with this name already exists', 409) : error;
+    }
+};
 
 router.use(authenticate);
 
@@ -52,14 +62,10 @@ router.get(
     '/',
     [query('search').optional().isString().isLength({ max: 100 })],
     validateRequest,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const lookups = await Lookup.findAll(req.query.search as string | undefined);
-            res.json({ success: true, lookups, total: lookups.length });
-        } catch (error) {
-            next(error);
-        }
-    }
+    asyncHandler(async (req, res) => {
+        const lookups = await Lookup.findAll(req.query.search as string | undefined);
+        res.json({ success: true, lookups, total: lookups.length });
+    })
 );
 
 /**
@@ -70,20 +76,13 @@ router.post(
     authorize('admin'),
     lookupBodyRules,
     validateRequest,
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-        try {
-            const input = toInput(req);
-            const lookup = await Lookup.create(input, req.user!.userId);
-            await logAction(req.user!.userId, AUDIT_ACTIONS.LOOKUP_CREATED, ENTITY_TYPES.LOOKUP, lookup.id,
-                { name: lookup.name, valueCount: lookup.values.length }, req.ip || undefined, req.headers['user-agent']);
-            res.status(201).json({ success: true, lookup });
-        } catch (error) {
-            if (isDuplicateKeyError(error)) {
-                return res.status(409).json({ success: false, message: 'A lookup with this name already exists' });
-            }
-            next(error);
-        }
-    }
+    asyncHandler(async (req, res) => {
+        const input = toInput(req);
+        const lookup = await mapDuplicateName(Lookup.create(input, req.user!.userId));
+        await logAction(req.user!.userId, AUDIT_ACTIONS.LOOKUP_CREATED, ENTITY_TYPES.LOOKUP, lookup.id,
+            { name: lookup.name, valueCount: lookup.values.length }, req.ip || undefined, req.headers['user-agent']);
+        res.status(201).json({ success: true, lookup });
+    })
 );
 
 /**
@@ -94,23 +93,16 @@ router.put(
     authorize('admin'),
     [param('id').isUUID(), ...lookupBodyRules],
     validateRequest,
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-        try {
-            const input = toInput(req);
-            const lookup = await Lookup.update(req.params.id as string, input);
-            if (!lookup) {
-                return res.status(404).json({ success: false, message: 'Lookup not found' });
-            }
-            await logAction(req.user!.userId, AUDIT_ACTIONS.LOOKUP_UPDATED, ENTITY_TYPES.LOOKUP, lookup.id,
-                { name: lookup.name, valueCount: lookup.values.length }, req.ip || undefined, req.headers['user-agent']);
-            res.json({ success: true, lookup });
-        } catch (error) {
-            if (isDuplicateKeyError(error)) {
-                return res.status(409).json({ success: false, message: 'A lookup with this name already exists' });
-            }
-            next(error);
+    asyncHandler(async (req, res) => {
+        const input = toInput(req);
+        const lookup = await mapDuplicateName(Lookup.update(req.params.id as string, input));
+        if (!lookup) {
+            throw new NotFoundError('Lookup not found');
         }
-    }
+        await logAction(req.user!.userId, AUDIT_ACTIONS.LOOKUP_UPDATED, ENTITY_TYPES.LOOKUP, lookup.id,
+            { name: lookup.name, valueCount: lookup.values.length }, req.ip || undefined, req.headers['user-agent']);
+        res.json({ success: true, lookup });
+    })
 );
 
 /**
@@ -121,19 +113,15 @@ router.delete(
     authorize('admin'),
     [param('id').isUUID()],
     validateRequest,
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-        try {
-            const deleted = await Lookup.delete(req.params.id as string);
-            if (!deleted) {
-                return res.status(404).json({ success: false, message: 'Lookup not found' });
-            }
-            await logAction(req.user!.userId, AUDIT_ACTIONS.LOOKUP_DELETED, ENTITY_TYPES.LOOKUP, req.params.id as string,
-                undefined, req.ip || undefined, req.headers['user-agent']);
-            res.json({ success: true });
-        } catch (error) {
-            next(error);
+    asyncHandler(async (req, res) => {
+        const deleted = await Lookup.delete(req.params.id as string);
+        if (!deleted) {
+            throw new NotFoundError('Lookup not found');
         }
-    }
+        await logAction(req.user!.userId, AUDIT_ACTIONS.LOOKUP_DELETED, ENTITY_TYPES.LOOKUP, req.params.id as string,
+            undefined, req.ip || undefined, req.headers['user-agent']);
+        res.json({ success: true });
+    })
 );
 
 export default router;

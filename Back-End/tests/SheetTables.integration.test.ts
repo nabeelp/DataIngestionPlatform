@@ -61,13 +61,14 @@ describeDb('sheet table definitions (SQL Server)', () => {
         app.use('/api/admin', require('../src/routes/admin.routes').default);
         app.use('/api/uploads', require('../src/routes/upload.routes').default);
         app.use('/api/rules', require('../src/routes/rule.routes').default);
+        app.use(require('../src/middleware/errorHandler').errorHandler);
         await new Promise<void>(resolve => { server = app.listen(0, () => resolve()); });
         baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
 
         const pool = await m.db.getConnection();
         const admin = await pool.request().query(`SELECT TOP 1 Id FROM Users WHERE Role = 'admin' AND IsActive = 1`);
         adminId = admin.recordset[0]?.Id;
-        if (!adminId) throw new Error('The test database needs an admin user (run seed_local_users.sql)');
+        if (!adminId) throw new Error('The test database needs an admin user (run database/local/seed_local_users.sql)');
     });
 
     afterAll(async () => {

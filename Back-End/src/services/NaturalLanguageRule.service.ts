@@ -7,6 +7,7 @@ import type { RuleConfig } from '../contracts/rule-config';
 import { appConfig } from '../config/appConfig';
 import type { RuleSeverity } from '../interfaces/rule.interface';
 import { logger } from '../utils/logger';
+import { HttpError } from '../utils/httpError';
 import { RulesService, RulesServiceError } from './RulesService.service';
 
 type Decision = 'mapped' | 'natural_language' | 'rejected';
@@ -58,9 +59,9 @@ export type NaturalLanguageRuleResult =
     | { outcome: 'rejected'; reason: string }
     | { outcome: 'mapped' | 'natural_language'; reason: string; config: RuleConfig };
 
-export class RuleGenerationError extends Error {
+export class RuleGenerationError extends HttpError {
     constructor(message: string, readonly statusCode: 400 | 403 | 404 | 502 | 503 | 504 = 502) {
-        super(message);
+        super(message, statusCode);
         this.name = 'RuleGenerationError';
     }
 }

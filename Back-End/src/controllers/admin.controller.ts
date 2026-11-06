@@ -2,7 +2,6 @@
 // Admin Controller - Business logic for Admin Dashboard
 // =============================================================================
 
-import { Request, Response, NextFunction } from 'express';
 import { hashPassword } from '../utils/password';
 import { User } from '../models/User.model';
 import { FileDefinition } from '../models/FileDefinition.model';
@@ -12,12 +11,10 @@ import { UserService, type GetUsersResult } from '../services/User.service';
 import { logAction } from '../models/AuditLog.model';
 import { AUDIT_ACTIONS, ENTITY_TYPES } from '../interfaces/auditLog.interface';
 import type { IUser } from '../interfaces/user.interface';
-import { IJwtPayload } from '../interfaces/user.interface';
 import { AdminStats } from '../interfaces/admin.interface';
 import { FileDefinitionService } from '../services/FileDefinition.service';
 import { DefinitionVersionError, DefinitionVersionService } from '../services/DefinitionVersion.service';
 import {
-    AuthoringInputError,
     buildAuthoringContract,
     getDraftRevision,
     saveDraftRules,
@@ -28,18 +25,14 @@ import { getTemplateDisplayName } from '../services/TemplateStorage.service';
 import { normalizeDeliveryFolder } from '../services/DeliveryTargets.service';
 import { COLUMN_TYPES, MAX_SHEET_NAME_LENGTH } from '../services/validation/DefinitionContract';
 import { v4 as uuidv4 } from 'uuid';
-import type { IColumn, ITable } from '../interfaces/fileDefinition.interface';
+import type { IColumn, IFileDefinition, IFileDefinitionUser, ITable, IUpdateFileDefinitionDto } from '../interfaces/fileDefinition.interface';
 import type { ICreateRuleDto, RuleType } from '../interfaces/rule.interface';
 import type { RuleConfig } from '../contracts/rule-config';
 import type { DefinitionContract } from '../contracts/definition-contract';
 import { contractFromLegacyColumns, parseRuleConfig } from '../models/contractMapper';
 import { RulesService, RulesServiceError } from '../services/RulesService.service';
-import { logger } from '../utils/logger';
-
-// Extend Request to include user
-export interface AuthRequest extends Request<Record<string, string>> {
-    user?: IJwtPayload;
-}
+import { asyncHandler } from '../middleware/asyncHandler';
+import { BadRequestError, NotFoundError } from '../utils/httpError';
 
 // ============================================================================
 // Dashboard Stats
@@ -48,19 +41,14 @@ export interface AuthRequest extends Request<Record<string, string>> {
 /**
  * Get dashboard statistics - Production ready with caching
  */
-export const getStats = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const stats: AdminStats = await StatsService.getAdminStats();
+export const getStats = asyncHandler(async (_req, res) => {
+    const stats: AdminStats = await StatsService.getAdminStats();
 
-        res.json({
-            success: true,
-            stats
-        });
-    } catch (error) {
-        logger.error(`[ADMIN_CONTROLLER] Stats lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-        next(error);
-    }
-};
+    res.json({
+        success: true,
+        stats
+    });
+});
 
 // ============================================================================
 // User Management
@@ -69,238 +57,196 @@ export const getStats = async (req: AuthRequest, res: Response, next: NextFuncti
 /**
  * Get all users (paginated)
  */
-export const getUsers = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-const page = parseInt((req.query.page as string ?? '1')) || 1;
-        const limit = parseInt((req.query.limit as string ?? '20')) || 20;
-        const search = (req.query.search as string ?? '') || '';
+export const getUsers = asyncHandler(async (req, res) => {
+    const page = parseInt((req.query.page as string ?? '1')) || 1;
+    const limit = parseInt((req.query.limit as string ?? '20')) || 20;
+    const search = (req.query.search as string ?? '') || '';
 
-const result: GetUsersResult = await UserService.getUsers(page, limit, search);
+    const result: GetUsersResult = await UserService.getUsers(page, limit, search);
 
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            'ADMIN_USER_LIST_VIEWED',
-            ENTITY_TYPES.USER,
-            undefined,
-            { page, limit, search },
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        'ADMIN_USER_LIST_VIEWED',
+        ENTITY_TYPES.USER,
+        undefined,
+        { page, limit, search },
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
 
-        res.json({
-            success: true,
-            users: result.users,
-            total: result.total,
-            page: result.page,
-            limit: result.limit
-        });
-
-
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting users:', error);
-        next(error);
-    }
-};
+    res.json({
+        success: true,
+        users: result.users,
+        total: result.total,
+        page: result.page,
+        limit: result.limit
+    });
+});
 
 /**
  * Create new user
  */
-export const createUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { email, username, password, firstName, lastName, role } = req.body;
+export const createUser = asyncHandler(async (req, res) => {
+    const { email, username, password, firstName, lastName, role } = req.body;
 
-        // Check if user already exists
-        const existingUser = await User.findByEmail(email);
-        if (existingUser) {
-            return res.status(400).json({
-                success: false,
-                message: 'User with this email already exists'
-            });
-        }
-
-        // Hash password
-        const passwordHash = await hashPassword(password);
-
-        // Create user
-        const user = await User.create({
-            Email: email,
-            Username: username,
-            Password: passwordHash,
-            FirstName: firstName,
-            LastName: lastName,
-            Role: role || 'user'
-        });
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.USER_CREATED,
-            ENTITY_TYPES.USER,
-            user.Id,
-            { email, username, role: role || 'user' },
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        res.status(201).json({
-            success: true,
-            message: 'User created successfully',
-            user: {
-                id: user.Id,
-                email: user.Email,
-                username: user.Username,
-                firstName: user.FirstName,
-                lastName: user.LastName,
-                role: user.Role
-            }
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error creating user:', error);
-        next(error);
+    // Check if user already exists
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+        throw new BadRequestError('User with this email already exists');
     }
-};
+
+    // Hash password
+    const passwordHash = await hashPassword(password);
+
+    // Create user
+    const user = await User.create({
+        Email: email,
+        Username: username,
+        Password: passwordHash,
+        FirstName: firstName,
+        LastName: lastName,
+        Role: role || 'user'
+    });
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.USER_CREATED,
+        ENTITY_TYPES.USER,
+        user.Id,
+        { email, username, role: role || 'user' },
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    res.status(201).json({
+        success: true,
+        message: 'User created successfully',
+        user: {
+            id: user.Id,
+            email: user.Email,
+            username: user.Username,
+            firstName: user.FirstName,
+            lastName: user.LastName,
+            role: user.Role
+        }
+    });
+});
 
 /**
  * Update user
  */
-export const updateUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
-        const { firstName, lastName, role, isActive } = req.body;
+export const updateUser = asyncHandler<Record<string, string>>(async (req, res) => {
+    const { id } = req.params;
+    const { firstName, lastName, role, isActive } = req.body;
 
-        const existingUser = await User.findById(id);
-        
-        if (!existingUser) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
+    const existingUser = await User.findById(id);
 
-        const updates: Partial<IUser> = {};
-        if (firstName !== undefined) updates.FirstName = firstName;
-        if (lastName !== undefined) updates.LastName = lastName;
-        if (role !== undefined) updates.Role = role;
-        if (isActive !== undefined) updates.IsActive = isActive;
-
-        const updatedUser = await User.update(id, updates);
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.USER_UPDATED,
-            ENTITY_TYPES.USER,
-            id,
-            { updates },
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        res.json({
-            success: true,
-            message: 'User updated successfully',
-            user: {
-                id: updatedUser?.Id,
-                email: updatedUser?.Email,
-                username: updatedUser?.Username,
-                firstName: updatedUser?.FirstName,
-                lastName: updatedUser?.LastName,
-                role: updatedUser?.Role,
-                isActive: updatedUser?.IsActive
-            }
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error updating user:', error);
-        next(error);
+    if (!existingUser) {
+        throw new NotFoundError('User not found');
     }
-};
+
+    const updates: Partial<IUser> = {};
+    if (firstName !== undefined) updates.FirstName = firstName;
+    if (lastName !== undefined) updates.LastName = lastName;
+    if (role !== undefined) updates.Role = role;
+    if (isActive !== undefined) updates.IsActive = isActive;
+
+    const updatedUser = await User.update(id, updates);
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.USER_UPDATED,
+        ENTITY_TYPES.USER,
+        id,
+        { updates },
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    res.json({
+        success: true,
+        message: 'User updated successfully',
+        user: {
+            id: updatedUser?.Id,
+            email: updatedUser?.Email,
+            username: updatedUser?.Username,
+            firstName: updatedUser?.FirstName,
+            lastName: updatedUser?.LastName,
+            role: updatedUser?.Role,
+            isActive: updatedUser?.IsActive
+        }
+    });
+});
 
 /**
  * Unlock user account
  */
-export const unlockUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
+export const unlockUser = asyncHandler<Record<string, string>>(async (req, res) => {
+    const { id } = req.params;
 
-        const existingUser = await User.findById(id);
-        
-        if (!existingUser) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
+    const existingUser = await User.findById(id);
 
-        await User.unlock(id);
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.USER_UNLOCKED,
-            ENTITY_TYPES.USER,
-            id,
-            {},
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        res.json({
-            success: true,
-            message: 'User unlocked successfully'
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error unlocking user:', error);
-        next(error);
+    if (!existingUser) {
+        throw new NotFoundError('User not found');
     }
-};
+
+    await User.unlock(id);
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.USER_UNLOCKED,
+        ENTITY_TYPES.USER,
+        id,
+        {},
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    res.json({
+        success: true,
+        message: 'User unlocked successfully'
+    });
+});
 
 /**
  * Delete (soft delete) user
  */
-export const deleteUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
+export const deleteUser = asyncHandler<Record<string, string>>(async (req, res) => {
+    const { id } = req.params;
 
-        // Prevent deleting yourself
-        if (id === req.user?.userId) {
-            return res.status(400).json({
-                success: false,
-                message: 'You cannot delete your own account'
-            });
-        }
-
-        const existingUser = await User.findById(id);
-        
-        if (!existingUser) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        await User.softDelete(id);
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.USER_DELETED,
-            ENTITY_TYPES.USER,
-            id,
-            {},
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        res.json({
-            success: true,
-            message: 'User deleted successfully'
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error deleting user:', error);
-        next(error);
+    // Prevent deleting yourself
+    if (id === req.user?.userId) {
+        throw new BadRequestError('You cannot delete your own account');
     }
-};
+
+    const existingUser = await User.findById(id);
+
+    if (!existingUser) {
+        throw new NotFoundError('User not found');
+    }
+
+    await User.softDelete(id);
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.USER_DELETED,
+        ENTITY_TYPES.USER,
+        id,
+        {},
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    res.json({
+        success: true,
+        message: 'User deleted successfully'
+    });
+});
 
 // ============================================================================
 // Audit Logs
@@ -309,38 +255,33 @@ export const deleteUser = async (req: AuthRequest, res: Response, next: NextFunc
 /**
  * Get audit logs
  */
-export const getAuditLogs = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const page = parseInt(req.query.page as string) || 1;
-        const limit = parseInt(req.query.limit as string) || 50;
-        const userId = req.query.userId as string;
-        const action = req.query.action as string;
-        const entityType = req.query.entityType as string;
-        const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-        const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+export const getAuditLogs = asyncHandler(async (req, res) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const userId = req.query.userId as string;
+    const action = req.query.action as string;
+    const entityType = req.query.entityType as string;
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
-        const result = await AuditLog.findAll({
-            page,
-            pageSize: limit,
-            userId,
-            action,
-            entityType,
-            startDate,
-            endDate
-        });
+    const result = await AuditLog.findAll({
+        page,
+        pageSize: limit,
+        userId,
+        action,
+        entityType,
+        startDate,
+        endDate
+    });
 
-        res.json({
-            success: true,
-            logs: result.logs,
-            total: result.total,
-            page,
-            limit
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting audit logs:', error);
-        next(error);
-    }
-};
+    res.json({
+        success: true,
+        logs: result.logs,
+        total: result.total,
+        page,
+        limit
+    });
+});
 
 // ============================================================================
 // Queue Monitoring
@@ -349,19 +290,14 @@ export const getAuditLogs = async (req: AuthRequest, res: Response, next: NextFu
 /**
  * Get queue statistics
  */
-export const getQueueStats = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { stats, recentUploadThroughput } = await StatsService.getQueueMonitoring();
-        res.json({
-            success: true,
-            stats,
-            recentUploadThroughput,
-        });
-    } catch (error) {
-        logger.error(`[ADMIN_CONTROLLER] Queue metrics lookup failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-        next(error);
-    }
-};
+export const getQueueStats = asyncHandler(async (_req, res) => {
+    const { stats, recentUploadThroughput } = await StatsService.getQueueMonitoring();
+    res.json({
+        success: true,
+        stats,
+        recentUploadThroughput,
+    });
+});
 
 // ============================================================================
 // File Definitions Management (Admin view with full access)
@@ -370,273 +306,236 @@ export const getQueueStats = async (req: AuthRequest, res: Response, next: NextF
 /**
  * Get all file definitions (admin view)
  */
-export const getFileDefinitions = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const definitions = await FileDefinitionService.getAllDefinitions();
-        const versionStates = await DefinitionVersionService.getVersionStates(definitions);
-        const camelCaseDefinitions = definitions.map((def: any) => ({
-            ...mapFileDefinitionToCamelCase(def),
-            activeVersion: versionStates.get(def.Id)?.activeVersion ?? null,
-            hasUnpublishedChanges: versionStates.get(def.Id)?.hasUnpublishedChanges ?? true,
-        }));
+export const getFileDefinitions = asyncHandler(async (_req, res) => {
+    const definitions = await FileDefinitionService.getAllDefinitions();
+    const versionStates = await DefinitionVersionService.getVersionStates(definitions);
+    const camelCaseDefinitions = definitions.map(def => ({
+        ...mapFileDefinitionToCamelCase(def),
+        activeVersion: versionStates.get(def.Id)?.activeVersion ?? null,
+        hasUnpublishedChanges: versionStates.get(def.Id)?.hasUnpublishedChanges ?? true,
+    }));
 
-        res.json({
-            success: true,
-            definitions: camelCaseDefinitions,
-            total: camelCaseDefinitions.length
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error getting file definitions:', error);
-        next(error);
-    }
-};
+    res.json({
+        success: true,
+        definitions: camelCaseDefinitions,
+        total: camelCaseDefinitions.length
+    });
+});
 
 /**
  * Create file definition
  */
-export const createFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { name, description, columns, tables, status, deliveryFolder, rules, contract: submittedContract } = req.body;
+export const createFileDefinition = asyncHandler(async (req, res) => {
+    const { name, description, columns, tables, status, deliveryFolder, rules, contract: submittedContract } = req.body;
 
-        if (!name) {
-            return res.status(400).json({
-                success: false,
-                message: 'Name is required'
-            });
-        }
-
-        let normalizedDeliveryFolder: string | null;
-        let layout: DefinitionLayout;
-        let initialRules: InitialRule[];
-        let baseContract: DefinitionContract;
-        try {
-            if (submittedContract) {
-                baseContract = submittedContract as DefinitionContract;
-                await validateDefinitionContract(baseContract);
-                layout = validateDefinitionLayout(...legacyLayoutArguments(baseContract));
-            } else {
-                layout = validateDefinitionLayout(columns, tables);
-                baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
-            }
-            normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
-            const configs = [
-                ...(Array.isArray(baseContract.rules) ? baseContract.rules : []),
-                ...normalizeInitialRuleConfigs(rules),
-            ];
-            baseContract = { ...baseContract, rules: [] };
-            initialRules = await validateInitialRules(configs, baseContract);
-        } catch (validationError) {
-            if (validationError instanceof RulesServiceError) return next(validationError);
-            return res.status(400).json({ success: false, message: (validationError as Error).message });
-        }
-
-        const dto = {
-            Name: name,
-            Description: description || '',
-            Columns: layout.columns,
-            Tables: layout.tables,
-            Contract: baseContract,
-            Status: status || 'Active',
-            DeliveryFolder: normalizedDeliveryFolder
-        };
-
-        const definition = await FileDefinitionService.createDefinition(dto, req.user!.userId, initialRules);
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.DEFINITION_CREATED,
-            ENTITY_TYPES.FILE_DEFINITION,
-            definition.Id,
-            { name, description, sheetTables: layout.tables.length, initialRules: initialRules.length },
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        const camelCaseDefinition = mapFileDefinitionToCamelCase(definition);
-        res.status(201).json({
-            success: true,
-            definition: camelCaseDefinition,
-            message: 'File definition created successfully'
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error creating file definition:', error);
-        next(error);
+    if (!name) {
+        throw new BadRequestError('Name is required');
     }
-};
+
+    let normalizedDeliveryFolder: string | null;
+    let layout: DefinitionLayout;
+    let initialRules: InitialRule[];
+    let baseContract: DefinitionContract;
+    try {
+        if (submittedContract) {
+            baseContract = submittedContract as DefinitionContract;
+            await validateDefinitionContract(baseContract);
+            layout = validateDefinitionLayout(...legacyLayoutArguments(baseContract));
+        } else {
+            layout = validateDefinitionLayout(columns, tables);
+            baseContract = contractFromLegacyColumns(layout.columns, layout.tables);
+        }
+        normalizedDeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
+        const configs = [
+            ...(Array.isArray(baseContract.rules) ? baseContract.rules : []),
+            ...normalizeInitialRuleConfigs(rules),
+        ];
+        baseContract = { ...baseContract, rules: [] };
+        initialRules = await validateInitialRules(configs, baseContract);
+    } catch (validationError) {
+        throw toValidationFailure(validationError);
+    }
+
+    const dto = {
+        Name: name,
+        Description: description || '',
+        Columns: layout.columns,
+        Tables: layout.tables,
+        Contract: baseContract,
+        Status: status || 'Active',
+        DeliveryFolder: normalizedDeliveryFolder
+    };
+
+    const definition = await FileDefinitionService.createDefinition(dto, req.user!.userId, initialRules);
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.DEFINITION_CREATED,
+        ENTITY_TYPES.FILE_DEFINITION,
+        definition.Id,
+        { name, description, sheetTables: layout.tables.length, initialRules: initialRules.length },
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    const camelCaseDefinition = mapFileDefinitionToCamelCase(definition);
+    res.status(201).json({
+        success: true,
+        definition: camelCaseDefinition,
+        message: 'File definition created successfully'
+    });
+});
 
 /**
  * Update file definition
  */
-export const updateFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const updateFileDefinition = asyncHandler<Record<string, string>>(async (req, res) => {
+    const { id } = req.params;
+    const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract, rules: submittedRules, revision } = req.body;
+
+    const updates: DefinitionUpdates = {};
+    let draftRules: RuleConfig[] | undefined;
     try {
-        const { id } = req.params;
-        const { name, description, columns, tables, status, deliveryFolder, contract: submittedContract, rules: submittedRules, revision } = req.body;
-
-        const updates: any = {};
-        let draftRules: RuleConfig[] | undefined;
-        try {
-            if (submittedContract) {
-                const contract = { ...(submittedContract as DefinitionContract), rules: [] };
-                if (Array.isArray(submittedRules)) {
-                    // The workspace saves its whole draft: structure and rules must be valid together before anything is written.
-                    const authored = await buildAuthoringContract(submittedContract, submittedRules);
-                    await validateDefinitionContract(authored);
-                    draftRules = authored.rules;
-                } else {
-                    await validateDefinitionContract(contract);
-                }
-                const layout = validateDefinitionLayout(...legacyLayoutArguments(contract));
-                updates.Columns = layout.columns;
-                updates.Tables = layout.tables;
-                updates.Contract = contract;
-            } else if (submittedRules !== undefined) {
-                throw new Error('Rules can only be saved together with the definition contract');
-            } else if (tables !== undefined) {
-                // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
-                const layout = validateDefinitionLayout(columns, tables);
-                updates.Columns = layout.columns;
-                updates.Tables = layout.tables;
-            } else if (columns !== undefined) {
-                validateDefinitionColumns(columns);
-                updates.Columns = columns;
+        if (submittedContract) {
+            const contract = { ...(submittedContract as DefinitionContract), rules: [] };
+            if (Array.isArray(submittedRules)) {
+                // The workspace saves its whole draft: structure and rules must be valid together before anything is written.
+                const authored = await buildAuthoringContract(submittedContract, submittedRules);
+                await validateDefinitionContract(authored);
+                draftRules = authored.rules;
+            } else {
+                await validateDefinitionContract(contract);
             }
-            if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
-        } catch (validationError) {
-            if (validationError instanceof RulesServiceError) return next(validationError);
-            return res.status(400).json({ success: false, message: (validationError as Error).message });
+            const layout = validateDefinitionLayout(...legacyLayoutArguments(contract));
+            updates.Columns = layout.columns;
+            updates.Tables = layout.tables;
+            updates.Contract = contract;
+        } else if (submittedRules !== undefined) {
+            throw new Error('Rules can only be saved together with the definition contract');
+        } else if (tables !== undefined) {
+            // Tables decide the layout: sending them (even empty) sets it; sending only columns keeps the current one.
+            const layout = validateDefinitionLayout(columns, tables);
+            updates.Columns = layout.columns;
+            updates.Tables = layout.tables;
+        } else if (columns !== undefined) {
+            validateDefinitionColumns(columns);
+            updates.Columns = columns;
         }
-        if (name !== undefined) updates.Name = name;
-        if (description !== undefined) updates.Description = description;
-        if (status !== undefined) updates.Status = status;
-
-        let ruleChanges: SavedRules | undefined;
-        try {
-            if (draftRules) {
-                ruleChanges = await saveDraftRules(id, draftRules, req.user!.userId, typeof revision === 'string' ? revision : null);
-            } else if (typeof revision === 'string' && await getDraftRevision(await getConnection(), id) !== revision) {
-                throw new DefinitionVersionError(
-                    'This definition was changed by someone else after you opened it. Reload it to see their changes before saving.', 409);
-            }
-        } catch (conflict) {
-            if (conflict instanceof DefinitionVersionError) {
-                return res.status(conflict.statusCode).json({ success: false, message: conflict.message });
-            }
-            throw conflict;
-        }
-
-        const definition = await FileDefinitionService.updateDefinition(id, updates);
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.DEFINITION_UPDATED,
-            ENTITY_TYPES.FILE_DEFINITION,
-            id,
-            {
-                updates,
-                ...(ruleChanges ? {
-                    ruleChanges: {
-                        added: ruleChanges.added.length,
-                        updated: ruleChanges.updated.length,
-                        removed: ruleChanges.removed.length,
-                    },
-                } : {}),
-            },
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        const camelCaseDefinition = mapFileDefinitionToCamelCase(definition);
-        res.json({
-            success: true,
-            definition: camelCaseDefinition,
-            revision: await getDraftRevision(await getConnection(), id),
-            message: 'File definition updated successfully'
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error updating file definition:', error);
-        next(error);
+        if (deliveryFolder !== undefined) updates.DeliveryFolder = normalizeDeliveryFolder(deliveryFolder);
+    } catch (validationError) {
+        throw toValidationFailure(validationError);
     }
-};
+    if (name !== undefined) updates.Name = name;
+    if (description !== undefined) updates.Description = description;
+    if (status !== undefined) updates.Status = status;
+
+    let ruleChanges: SavedRules | undefined;
+    if (draftRules) {
+        ruleChanges = await saveDraftRules(id, draftRules, req.user!.userId, typeof revision === 'string' ? revision : null);
+    } else if (typeof revision === 'string' && await getDraftRevision(await getConnection(), id) !== revision) {
+        throw new DefinitionVersionError(
+            'This definition was changed by someone else after you opened it. Reload it to see their changes before saving.', 409);
+    }
+
+    const definition = await FileDefinitionService.updateDefinition(id, updates);
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.DEFINITION_UPDATED,
+        ENTITY_TYPES.FILE_DEFINITION,
+        id,
+        {
+            updates,
+            ...(ruleChanges ? {
+                ruleChanges: {
+                    added: ruleChanges.added.length,
+                    updated: ruleChanges.updated.length,
+                    removed: ruleChanges.removed.length,
+                },
+            } : {}),
+        },
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    const camelCaseDefinition = mapFileDefinitionToCamelCase(definition);
+    res.json({
+        success: true,
+        definition: camelCaseDefinition,
+        revision: await getDraftRevision(await getConnection(), id),
+        message: 'File definition updated successfully'
+    });
+});
 
 /**
  * Check a definition draft held by the workspace without saving it: contract and rule validation errors plus what
  * publishing it would change relative to the active version.
  * POST /api/admin/file-definitions/preflight
  */
-export const preflightFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { contract, rules, definitionId } = req.body;
-        let authored: DefinitionContract;
+export const preflightFileDefinition = asyncHandler(async (req, res) => {
+    const { contract, rules, definitionId } = req.body;
+    // AuthoringInputError is an HttpError (400), so a malformed draft is reported by the central error handler.
+    const authored: DefinitionContract = await buildAuthoringContract(contract, rules);
+    const validation = await RulesService.validateContract(authored);
+    let diff = null;
+    if (typeof definitionId === 'string' && validation.ok) {
         try {
-            authored = await buildAuthoringContract(contract, rules);
-        } catch (inputError) {
-            if (inputError instanceof AuthoringInputError) {
-                return res.status(400).json({ success: false, message: inputError.message });
-            }
-            throw inputError;
+            diff = await DefinitionVersionService.previewDiff(definitionId, authored);
+        } catch (diffError) {
+            if (!(diffError instanceof DefinitionVersionError)) throw diffError;
         }
-        const validation = await RulesService.validateContract(authored);
-        let diff = null;
-        if (typeof definitionId === 'string' && validation.ok) {
-            try {
-                diff = await DefinitionVersionService.previewDiff(definitionId, authored);
-            } catch (diffError) {
-                if (!(diffError instanceof DefinitionVersionError)) throw diffError;
-            }
-        }
-        res.json({ success: true, ok: validation.ok, errors: validation.errors, diff });
-    } catch (error) {
-        logger.error(`[ADMIN_CONTROLLER] Definition preflight failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
-        next(error);
     }
-};
+    res.json({ success: true, ok: validation.ok, errors: validation.errors, diff });
+});
 
 
 /**
  * Delete file definition
  */
-export const deleteFileDefinition = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
+export const deleteFileDefinition = asyncHandler<Record<string, string>>(async (req, res) => {
+    const { id } = req.params;
 
-        const existing = await FileDefinition.findById(id);
-        
-        if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: 'File definition not found'
-            });
-        }
+    const existing = await FileDefinition.findById(id);
 
-        await FileDefinitionService.deleteDefinition(id);
-
-        // Log this action
-        await logAction(
-            req.user?.userId || null,
-            AUDIT_ACTIONS.DEFINITION_DELETED,
-            ENTITY_TYPES.FILE_DEFINITION,
-            id,
-            { name: existing.Name },
-            req.ip || undefined,
-            req.headers['user-agent']
-        );
-
-        res.json({
-            success: true,
-            message: 'File definition deleted successfully'
-        });
-    } catch (error) {
-        logger.error('[ADMIN_CONTROLLER] Error deleting file definition:', error);
-        next(error);
+    if (!existing) {
+        throw new NotFoundError('File definition not found');
     }
-};
+
+    await FileDefinitionService.deleteDefinition(id);
+
+    // Log this action
+    await logAction(
+        req.user?.userId || null,
+        AUDIT_ACTIONS.DEFINITION_DELETED,
+        ENTITY_TYPES.FILE_DEFINITION,
+        id,
+        { name: existing.Name },
+        req.ip || undefined,
+        req.headers['user-agent']
+    );
+
+    res.json({
+        success: true,
+        message: 'File definition deleted successfully'
+    });
+});
 
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+type DefinitionUpdates = IUpdateFileDefinitionDto;
+
+/**
+ * Failure for a rejected definition draft: rules-service errors keep their own status, anything else is a 400.
+ */
+function toValidationFailure(error: unknown): Error {
+    if (error instanceof RulesServiceError) return error;
+    return new BadRequestError(error instanceof Error ? error.message : 'Invalid definition');
+}
 
 /**
  * Map FileDefinition from DB PascalCase to frontend camelCase
@@ -645,12 +544,12 @@ interface MappedFileDefinition {
     id: string;
     name: string;
     description: string;
-    columns: any[];
+    columns: IColumn[];
     tables: ITable[];
     status: string;
-    createdAt: string;
-    updatedAt: string;
-    allowedUsers: any[];
+    createdAt: Date;
+    updatedAt: Date;
+    allowedUsers: IFileDefinitionUser[];
     templateFilename: string | null;
     deliveryFolder: string | null;
     contract: DefinitionContract | null;
@@ -857,7 +756,7 @@ async function validateInitialRules(configs: RuleConfig[], baseContract: Definit
     }));
 }
 
-function mapFileDefinitionToCamelCase(def: any): MappedFileDefinition {
+function mapFileDefinitionToCamelCase(def: IFileDefinition): MappedFileDefinition {
     return {
         id: def.Id,
         name: def.Name,

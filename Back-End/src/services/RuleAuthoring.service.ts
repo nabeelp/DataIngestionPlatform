@@ -11,16 +11,16 @@ import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
 import { parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
 import { DefinitionVersionError, hydrateLookups } from './DefinitionVersion.service';
+import { HttpError } from '../utils/httpError';
 
 export const MAX_DRAFT_RULES = 50;
 const MAX_TABLES = 50;
 const MAX_COLUMNS = 2000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export class AuthoringInputError extends Error {
-    readonly statusCode = 400;
+export class AuthoringInputError extends HttpError {
     constructor(message: string) {
-        super(message);
+        super(message, 400);
         this.name = 'AuthoringInputError';
     }
 }
