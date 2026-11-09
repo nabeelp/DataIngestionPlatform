@@ -9,7 +9,7 @@ on:
         default: sbfracent
         type: string
       deployment_target:
-        description: Deploy all services (including postdeploy hooks), or update one workload without provisioning
+        description: Deploy applications only, or explicitly provision infrastructure and deploy all services
         required: true
         default: all
         type: choice
@@ -18,6 +18,7 @@ on:
           - frontend
           - worker
           - all
+          - provision
 
 permissions:
   contents: read
@@ -57,7 +58,7 @@ jobs:
             fi
           done
       - uses: actions/setup-node@v4
-        if: inputs.deployment_target == 'all'
+        if: inputs.deployment_target == 'all' || inputs.deployment_target == 'provision'
         with:
           node-version: 24
       - uses: azure/login@v2
@@ -113,8 +114,39 @@ jobs:
             --query '[].name' --output table
           azd show
           echo "OIDC and existing azd environment refresh succeeded; no images built or workloads changed." >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate provisioning inputs
+        if: inputs.deployment_target == 'provision'
+        env:
+          WORKLOAD_NAME: ${{ vars.WORKLOAD_NAME }}
+          SQL_ADMIN_OBJECT_ID: ${{ vars.SQL_ADMIN_OBJECT_ID }}
+          SQL_ADMIN_LOGIN: ${{ vars.SQL_ADMIN_LOGIN }}
+          RULES_SERVICE_API_CLIENT_ID: ${{ vars.RULES_SERVICE_API_CLIENT_ID }}
+          RULES_SERVICE_API_AUDIENCE: ${{ vars.RULES_SERVICE_API_AUDIENCE }}
+          RULES_SERVICE_API_ROLE_ID: ${{ vars.RULES_SERVICE_API_ROLE_ID }}
+          MS_CLIENT_ID: ${{ vars.MS_CLIENT_ID }}
+          CITADEL_ENDPOINT: ${{ vars.CITADEL_ENDPOINT }}
+          CITADEL_MODEL: ${{ vars.CITADEL_MODEL }}
+          WORKER_CPU: ${{ vars.WORKER_CPU }}
+          WORKER_MEMORY: ${{ vars.WORKER_MEMORY }}
+          APPLICATIONINSIGHTS_SAMPLING_RATIO: ${{ vars.APPLICATIONINSIGHTS_SAMPLING_RATIO }}
+          APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE: ${{ vars.APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE }}
+          CITADEL_SUBSCRIPTION_KEY: ${{ secrets.CITADEL_SUBSCRIPTION_KEY }}
+        run: node .github/scripts/provision-environment.cjs prepare
+      - name: Provision infrastructure and configure identities
+        if: inputs.deployment_target == 'provision'
+        shell: bash
+        env:
+          CITADEL_SUBSCRIPTION_KEY: ${{ secrets.CITADEL_SUBSCRIPTION_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          azd provision --environment "$AZURE_ENV_NAME" --no-prompt
+      - name: Verify provisioned Citadel references and registry permissions
+        if: inputs.deployment_target == 'provision'
+        run: node .github/scripts/provision-environment.cjs verify
       - name: Deploy all application services
-        if: inputs.deployment_target == 'all'
+        if: inputs.deployment_target == 'all' || inputs.deployment_target == 'provision'
         shell: bash
         run: |
           set -euo pipefail
@@ -135,6 +167,9 @@ jobs:
             echo "- API health: ${api_origin}/health (HTTP 200)"
             echo "- Frontend health: ${frontend_url}/health (HTTP 200)"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify Citadel configuration after application deployment
+        if: inputs.deployment_target == 'provision'
+        run: node .github/scripts/provision-environment.cjs verify
       - name: Build and deploy frontend only
         if: inputs.deployment_target == 'frontend'
         shell: bash
