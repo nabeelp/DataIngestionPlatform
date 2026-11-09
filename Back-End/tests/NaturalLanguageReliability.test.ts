@@ -7,10 +7,9 @@ import { appConfig } from '../src/config/appConfig';
 import { goldenContract, loadGoldenCorpus, modelOutput, type GoldenCase } from './helpers/goldenCorpus';
 
 const createResponse = jest.fn();
-jest.mock('@azure/ai-projects', () => ({
-    AIProjectClient: jest.fn().mockImplementation(() => ({
-        getOpenAIClient: () => ({ responses: { create: createResponse } }),
-    })),
+jest.mock('openai', () => ({
+    __esModule: true,
+    default: jest.fn().mockImplementation(() => ({ responses: { create: createResponse } })),
 }));
 jest.mock('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.mock('../src/models/Rule.model', () => ({ Rule: { create: jest.fn(), update: jest.fn() } }));
@@ -59,7 +58,7 @@ const withBadRelatedColumn = (): GoldenCase['referenceProposal'] => {
 
 beforeEach(() => {
     jest.clearAllMocks();
-    appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
+    appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', model: 'test-model' };
     jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_contract, rule) => ({
         ok: true, errors: [], normalizedRule: rule, explanation: null,
     }));
@@ -393,7 +392,7 @@ describe('prompt guidance', () => {
     it('does not retry an authorization failure', async () => {
         createResponse.mockRejectedValue(Object.assign(new Error('denied'), { status: 403 }));
 
-        await expect(proposeNaturalLanguageRule(sales, fk.request)).rejects.toThrow('Foundry denied access (403)');
+        await expect(proposeNaturalLanguageRule(sales, fk.request)).rejects.toThrow('Citadel denied access (403)');
         expect(createResponse).toHaveBeenCalledTimes(1);
     });
 });

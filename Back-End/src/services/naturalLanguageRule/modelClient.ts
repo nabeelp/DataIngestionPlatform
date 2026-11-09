@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AIProjectClient } from '@azure/ai-projects';
-import { DefaultAzureCredential } from '@azure/identity';
+import OpenAI from 'openai';
 import type { Response as ModelResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { appConfig } from '../../config/appConfig';
 import { logger } from '../../utils/logger';
@@ -32,17 +31,24 @@ export function responseText(response: Pick<ModelResponse, 'output'>): { text: s
 const isAbort = (error: unknown, signal?: AbortSignal): boolean =>
     Boolean(signal?.aborted) || (error as Error)?.name === 'AbortError' || (error as Error)?.name === 'APIUserAbortError';
 
-type ModelClient = ReturnType<AIProjectClient['getOpenAIClient']>;
-let cachedClient: { key: string; client: ModelClient } | null = null;
+let cachedClient: { key: string; client: OpenAI } | null = null;
 
-function modelClient(config: { resource: string; project: string }): ModelClient {
-    const key = `${config.resource}/${config.project}`;
+function modelClient(config: { endpoint: string; subscriptionKey: string }): OpenAI {
+    const key = createHash('sha256').update(JSON.stringify(config)).digest('hex');
     if (cachedClient?.key !== key) {
-        const project = new AIProjectClient(
-            `https://${config.resource}.services.ai.azure.com/api/projects/${config.project}`,
-            new DefaultAzureCredential(),
-        );
-        cachedClient = { key, client: project.getOpenAIClient({ timeout: MODEL_TIMEOUT_MS, maxRetries: 1 }) };
+        cachedClient = {
+            key,
+            client: new OpenAI({
+                baseURL: config.endpoint.replace(/\/+$/, ''),
+                apiKey: config.subscriptionKey,
+                defaultHeaders: {
+                    'Ocp-Apim-Subscription-Key': config.subscriptionKey,
+                    Authorization: null,
+                },
+                timeout: MODEL_TIMEOUT_MS,
+                maxRetries: 1,
+            }),
+        };
     }
     return cachedClient.client;
 }
@@ -52,9 +58,18 @@ export async function callModel(
     report: Report,
     signal?: AbortSignal,
 ): Promise<ModelCallResult> {
-    const config = appConfig.azure.foundry;
-    if (!/^[a-z0-9-]+$/.test(config.resource) || !/^[a-zA-Z0-9_-]+$/.test(config.project) || !config.model.trim()) {
-        throw new RuleGenerationError('The Foundry resource, project or model configuration is invalid; check AZURE_FOUNDRY_* settings');
+    const config = appConfig.azure.citadel;
+    let endpoint: URL;
+    try {
+        endpoint = new URL(config.endpoint);
+    } catch {
+        throw new RuleGenerationError('CITADEL_ENDPOINT must be a valid HTTPS URL');
+    }
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+        throw new RuleGenerationError('CITADEL_ENDPOINT must be an HTTPS URL without credentials, query parameters or a fragment');
+    }
+    if (!config.subscriptionKey.trim() || !config.model.trim()) {
+        throw new RuleGenerationError('Citadel requires CITADEL_SUBSCRIPTION_KEY and a non-empty CITADEL_MODEL');
     }
 
     const { instructions, input } = call;
@@ -76,7 +91,7 @@ export async function callModel(
         if (Date.now() - lastEventAt < HEARTBEAT_MS - 100) return;
         const waited = seconds(Date.now() - started);
         report('info', phase === 'connecting'
-            ? `Still waiting for Foundry to accept the request (${waited})`
+            ? `Still waiting for Citadel to accept the request (${waited})`
             : phase === 'reasoning'
                 ? `The model is still reasoning about the rule (${waited})`
                 : `Still receiving the ${call.noun} (${received} characters, ${waited})`);
@@ -98,7 +113,7 @@ export async function callModel(
             switch (event.type) {
                 case 'response.created':
                     lastEventAt = Date.now();
-                    report('info', `Foundry accepted the request after ${seconds(Date.now() - started)} (response ${event.response.id})`);
+                    report('info', `Citadel accepted the request after ${seconds(Date.now() - started)} (response ${event.response.id})`);
                     break;
                 case 'response.output_item.added':
                     if (event.item.type === 'reasoning' && phase === 'connecting') {
@@ -138,14 +153,13 @@ export async function callModel(
                 : undefined;
             const name = (error as Error)?.name ?? '';
             if (status === 401 || status === 403) {
-                throw new ModelCallError(`Foundry denied access (${status})`, false);
+                throw new ModelCallError(`Citadel denied access (${status})`, false);
             }
-            if (status === 404) throw new ModelCallError(`Foundry could not find model deployment "${config.model}" (404)`, false, 404);
-            if (status === 429) throw new ModelCallError(`Foundry is rate-limiting requests to "${config.model}" (429)`, true);
-            if (status !== undefined) throw new ModelCallError(`Foundry returned an error (${status})`, status >= 500);
+            if (status === 404) throw new ModelCallError(`Citadel could not find model deployment "${config.model}" (404)`, false, 404);
+            if (status === 429) throw new ModelCallError(`Citadel is rate-limiting requests to "${config.model}" (429)`, true);
+            if (status !== undefined) throw new ModelCallError(`Citadel returned an error (${status})`, status >= 500);
             if (/Timeout/i.test(name)) throw new ModelCallError(`The model did not respond within ${MODEL_TIMEOUT_MS / 1000} seconds`, true);
-            if (/Connection/i.test(name)) throw new ModelCallError('Could not connect to Foundry', true);
-            if (/Credential|Authentication/.test(name)) throw new ModelCallError('Could not get an Azure access token for Foundry', false);
+            if (/Connection/i.test(name)) throw new ModelCallError('Could not connect to Citadel', true);
             // An unclassified failure (typically a dropped connection) is worth one more try; auth and 4xx are classified above.
             throw new ModelCallError('The call to the model failed', true);
         }

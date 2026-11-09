@@ -11,10 +11,9 @@ import { logger } from '../src/utils/logger';
 import { appConfig } from '../src/config/appConfig';
 
 const createResponse = jest.fn();
-jest.mock('@azure/ai-projects', () => ({
-    AIProjectClient: jest.fn().mockImplementation(() => ({
-        getOpenAIClient: () => ({ responses: { create: createResponse } }),
-    })),
+jest.mock('openai', () => ({
+    __esModule: true,
+    default: jest.fn().mockImplementation(() => ({ responses: { create: createResponse } })),
 }));
 jest.mock('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.mock('../src/models/Rule.model', () => ({
@@ -113,7 +112,7 @@ const request = 'Email must end with @contoso.example';
 describe('RuleConfig natural-language authoring', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
+        appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', model: 'test-model' };
         jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_schema, rule) => ({
             ok: true,
             errors: [],
@@ -544,7 +543,7 @@ describe('RuleConfig natural-language authoring', () => {
         expect(Rule.create).not.toHaveBeenCalled();
     });
 
-    it('retries a transient Foundry failure without losing the streamed review state', async () => {
+    it('retries a transient Citadel failure without losing the streamed review state', async () => {
         createResponse
             .mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }))
             .mockResolvedValueOnce(response(mappedProposal));
@@ -601,7 +600,7 @@ describe('RuleConfig natural-language authoring', () => {
         await proposeNaturalLanguageRule(contract, request, { onProgress: event => progress.push(event) });
         expect(progress.map(event => event.message)).toEqual(expect.arrayContaining([
             expect.stringContaining('Read the draft schema'),
-            expect.stringContaining('Foundry accepted the request'),
+            expect.stringContaining('Citadel accepted the request'),
             'The model is reasoning about the rule',
             'The model is writing its RuleConfig proposal',
             expect.stringContaining('Testing all 3 model examples'),
@@ -615,7 +614,7 @@ describe('RuleConfig natural-language authoring', () => {
         expect(Rule.create).not.toHaveBeenCalled();
     });
 
-    it('aborts an active streamed Foundry request when the caller cancels', async () => {
+    it('aborts an active streamed Citadel request when the caller cancels', async () => {
         const controller = new AbortController();
         createResponse.mockImplementation((_body: unknown, options: { signal: AbortSignal }) => ({
             async *[Symbol.asyncIterator]() {
@@ -628,7 +627,7 @@ describe('RuleConfig natural-language authoring', () => {
         const review = proposeNaturalLanguageRule(contract, request, {
             signal: controller.signal,
             onProgress: event => {
-                if (event.message.includes('Foundry accepted the request')) controller.abort();
+                if (event.message.includes('Citadel accepted the request')) controller.abort();
             },
         });
 

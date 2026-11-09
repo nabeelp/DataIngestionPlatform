@@ -13,10 +13,9 @@ import {
 } from './helpers/goldenCorpus';
 
 const createResponse = jest.fn();
-jest.mock('@azure/ai-projects', () => ({
-    AIProjectClient: jest.fn().mockImplementation(() => ({
-        getOpenAIClient: () => ({ responses: { create: createResponse } }),
-    })),
+jest.mock('openai', () => ({
+    __esModule: true,
+    default: jest.fn().mockImplementation(() => ({ responses: { create: createResponse } })),
 }));
 jest.mock('@azure/identity', () => ({ DefaultAzureCredential: jest.fn() }));
 jest.mock('../src/models/Rule.model', () => ({ Rule: { create: jest.fn(), update: jest.fn() } }));
@@ -52,7 +51,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 beforeEach(() => {
     jest.clearAllMocks();
-    appConfig.azure.foundry = { resource: 'test-foundry', project: 'test-project', model: 'test-model' };
+    appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', model: 'test-model' };
     jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_contract, rule) => ({
         ok: true, errors: [], normalizedRule: rule, explanation: null,
     }));

@@ -238,7 +238,7 @@ export function configFor(
     params.request = request;
     params.examples = examples;
     params.provenance = {
-        model: appConfig.azure.foundry.model,
+        model: appConfig.azure.citadel.model,
         responseId: provenance.responseId,
         promptSha256: provenance.promptSha256,
         createdAt: new Date().toISOString(),

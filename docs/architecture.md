@@ -6,7 +6,7 @@
 
 ## 1. Summary
 
-Business users upload CSV, TSV, TXT and Excel files against a governed **file definition**. A definition contains versioned tables, columns and rules. Each file is validated asynchronously by a Python/Polars engine. Users receive per-rule results and an issues report. If the definition requests it, the file is then delivered to a downstream location. Admins can write rules in plain language. Microsoft Foundry turns the text into a declarative rule or restricted SQL. Every proposal is validated and tested before it is saved, and it applies to uploads only after an admin publishes it.
+Business users upload CSV, TSV, TXT and Excel files against a governed **file definition**. A definition contains versioned tables, columns and rules. Each file is validated asynchronously by a Python/Polars engine. Users receive per-rule results and an issues report. If the definition requests it, the file is then delivered to a downstream location. Admins can write rules in plain language. A model behind Citadel's Azure API Management gateway turns the text into a declarative rule or restricted SQL. Every proposal is validated and tested before it is saved, and it applies to uploads only after an admin publishes it.
 
 **Recommended approach:** an Azure-native, event-driven design. A stateless web/API tier is decoupled through Service Bus from scale-to-zero validation workers. Data-plane access uses managed identities, and data services sit behind private endpoints.
 
@@ -17,7 +17,7 @@ flowchart LR
     User([Business user]) -->|Upload files, view results| DIP[Data Ingestion Platform]
     Admin([Data admin]) -->|Definitions, rules, publish, users| DIP
     DIP -->|Sign-in OIDC + PKCE| Entra[Microsoft Entra ID]
-    DIP -->|Rule text + schema names only| Foundry[Microsoft Foundry model]
+    DIP -->|Rule text + schema names only| Citadel[Citadel APIM gateway] --> Model[Model deployment]
     DIP -->|Validated files| Downstream[(Delivery container / downstream consumers)]
 ```
 
@@ -42,7 +42,7 @@ flowchart TB
     end
 
     SB{{Service Bus Standard<br/>validation-requests queue<br/>validation-events topic<br/>delivery-requests queue}}
-    FDY[Microsoft Foundry]
+    FDY[Citadel APIM gateway]
     MON[App Insights + Log Analytics]
     ACR[Container Registry]
 
@@ -51,7 +51,7 @@ flowchart TB
     API -->|Managed identity token| RS
     API --> SQL & BLOB & KV
     API -->|send / receive| SB
-    API -->|Responses API, MI| FDY
+    API -->|Responses API, subscription key| FDY
     SB -->|KEDA trigger| WK
     WK --> SQL & BLOB
     WK -->|events| SB
@@ -115,7 +115,7 @@ sequenceDiagram
 sequenceDiagram
     participant Ad as Admin
     participant A as API
-    participant F as Foundry model
+    participant F as Model via Citadel APIM
     participant R as Rules service
     Ad->>A: "Amount must be ≤ credit limit" + the workspace's unsaved structure and rules
     A->>F: Prompt + draft column, type and sheet names (no file data)
@@ -165,7 +165,8 @@ flowchart LR
     Browser([Browser]) -- "Static assets only" --> SPA[Web front-end<br/>Container App]
     Browser -- "App JWT (HS256, 24h)<br/>from password or Entra SSO" --> API
     API -- "MI → Entra token<br/>aud = Rules API, role access_as_application" --> RS[Rules service<br/>Easy Auth + principal check]
-    API -- "id-api MI" --> SQL & Blob & SB & KV & Foundry
+    API -- "id-api MI" --> SQL & Blob & SB & KV
+    API -- "APIM subscription key" --> Citadel
     WK[Worker] -- "id-worker MI" --> SQL & Blob & SB & KV
 ```
 
@@ -175,7 +176,7 @@ flowchart LR
   - RBAC is scoped to individual Blob containers and Service Bus entities.
   - SQL uses Entra-only authentication with contained users (`db_datareader`/`db_datawriter`).
   - Service Bus local/SAS authentication is disabled, and the ACR admin user is disabled.
-- **Secrets:** Only the JWT signing key, the SSO client secret and the App Insights connection string are stored, all in Key Vault and read by Container Apps through MI. There are no connection strings in Azure. Local `.env` files are git-ignored.
+- **Secrets:** The JWT signing key, SSO client secret, Citadel APIM subscription key and App Insights connection string are stored in Key Vault and read by Container Apps through MI. There are no data-service connection strings in Azure. Local `.env` files are git-ignored.
 - **User authentication:**
   - Entra SSO uses the authorization code flow with PKCE and server-side ID token validation. App-local password login is also supported.
   - The API then issues its own JWT. Roles are `admin` and `user`, with per-definition access grants.
@@ -185,9 +186,9 @@ flowchart LR
   - SHA-256 integrity check between intake and validation.
   - Helmet, CORS allow-list, rate limiting, and an optional token-protected `/metrics` endpoint.
 - **AI data handling:**
-  - Only the rule text and schema names are sent to Foundry, never file contents.
+  - Only the rule text and schema names are sent through Citadel, never file contents.
   - Full model output is logged only when debug logging is explicitly enabled.
-  - No API keys; Foundry access uses `DefaultAzureCredential`.
+  - The backend calls `https://np-aigw-apim.azure-api.net/models/responses` using an APIM subscription key from Key Vault (ignored `.env` locally). No key reaches the browser; APIM handles downstream model authentication.
 
 ## 7. Networking
 
@@ -224,7 +225,7 @@ flowchart LR
   - Images for the web front end, the API and the rules service/worker are built remotely in ACR with immutable tags.
   - The web image has no hard-coded API URL. At start, it writes `runtime-config.js` from `API_URL`, which must be HTTPS and end in `/api/v1`. One image can therefore be promoted across environments. The postprovision hook sets the API CORS origin and the SSO callback to the front-end URL.
   - Schema migrations run as an in-VNet job. The job temporarily elevates the bootstrap MI and always restores the SQL admin.
-- **Local development:** run `start.ps1` with Docker Compose (SQL Server, Azurite, Service Bus emulator). No Azure dependency except Foundry for NL rules.
+- **Local development:** run `start.ps1` with Docker Compose (SQL Server, Azurite, Service Bus emulator). No Azure dependency except Citadel for NL rules.
 
 ## 10. Cost drivers
 
@@ -236,7 +237,7 @@ There is no fixed estimate yet. It depends on active hours and data volumes.
   - Worker vCPU-seconds.
   - SQL serverless: 0.5–2 vCores, auto-pauses after 60 minutes.
   - Log Analytics ingestion.
-  - Foundry tokens: 1–3 calls per NL rule authoring session; none at upload time.
+  - Model tokens through Citadel: 1–3 calls per NL rule authoring session; none at upload time. Existing APIM gateway charges also apply.
 
 ## 11. Key decisions
 

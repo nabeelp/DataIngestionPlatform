@@ -80,8 +80,8 @@ async function reviewNaturalLanguageRule(
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         assertNotCancelled();
-        const { model, project } = appConfig.azure.foundry;
-        report('info', `Asking ${model} in Foundry project ${project} to review the rule (attempt ${attempt} of ${MAX_ATTEMPTS})`);
+        const { model } = appConfig.azure.citadel;
+        report('info', `Asking ${model} through Citadel to review the rule (attempt ${attempt} of ${MAX_ATTEMPTS})`);
         let generated: ModelProposal;
         try {
             generated = await requestProposal(request, contract, previousAttempt, report, options.signal);
