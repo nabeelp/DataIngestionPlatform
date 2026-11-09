@@ -85,7 +85,7 @@ jobs:
       - name: Links resolve, no stale terms, documented settings exist
         run: node scripts/check-docs.mjs
       - name: Deployment approval and source gates
-        run: node --test .github/scripts/verify-deployment-commit.test.cjs
+        run: node --test .github/scripts/*.test.cjs
 
   infrastructure:
     name: Azure Bicep

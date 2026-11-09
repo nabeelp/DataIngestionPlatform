@@ -232,8 +232,8 @@ also needs subscription deployment-history read access; use a narrow custom
 role for that operation rather than subscription-wide Contributor.
 Set the
 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_LOCATION`
-GitHub environment variables. The workflow deploys to an already provisioned
-`azd` environment; it does not provision infrastructure. Its `deployment_target`
+GitHub environment variables. The workflow uses an existing
+`azd` environment. Its `deployment_target`
 input defaults to `all` for coordinated releases and supports:
 
 - `validate`: Verify GitHub OIDC, both CLI logins, existing environment refresh
@@ -245,13 +245,16 @@ input defaults to `all` for coordinated releases and supports:
   does not start an execution or modify Service Bus messages.
 - `all`: Run `azd deploy` for the API, rules service and frontend, including
   the configured postdeploy SQL bootstrap and worker-image update hooks.
+- `provision`: Explicitly reconcile Bicep infrastructure, run postprovision
+  identity/SSO configuration, verify Citadel references and registry assignments,
+  then perform the same coordinated application deployment as `all`.
 
 All targets use the workflow run's commit SHA as an immutable image tag. The
 frontend and worker targets verify the existing managed identity's `AcrPull`
 assignment before deployment and then verify the resulting image; the frontend
-target also checks `/health`. For Bicep changes, review and approve a separate
-`azd provision` after a what-if preview; selecting a deployment target never
-applies infrastructure changes.
+target also checks `/health`. For Bicep changes, review a what-if preview and
+explicitly approve `provision` with the additional settings and permissions
+below. Other deployment targets never apply infrastructure changes.
 
 ## Preview, provision and deploy
 
@@ -286,6 +289,57 @@ The repository workflow is manual after merged-main CI succeeds; use `all` for
 a coordinated application deployment or a targeted frontend/worker deployment
 to avoid unrelated updates.
 Infrastructure provisioning remains a separate, explicitly approved step.
+
+### Provisioning infrastructure through GitHub Actions
+
+Select `deployment_target=provision` in the manual **Deploy to Azure** workflow
+to explicitly approve full Bicep reconciliation followed by deployment of all
+application services and the existing hooks. `all`, `frontend`, `worker` and
+`validate` retain their no-provisioning behavior. Successful merged-main CI,
+manual dispatch approval and any configured `azure-deployment` protection
+rules still apply; required reviewers are unavailable on the current plan.
+
+Configure these **GitHub Environment variables** in `azure-deployment`, in
+addition to the existing Azure OIDC/subscription/location variables:
+
+- Required: `SQL_ADMIN_OBJECT_ID`, `SQL_ADMIN_LOGIN`,
+  `RULES_SERVICE_API_CLIENT_ID`, `RULES_SERVICE_API_AUDIENCE`,
+  `RULES_SERVICE_API_ROLE_ID` and `MS_CLIENT_ID`. Use the existing SQL
+  administrator and Entra registrations; empty values and placeholder GUIDs
+  are rejected before provisioning. Unlike image-only deployment, provisioning
+  needs these settings and permission for the postprovision directory operations.
+- Optional: `WORKLOAD_NAME` (default `dataingest`), `CITADEL_ENDPOINT`,
+  `CITADEL_MODEL`, `WORKER_CPU`, `WORKER_MEMORY`,
+  `APPLICATIONINSIGHTS_SAMPLING_RATIO` and
+  `APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE`. Omitted values use the
+  Bicep defaults documented above; explicitly configure existing overrides to
+  retain them. The workflow refuses a workload/environment name that would
+  target a different API.
+
+Add **GitHub Environment secret** `CITADEL_SUBSCRIPTION_KEY`. This is required
+for the provisioning option and is passed as a process environment variable
+for validation/provisioning, not through CLI arguments or `azd env set`. Bicep writes the
+`citadel-subscription-key` Key Vault secret. Optional environment secrets
+`JWT_SECRET` and `MS_CLIENT_SECRET` update their existing Key Vault secrets;
+when omitted, those secrets must already exist and are not overwritten.
+
+Review `azd provision --preview` with the same settings before approving this
+option. Full provisioning can change networking, RBAC, SQL administration and
+runtime overrides, resets workloads to placeholder images until application
+deployment completes, and can cause downtime. It may also affect Azure costs
+(resource configuration and telemetry ingestion). Use a maintenance window;
+capture current settings/images and review recovery before approval. The
+deployment identity needs provisioning/RBAC and Entra permissions described
+in prerequisites; image-deployment permissions alone are insufficient.
+
+Before deploying images, the workflow verifies enabled Citadel secret metadata
+through the Azure management plane (no secret values or private-endpoint
+data-plane access), the API's Key Vault URL/managed-identity binding, the three
+Citadel environment settings and the four image-pulling identities' `AcrPull`
+assignments. Allow role propagation before approval. It repeats these checks
+after deploying applications, in addition to API/frontend health checks.
+These configuration checks do not prove model authorization: separately approve
+a billable synthetic rule review to validate the gateway end to end.
 
 ## Post-deployment checks
 
