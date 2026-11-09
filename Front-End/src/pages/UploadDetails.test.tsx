@@ -10,21 +10,30 @@ describe('upload details mapping', () => {
     vi.stubGlobal('localStorage', { getItem: () => 'test-token' });
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       success: true,
-      upload: { Id: 'upload-1', Status: 'VALIDATION_FAILED', UploadedAt: '2026-10-03' },
+      upload: {
+        Id: 'upload-1', FileDefinitionId: 'definition-1', OriginalFilename: 'orders.xlsx', FileType: 'XLSX',
+        FileSize: 2048, RowCountNo: 12, Status: 'VALIDATION_FAILED', UploadedAt: '2026-10-03T08:00:00.000Z',
+        ValidationCompletedAt: null, DeliveredTo: null, DefinitionName: 'Orders', DefinitionVersionNumber: 2,
+      },
+      definitionVersion: { id: 'version-2', versionNumber: 2, activatedAt: '2026-10-01T00:00:00.000Z' },
       sheets: [
-        { SheetIndex: 10, SheetName: 'Tenth', Status: 'VALIDATED' },
-        { SheetIndex: 2, SheetName: 'Second', Status: 'FAILED' },
-        { SheetIndex: 0, SheetName: 'First', Status: 'VALIDATED' },
+        { SheetIndex: 10, SheetName: 'Tenth', RowCountNo: 3, Status: 'VALIDATED', DeliveryPath: null },
+        { SheetIndex: 2, SheetName: 'Second', RowCountNo: 5, Status: 'FAILED', DeliveryPath: null },
+        { SheetIndex: 0, SheetName: 'First', RowCountNo: 4, Status: 'VALIDATED', DeliveryPath: null },
       ],
+      validationResult: null,
       ruleDetails: [{
-        RuleName: 'Execution error', RuleType: 'naturalLanguage', Sheet: 'Second',
+        RuleId: 'rule-1', RuleName: 'Execution error', RuleType: 'naturalLanguage', Sheet: 'Second',
         Status: 'ERROR', IssueCount: 1, ElapsedMs: 7,
         Issues: '[{"row":null,"column":null,"value":null,"message":"Check unavailable"}]',
       }, {
-        RuleName: 'Range warning', RuleType: 'range', Sheet: 'Tenth',
+        RuleId: 'rule-2', RuleName: 'Range warning', RuleType: 'range', Sheet: 'Tenth',
         Status: 'WARNING', IssueCount: 1, ElapsedMs: 3,
         Issues: '[{"row":4,"column":"Total","value":0,"message":"Outside range"}]',
       }],
+      deliveryRecords: [
+        { Id: 'delivery-1', DestinationPath: 'orders/2026/orders.xlsx', Status: 'DELIVERED' },
+      ],
     })));
     vi.stubGlobal('fetch', fetchMock);
     const upload = await fetchUploadDetails('upload-1');
@@ -38,6 +47,13 @@ describe('upload details mapping', () => {
     });
     expect(upload.rules[1]).toMatchObject({ status: 'Warning', errorCount: 1, time: '3ms' });
     expect(upload.rules[1].errors?.[0].rowNumber).toBe(4);
+    expect(upload).toMatchObject({
+      filename: 'orders.xlsx', status: 'Validation Failed', statusCode: 'VALIDATION_FAILED', fileSize: '2 KB',
+      rowCount: 12, validated: null, deliveredTo: '', definitionId: 'definition-1',
+      definitionName: 'Orders', definitionVersion: 2,
+      deliveryRecords: [{ id: 'delivery-1', filename: 'orders.xlsx', status: 'DELIVERED' }],
+    });
+    expect(upload.sheets[0]).toMatchObject({ index: '0', rows: 4, deliveryPath: '' });
   });
 
   it('preserves upload fetch access and API error handling', async () => {

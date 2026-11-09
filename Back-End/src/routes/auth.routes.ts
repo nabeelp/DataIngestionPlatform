@@ -8,7 +8,8 @@ import { rateLimit } from 'express-rate-limit';
 import { AuthService } from '../services/Auth.service';
 import { buildAuthorizeUrl } from '../services/MicrosoftSso.service';
 import { authenticate } from '../middleware/authMiddleware';
-import { logger } from '../utils/logger';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { HttpError } from '../utils/httpError';
 import type { SsoProvider } from '../interfaces/user.interface';
 
 const router = Router();
@@ -43,17 +44,16 @@ router.post(
         body('Password').isLength({ min: 1 }),
     ],
     validateRequest,
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req, res) => {
         try {
             const { Email, Password } = req.body;
             const result = await AuthService.handlePasswordLogin({ Email, Password });
             res.json(result);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Login failed';
-            logger.warn(`[AUTH] Password login failed: ${message}`);
-            res.status(401).json({ success: false, message });
+            // Every login failure is reported as 401 with the service's message.
+            throw new HttpError(error instanceof Error ? error.message : 'Login failed', 401);
         }
-    }
+    })
 );
 
 /**
@@ -71,9 +71,9 @@ router.post(
         body('Session').isString().isLength({ min: 1, max: 4096 }),
     ],
     validateRequest,
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req, res) => {
+        const { Provider, Code, State, Session } = req.body;
         try {
-            const { Provider, Code, State, Session } = req.body;
             const result = await AuthService.handleSsoLogin({
                 Provider: Provider as SsoProvider,
                 Code,
@@ -81,11 +81,11 @@ router.post(
                 Session,
             });
             res.json(result);
-        } catch (error) {
-            logger.warn('[AUTH] SSO login failed', error);
-            res.status(401).json({ success: false, message: 'SSO login failed' });
+        } catch {
+            // Details stay out of the response: provider errors can reveal token or tenant information.
+            throw new HttpError('SSO login failed', 401);
         }
-    }
+    })
 );
 
 /**
@@ -98,16 +98,15 @@ router.get(
     '/sso/url',
     [query('provider').isIn(['microsoft'])],
     validateRequest,
-    async (req: Request, res: Response) => {
+    asyncHandler(async (_req, res) => {
         try {
             const { url, state, session } = buildAuthorizeUrl();
             res.json({ success: true, url, state, session });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to generate SSO URL';
-            logger.warn(`[AUTH] SSO URL generation failed: ${message}`);
-            res.status(503).json({ success: false, message });
+            // Misconfigured SSO is a 503 with the configuration message, not a server fault.
+            throw new HttpError(error instanceof Error ? error.message : 'Failed to generate SSO URL', 503);
         }
-    }
+    })
 );
 
 /**
@@ -117,9 +116,9 @@ router.get(
 router.post(
     '/logout',
     authenticate,
-    async (_req: Request, res: Response) => {
+    asyncHandler(async (_req, res) => {
         res.json({ success: true, message: 'Logged out successfully' });
-    }
+    })
 );
 
 export default router;

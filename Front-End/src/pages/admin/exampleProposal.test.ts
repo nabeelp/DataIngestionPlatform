@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ExampleAnalysis } from '../../services/adminApi';
+import type { Column } from '../../contracts/definition-contract';
+import type { RuleConfig } from '../../contracts/rule-config';
+import type { ExampleAnalysis, ExampleSheet } from '../../services/adminApi';
 import {
   defaultSheetIndex,
   hintKey,
@@ -11,26 +13,39 @@ import {
   suggestionKey,
 } from './exampleProposal';
 
-const orders = {
+const suggestion = (table: string | null) => ({
+  rule: {
+    id: `status-${table}`,
+    name: 'Status allowed values',
+    description: '',
+    severity: 'Error' as const,
+    executionOrder: 1,
+    enabled: true,
+    table,
+    type: 'enum' as const,
+    params: { column: 'Status', values: ['Closed', 'Open'] },
+  } as RuleConfig,
+  reason: 'repeats',
+});
+
+const orders: ExampleSheet = {
   name: 'Orders',
   headerRow: 1,
   rowsAnalyzed: 4,
   truncated: false,
   columns: [
-    { name: 'Id', type: 'integer', required: true, filledRows: 4, sampleValues: ['1', '2'] },
-    { name: 'Status', type: 'string', required: false, filledRows: 3, sampleValues: ['Open'] },
+    { name: 'Id', type: 'integer', mustExist: true, nullable: false, filledRows: 4, sampleValues: ['1', '2'] },
+    { name: 'Status', type: 'string', mustExist: true, nullable: true, filledRows: 3, sampleValues: ['Open'] },
   ],
-  suggestedRules: [
-    { name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', severity: 'Error' as const, reason: 'repeats' },
-  ],
+  suggestedRules: [suggestion('Orders')],
   warnings: [],
 };
 
-const refunds = {
+const refunds: ExampleSheet = {
   ...orders,
   name: 'Refunds',
   rowsAnalyzed: 1,
-  columns: [{ name: 'Reason', type: 'string', required: true, filledRows: 1, sampleValues: ['Damaged'] }],
+  columns: [{ name: 'Reason', type: 'string', mustExist: true, nullable: false, filledRows: 1, sampleValues: ['Damaged'] }],
   suggestedRules: [],
 };
 
@@ -47,6 +62,8 @@ const analysis: ExampleAnalysis = {
 
 const statusKey = suggestionKey('Orders', 'Status allowed values');
 
+const tableDefaults = { headerRow: null, allowExtraColumns: true, minRows: null, maxRows: null };
+
 describe('example proposals', () => {
   it('derives a readable definition name from the file name', () => {
     expect(suggestedDefinitionName('customer_orders-2024.xlsx')).toBe('customer orders 2024');
@@ -60,34 +77,47 @@ describe('example proposals', () => {
     expect(proposesSheetTables({ ...analysis, fileType: 'csv', sheets: [{ ...orders, name: null }] })).toBe(false);
   });
 
-  it('builds a single table with hints and only the selected rules from one sheet', () => {
+  it('builds contract columns with hints and only the selected rules from one sheet', () => {
     const proposal = proposalFromSheet(analysis, 1, new Set([statusKey]));
 
     expect(proposal).toMatchObject({ source: 'customer_orders-2024.xlsx › Orders', layout: 'single', tables: [] });
     expect(proposal.columns).toEqual([
-      { name: 'Id', type: 'integer', required: true },
-      { name: 'Status', type: 'string', required: false },
+      { name: 'Id', type: 'integer', mustExist: true, nullable: false },
+      { name: 'Status', type: 'string', mustExist: true, nullable: true },
     ]);
     expect(proposal.hints[hintKey(null, 'Status')]).toEqual({ filledRows: 3, rowsAnalyzed: 4, sampleValues: ['Open'] });
-    expect(proposal.rules).toEqual([{ name: 'Status allowed values', ruleType: 'Enum Check', expression: 'Status: Closed, Open', severity: 'Error' }]);
+    // A single table has no sheet, so the suggested rule is no longer scoped to the sheet it came from.
+    expect(proposal.rules).toEqual([{ ...suggestion(null).rule, id: 'status-Orders', table: null }]);
     expect(proposalFromSheet(analysis, 1, new Set()).rules).toEqual([]);
   });
 
   it('uses the file name alone for CSV examples', () => {
-    const csv: ExampleAnalysis = { ...analysis, fileName: 'orders.csv', fileType: 'csv', sheets: [{ ...orders, name: null }] };
+    const csv: ExampleAnalysis = {
+      ...analysis,
+      fileName: 'orders.csv',
+      fileType: 'csv',
+      sheets: [{ ...orders, name: null, suggestedRules: [suggestion(null)] }],
+    };
     expect(proposalFromSheet(csv, 0, new Set([suggestionKey(null, 'Status allowed values')])).source).toBe('orders.csv');
     expect(proposalFromSheet(csv, 0, new Set([suggestionKey(null, 'Status allowed values')])).rules).toHaveLength(1);
   });
 
-  it('builds one table per chosen sheet, with rules scoped to their sheet', () => {
+  it('builds one contract table per chosen sheet, with rules scoped to their sheet', () => {
     const proposal = proposalFromSheets(analysis, [1, 2], new Set([statusKey]));
 
     expect(proposal).toMatchObject({ source: 'customer_orders-2024.xlsx (2 sheets)', layout: 'sheets', columns: [] });
     expect(proposal.tables).toEqual([
-      { sheet: 'Orders', columns: [{ name: 'Id', type: 'integer', required: true }, { name: 'Status', type: 'string', required: false }] },
-      { sheet: 'Refunds', columns: [{ name: 'Reason', type: 'string', required: true }] },
+      {
+        ...tableDefaults,
+        sheet: 'Orders',
+        columns: [
+          { name: 'Id', type: 'integer', mustExist: true, nullable: false },
+          { name: 'Status', type: 'string', mustExist: true, nullable: true },
+        ],
+      },
+      { ...tableDefaults, sheet: 'Refunds', columns: [{ name: 'Reason', type: 'string', mustExist: true, nullable: false }] },
     ]);
-    expect(proposal.rules).toEqual([expect.objectContaining({ name: 'Status allowed values', table: 'Orders' })]);
+    expect(proposal.rules).toEqual([expect.objectContaining({ name: 'Status allowed values', table: 'Orders', type: 'enum' })]);
     expect(proposal.hints[hintKey('Refunds', 'Reason')]).toMatchObject({ filledRows: 1 });
 
     // An excluded sheet contributes neither a table nor its rules.
@@ -99,12 +129,14 @@ describe('example proposals', () => {
   it('skips rules whose table or column no longer fits the definition', () => {
     const single = proposalFromSheet(analysis, 1, new Set([statusKey])).rules;
     const scoped = proposalFromSheets(analysis, [1, 2], new Set([statusKey])).rules;
-    const status = [{ name: 'Status', type: 'string', required: true }];
+    const status: Column[] = [{ name: 'Status', type: 'string', mustExist: true, nullable: false }];
+    const state: Column[] = [{ name: 'State', type: 'string', mustExist: true, nullable: false }];
+    const table = (sheet: string, columns: Column[]) => ({ ...tableDefaults, sheet, columns });
 
     expect(rulesForLayout(single, { layout: 'single', columns: status, tables: [] })).toEqual({ kept: single, skipped: [] });
-    expect(rulesForLayout(single, { layout: 'single', columns: [{ name: 'State', type: 'string', required: true }], tables: [] }).skipped).toEqual(single);
-    expect(rulesForLayout(scoped, { layout: 'sheets', columns: [], tables: [{ sheet: 'orders', columns: status }] }).kept).toEqual(scoped);
-    expect(rulesForLayout(scoped, { layout: 'sheets', columns: [], tables: [{ sheet: 'Refunds', columns: status }] }).skipped).toEqual(scoped);
+    expect(rulesForLayout(single, { layout: 'single', columns: state, tables: [] }).skipped).toEqual(single);
+    expect(rulesForLayout(scoped, { layout: 'sheets', columns: [], tables: [table('orders', status)] }).kept).toEqual(scoped);
+    expect(rulesForLayout(scoped, { layout: 'sheets', columns: [], tables: [table('Refunds', status)] }).skipped).toEqual(scoped);
     // Switching layout after applying rules leaves them unusable.
     expect(rulesForLayout(scoped, { layout: 'single', columns: status, tables: [] }).skipped).toEqual(scoped);
   });

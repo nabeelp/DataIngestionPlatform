@@ -192,7 +192,6 @@ export class Upload {
             .input('EngineVersion', dto.EngineVersion ?? null)
             .input('ReportBlobName', dto.ReportBlobName ?? null)
             .input('ParquetPrefix', dto.ParquetPrefix ?? null)
-            .input('AzureBlobUrl', dto.AzureBlobUrl || null)
             .input('FileSize', dto.FileSize)
             .input('FileType', dto.FileType)
             .input('RetryCount', dto.RetryCount || 0)
@@ -202,9 +201,9 @@ export class Upload {
             .input('UploadedAt', now)
             .query(`
                 INSERT INTO ${this.TABLE_NAME} 
-                                    (Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, BlobContainer, BlobName, FileSha256, DetectedEncoding, ValidationDate, EngineVersion, ReportBlobName, ParquetPrefix, AzureBlobUrl,                                     FileSize, FileType, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
+                (Id, FileDefinitionId, FileDefinitionVersionId, UploadedBy, OriginalFilename, StoredFilename, BlobContainer, BlobName, FileSha256, DetectedEncoding, ValidationDate, EngineVersion, ReportBlobName, ParquetPrefix, FileSize, FileType, RetryCount, RowCountNo, SheetCount, Status, UploadedAt)
                 VALUES 
-                                                                        (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @BlobContainer, @BlobName, @FileSha256, @DetectedEncoding, @ValidationDate, @EngineVersion, @ReportBlobName, @ParquetPrefix, @AzureBlobUrl, @FileSize, @FileType, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
+                (@Id, @FileDefinitionId, @FileDefinitionVersionId, @UploadedBy, @OriginalFilename, @StoredFilename, @BlobContainer, @BlobName, @FileSha256, @DetectedEncoding, @ValidationDate, @EngineVersion, @ReportBlobName, @ParquetPrefix, @FileSize, @FileType, @RetryCount, @RowCountNo, @SheetCount, @Status, @UploadedAt)
             `);
 
 
@@ -273,10 +272,6 @@ export class Upload {
         if (updates.SheetCount !== undefined) {
             setClauses.push('SheetCount = @SheetCount');
             request.input('SheetCount', updates.SheetCount);
-        }
-        if (updates.AzureBlobUrl !== undefined) {
-            setClauses.push('AzureBlobUrl = @AzureBlobUrl');
-            request.input('AzureBlobUrl', updates.AzureBlobUrl);
         }
         if (updates.DeliveredTo !== undefined) {
             setClauses.push('DeliveredTo = @DeliveredTo');

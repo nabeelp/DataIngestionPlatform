@@ -1,52 +1,38 @@
-import {
-    contractFromLegacyColumns,
-    emptyDefinitionContract,
-    legacyColumnsFromContract,
-    legacySnapshotFromContract,
-    legacyTablesFromContract,
-    parseDefinitionContract,
-} from '../src/models/contractMapper';
+import { emptyDefinitionContract, parseDefinitionContract } from '../src/models/contractMapper';
 import { mapVersionRow } from '../src/models/FileDefinitionVersion.model';
 
 describe('definition contract persistence mapping', () => {
-    it('stores a single-table definition as the full versioned contract', () => {
-        const columns = [
-            { name: 'Amount', type: 'decimal' as const, required: true },
-            { name: 'Comment', type: 'string' as const, required: false },
+    it('stores a definition as the full versioned contract and reads it back unchanged', () => {
+        const contract = emptyDefinitionContract();
+        contract.tables[0].columns = [
+            { name: 'Amount', type: 'decimal', mustExist: true, nullable: false, precision: 12, scale: 2 },
+            { name: 'Comment', type: 'string', mustExist: true, nullable: true },
         ];
-        const contract = contractFromLegacyColumns(columns);
 
+        expect(parseDefinitionContract(JSON.stringify(contract))).toEqual(contract);
         expect(contract).toMatchObject({
             schemaVersion: 1,
             layout: 'single',
             encoding: 'auto',
-            tables: [{
-                sheet: null,
-                headerRow: null,
-                allowExtraColumns: true,
-                minRows: null,
-                maxRows: null,
-                columns: [
-                    { name: 'Amount', type: 'decimal', mustExist: true, nullable: false },
-                    { name: 'Comment', type: 'string', mustExist: true, nullable: true },
-                ],
-            }],
             rules: [],
             lookups: {},
         });
-        expect(legacyColumnsFromContract(parseDefinitionContract(JSON.stringify(contract)))).toEqual(columns);
     });
 
     it('round-trips sheet tables without collapsing their independent schemas', () => {
-        const tables = [
-            { sheet: 'Orders', columns: [{ name: 'OrderId', type: 'string' as const, required: true }] },
-            { sheet: 'Lines', columns: [{ name: 'Quantity', type: 'integer' as const, required: true }] },
+        const contract = emptyDefinitionContract();
+        contract.layout = 'sheets';
+        contract.tables = [
+            { sheet: 'Orders', headerRow: 2, allowExtraColumns: false, minRows: 1, maxRows: null, columns: [{ name: 'OrderId', type: 'string', mustExist: true, nullable: false }] },
+            { sheet: 'Lines', headerRow: null, allowExtraColumns: true, minRows: null, maxRows: 500, columns: [{ name: 'Quantity', type: 'integer', mustExist: true, nullable: false }] },
         ];
-        const contract = contractFromLegacyColumns([], tables);
 
-        expect(contract.layout).toBe('sheets');
-        expect(legacyTablesFromContract(contract)).toEqual(tables);
-        expect(legacySnapshotFromContract(contract)).toMatchObject({ columns: [], tables });
+        const parsed = parseDefinitionContract(JSON.stringify(contract));
+
+        expect(parsed.layout).toBe('sheets');
+        expect(parsed.tables.map(table => table.sheet)).toEqual(['Orders', 'Lines']);
+        expect(parsed.tables[0]).toMatchObject({ headerRow: 2, allowExtraColumns: false, minRows: 1 });
+        expect(parsed.tables[1].columns[0].name).toBe('Quantity');
     });
 
     it('rejects malformed stored contract JSON rather than returning an empty contract', () => {
@@ -54,7 +40,7 @@ describe('definition contract persistence mapping', () => {
         expect(() => parseDefinitionContract({ schemaVersion: 2 })).toThrow('Stored definition contract does not match schema version 1.');
     });
 
-    it('drops unsupported properties from legacy stored columns', () => {
+    it('drops unsupported properties from stored columns', () => {
         const contract = parseDefinitionContract({
             schemaVersion: 1,
             layout: 'single',
@@ -109,7 +95,7 @@ describe('definition contract persistence mapping', () => {
         });
 
         expect(version.Contract).toEqual(contract);
-        expect(version.Columns).toEqual([{ name: 'Date', type: 'date', required: true }]);
-        expect(version.Tables).toEqual([]);
+        expect(version).not.toHaveProperty('Columns');
+        expect(version).not.toHaveProperty('Rules');
     });
 });

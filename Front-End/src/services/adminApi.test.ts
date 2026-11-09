@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DefinitionContract } from '../contracts/definition-contract';
-import { createFileDefinitionAdmin, getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion, removeTemplate } from './adminApi';
+import type { RuleConfig } from '../contracts/rule-config';
+import { createFileDefinitionAdmin, getFileDefinitionVersions, getQueueStats, publishFileDefinitionVersion, removeTemplate, updateFileDefinitionAdmin } from './adminApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,14 +43,39 @@ describe('definition version API', () => {
       lookups: {},
     };
 
-    await createFileDefinitionAdmin({
-      name: 'Transactions',
-      columns: [{ name: 'Amount', type: 'decimal', required: true }],
-      contract,
-    });
+    const rule: RuleConfig = {
+      id: 'rule-1',
+      name: 'Amount range',
+      description: '',
+      severity: 'Error',
+      executionOrder: 1,
+      enabled: true,
+      table: null,
+      type: 'range',
+      params: { column: 'Amount', min: 0, max: 100 },
+    } as RuleConfig;
+
+    await createFileDefinitionAdmin({ name: 'Transactions', contract, rules: [rule] });
 
     const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(init.body).contract).toEqual(contract);
+    const body = JSON.parse(init.body);
+    expect(body.contract).toEqual(contract);
+    expect(body.rules).toEqual([rule]);
+    expect(body).not.toHaveProperty('columns');
+    expect(body).not.toHaveProperty('tables');
+  });
+
+  it('saves the whole draft with the contract, rules and revision when updating', async () => {
+    const fetchMock = stubFetch(200, { success: true, definition: { id: 'def-1' }, revision: 'rev-2' });
+    const contract = { schemaVersion: 1, layout: 'single', ignoredSheets: [], encoding: 'auto', tables: [], rules: [], lookups: {} } as unknown as DefinitionContract;
+
+    const saved = await updateFileDefinitionAdmin('def-1', { name: 'Transactions', contract, rules: [], revision: 'rev-1' });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/v1/admin/file-definitions/def-1');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual({ name: 'Transactions', contract, rules: [], revision: 'rev-1' });
+    expect(saved).toMatchObject({ id: 'def-1', revision: 'rev-2' });
   });
 
   it('loads the version history and draft changes for a definition', async () => {

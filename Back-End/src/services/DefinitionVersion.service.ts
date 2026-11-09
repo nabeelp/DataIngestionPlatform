@@ -11,17 +11,17 @@ import { logger } from '../utils/logger';
 import {
     diffContracts,
     type ContractDiff,
-    type ContractSnapshot,
 } from './validation/DefinitionContract';
 import type { IDefinitionMetadataSnapshot, IFileDefinitionVersion } from '../interfaces/fileDefinition.interface';
 import type { DefinitionContract } from '../contracts/definition-contract';
 import type { RuleConfig } from '../contracts/rule-config';
-import { legacySnapshotFromContract, parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
-import { RulesService } from './RulesService.service';
+import { parseDefinitionContract, parseRuleConfig } from '../models/contractMapper';
+import { RulesServiceClient } from './RulesServiceClient';
+import { HttpError } from '../utils/httpError';
 
-export class DefinitionVersionError extends Error {
+export class DefinitionVersionError extends HttpError {
     constructor(message: string, readonly statusCode: 400 | 404 | 409) {
-        super(message);
+        super(message, statusCode);
         this.name = 'DefinitionVersionError';
     }
 }
@@ -34,7 +34,7 @@ export interface VersionSummary {
 
 export interface DraftState {
     activeVersion: IFileDefinitionVersion | null;
-    draft: ContractSnapshot;
+    draft: DefinitionContract;
     diff: DefinitionDiff;
 }
 
@@ -43,7 +43,8 @@ export interface DefinitionVersionState {
     hasUnpublishedChanges: boolean;
 }
 
-export interface ValidationContract extends ContractSnapshot {
+/** The pinned version an upload is validated against; its `contract` holds the tables and enabled rules. */
+export interface ValidationContract {
     version: IFileDefinitionVersion;
     contract: DefinitionContract;
 }
@@ -51,14 +52,10 @@ export interface ValidationContract extends ContractSnapshot {
 export const toVersionSummary = (version: IFileDefinitionVersion | null): VersionSummary | null =>
     version ? { id: version.Id, versionNumber: version.VersionNumber, activatedAt: version.ActivatedAt } : null;
 
-const contractOf = (version: IFileDefinitionVersion | null): ContractSnapshot | null =>
-    version ? { columns: version.Columns, tables: version.Tables, rules: version.Rules } : null;
-
 const MAX_CHANGE_NOTE_LENGTH = 500;
 
 interface DraftContract {
     contract: DefinitionContract;
-    snapshot: ContractSnapshot;
     metadata: IDefinitionMetadataSnapshot;
 }
 
@@ -76,9 +73,9 @@ const METADATA_LABELS: Record<keyof IDefinitionMetadataSnapshot, string> = {
 
 const diffDefinition = (
     active: IFileDefinitionVersion | null,
-    draft: Pick<DraftContract, 'snapshot' | 'metadata'>,
+    draft: Pick<DraftContract, 'contract' | 'metadata'>,
 ): DefinitionDiff => {
-    const contract = diffContracts(contractOf(active), draft.snapshot);
+    const contract = diffContracts(active?.Contract ?? null, draft.contract);
     const metadata: DefinitionDiff['metadata'] = { added: [], removed: [], changed: [] };
     if (!active?.DefinitionMetadata) {
         metadata.added = Object.values(METADATA_LABELS);
@@ -160,7 +157,6 @@ async function readDraft(
     const row = definition.recordset[0];
     return {
         contract,
-        snapshot: legacySnapshotFromContract(contract),
         metadata: {
             name: String(row.Name),
             description: String(row.Description ?? ''),
@@ -181,7 +177,7 @@ export class DefinitionVersionService {
         if (!draft) throw new DefinitionVersionError('File definition not found', 404);
 
         const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
-        return { activeVersion, draft: draft.snapshot, diff: diffDefinition(activeVersion, draft) };
+        return { activeVersion, draft: draft.contract, diff: diffDefinition(activeVersion, draft) };
     }
 
     static async getDraftContract(fileDefinitionId: string, excludeRuleId?: string): Promise<DefinitionContract> {
@@ -196,7 +192,7 @@ export class DefinitionVersionService {
     static async previewDiff(fileDefinitionId: string, contract: DefinitionContract): Promise<ContractDiff> {
         const pool = await getConnection();
         const activeVersion = await FileDefinitionVersion.findActive(pool, fileDefinitionId);
-        return diffContracts(contractOf(activeVersion), legacySnapshotFromContract(contract));
+        return diffContracts(activeVersion?.Contract ?? null, contract);
     }
 
     /**
@@ -232,7 +228,7 @@ export class DefinitionVersionService {
     /**
      * Version state for each definition, for list views.
      */
-    static async getVersionStates(definitions: { Id: string; Columns: unknown; Tables?: unknown }[]): Promise<Map<string, DefinitionVersionState>> {
+    static async getVersionStates(definitions: { Id: string }[]): Promise<Map<string, DefinitionVersionState>> {
         const pool = await getConnection();
         const activeVersions = await FileDefinitionVersion.findAllActive(pool);
         const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));
@@ -252,10 +248,9 @@ export class DefinitionVersionService {
     }
 
     /**
-     * Present definitions as uploaders see them: with the columns and sheet tables of the active version rather
-     * than the draft.
+     * Present definitions as uploaders see them: with the contract of the active version rather than the draft.
      */
-    static async withPublishedColumns<T extends { Id: string; Columns: unknown }>(definitions: T[]): Promise<(T & { ActiveVersion: VersionSummary | null })[]> {
+    static async withPublishedContract<T extends { Id: string; Contract: DefinitionContract }>(definitions: T[]): Promise<(T & { ActiveVersion: VersionSummary | null })[]> {
         if (definitions.length === 0) return [];
         const activeVersions = await FileDefinitionVersion.findAllActive(await getConnection());
         const activeByDefinition = new Map(activeVersions.map(v => [String(v.FileDefinitionId).toLowerCase(), v]));
@@ -265,8 +260,6 @@ export class DefinitionVersionService {
                 ? {
                     ...definition,
                     Contract: active.Contract,
-                    Columns: active.Columns,
-                    Tables: active.Tables,
                     ActiveVersion: toVersionSummary(active),
                 }
                 : { ...definition, ActiveVersion: null };
@@ -282,13 +275,7 @@ export class DefinitionVersionService {
             ? await FileDefinitionVersion.findById(await getConnection(), upload.FileDefinitionVersionId)
             : await this.ensureActiveVersion(upload.FileDefinitionId, null);
         if (!version) throw new Error(`File definition version ${upload.FileDefinitionVersionId} not found`);
-        return {
-            version,
-            contract: version.Contract,
-            columns: version.Columns,
-            tables: version.Tables,
-            rules: version.Rules,
-        };
+        return { version, contract: version.Contract };
     }
 
     private static async publishDraft(
@@ -317,7 +304,7 @@ export class DefinitionVersionService {
                 throw new DefinitionVersionError(`There are no changes to publish; version ${active.VersionNumber} is already active`, 409);
             }
             if (options.validate) {
-                const validation = await RulesService.validateContract(draft.contract);
+                const validation = await RulesServiceClient.validateContract(draft.contract);
                 if (!validation.ok) {
                     const details = validation.errors
                         .map(item => `${item.path}: ${item.message}`)

@@ -23,8 +23,6 @@ const definition = {
   id: 'def-1',
   name: 'Orders',
   description: '',
-  columns: [],
-  tables: [],
   contract,
   status: 'Active',
   createdAt: '2026-01-01T00:00:00Z',
@@ -234,8 +232,11 @@ test('adding and editing rules is buffered and saved with the definition', async
   await page.getByRole('button', { name: 'Publish version 2' }).click();
 
   await expect.poll(() => calls.saves.length).toBe(1);
-  const saved = calls.saves[0] as { rules: Array<{ name: string; severity: string }>; revision: string };
+  const saved = calls.saves[0] as { contract: { layout: string }; rules: Array<{ name: string; severity: string }>; revision: string };
   expect(saved.revision).toBe('rev-1');
+  expect(saved.contract.layout).toBe('single');
+  expect(saved).not.toHaveProperty('columns');
+  expect(saved).not.toHaveProperty('tables');
   expect(saved.rules.map(item => `${item.name}:${item.severity}`)).toEqual(['Amount range:Warning', 'Allowed statuses:Error']);
   await expect.poll(() => calls.publishes).toBe(1);
 });
@@ -649,7 +650,10 @@ test('a new definition can be created with its rules in one workspace', async ({
   await form.getByRole('button', { name: 'Publish version 1' }).click();
 
   await expect.poll(() => calls.creates.length).toBe(1);
-  const created = calls.creates[0] as { rules: Array<{ name: string; type: string; params: { column: string; min: number } }> };
+  const created = calls.creates[0] as { contract: { layout: string }; rules: Array<{ name: string; type: string; params: { column: string; min: number } }> };
+  expect(created).not.toHaveProperty('columns');
+  expect(created).not.toHaveProperty('tables');
+  expect(created.contract.layout).toBe('single');
   expect(created.rules).toHaveLength(1);
   expect(created.rules[0]).toMatchObject({ name: 'Amount range', type: 'range', params: { column: 'Amount', min: 0 } });
 });

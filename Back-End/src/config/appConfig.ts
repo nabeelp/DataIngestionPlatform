@@ -72,12 +72,12 @@ export const appConfig = {
         },
     },
 
-    // Azure Storage and Foundry Configuration
+    // Azure Storage and Citadel Configuration
     azure: {
-        foundry: {
-            resource: process.env.AZURE_FOUNDRY_RESOURCE || '',
-            project: process.env.AZURE_FOUNDRY_PROJECT || '',
-            model: process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.3-codex',
+        citadel: {
+            endpoint: process.env.CITADEL_ENDPOINT || 'https://np-aigw-apim.azure-api.net/models',
+            subscriptionKey: process.env.CITADEL_SUBSCRIPTION_KEY || '',
+            model: process.env.CITADEL_MODEL || process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.3-codex',
         },
         storage: {
             connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',

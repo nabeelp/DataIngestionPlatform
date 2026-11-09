@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Loader2, Wand2 } from 'lucide-react';
 import { analyzeExampleFile, type ExampleAnalysis, type ExampleSheet } from '../../services/adminApi';
+import { isRequiredColumn, withRequired } from '../../contracts/columnRequirement';
+import { describeRule, ruleTypeLabel } from '../../features/definition-rules';
 import {
   defaultSheetIndex,
   populatedSheetIndexes,
@@ -71,7 +73,7 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
   const setSheetRules = (target: ExampleSheet, selected: boolean) => {
     setSelectedRules(prev => {
       const next = new Set(prev);
-      for (const rule of target.suggestedRules) {
+      for (const { rule } of target.suggestedRules) {
         const key = suggestionKey(target.name, rule.name);
         if (selected) next.add(key);
         else next.delete(key);
@@ -83,7 +85,7 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
   const updateColumn = (
     sheetIndex: number,
     columnIndex: number,
-    changes: Partial<Pick<ExampleSheet['columns'][number], 'type' | 'required'>>,
+    changes: Partial<Pick<ExampleSheet['columns'][number], 'type'>> | { required: boolean },
   ) => {
     setAnalysis(current => {
       if (!current) return current;
@@ -92,9 +94,10 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
         sheets: current.sheets.map((sheet, currentSheetIndex) => currentSheetIndex === sheetIndex
           ? {
               ...sheet,
-              columns: sheet.columns.map((column, currentColumnIndex) => currentColumnIndex === columnIndex
-                ? { ...column, ...changes }
-                : column),
+              columns: sheet.columns.map((column, currentColumnIndex) => {
+                if (currentColumnIndex !== columnIndex) return column;
+                return 'required' in changes ? withRequired(column, changes.required) : { ...column, ...changes };
+              }),
             }
           : sheet),
       };
@@ -230,7 +233,7 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
                                     <select
                                       aria-label={`Type for ${column.name} in ${label}`}
                                       value={column.type}
-                                      onChange={event => updateColumn(index, columnIndex, { type: event.target.value })}
+                                      onChange={event => updateColumn(index, columnIndex, { type: event.target.value as ExampleSheet['columns'][number]['type'] })}
                                       className="w-24 rounded border border-gray-300 bg-white px-2 py-1 text-xs"
                                     >
                                       <option value="string">String</option>
@@ -246,13 +249,13 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
                                       <input
                                         type="checkbox"
                                         aria-label={`Required for ${column.name} in ${label}`}
-                                        checked={column.required}
+                                        checked={isRequiredColumn(column)}
                                         onChange={event => updateColumn(index, columnIndex, {
                                           required: event.target.checked,
                                         })}
                                         className="rounded border-gray-300"
                                       />
-                                      <span>{column.required ? 'Yes' : 'No'}</span>
+                                      <span>{isRequiredColumn(column) ? 'Yes' : 'No'}</span>
                                     </label>
                                   </td>
                                   <td className="px-2 py-1.5 whitespace-nowrap">{column.filledRows}/{sheet.rowsAnalyzed}</td>
@@ -280,7 +283,7 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
                                 Clear
                               </button>
                             </div>
-                            {sheet.suggestedRules.map(rule => {
+                            {sheet.suggestedRules.map(({ rule, reason }) => {
                               const key = suggestionKey(sheet.name, rule.name);
                               return (
                                 <label key={key} className={`mb-1 flex items-start gap-2 text-xs ${rulesSelectable ? 'text-gray-700' : 'text-gray-400'}`}>
@@ -291,8 +294,8 @@ export default function ExampleFileAssistant({ allowRules, onProposalChange, emb
                                     className="mt-0.5 rounded border-gray-300"
                                   />
                                   <span>
-                                    <span className="font-medium">{rule.ruleType}</span> <code className="rounded bg-gray-100 px-1">{rule.expression}</code>
-                                    <span className="block text-gray-500">{rule.reason}.</span>
+                                    <span className="font-medium">{ruleTypeLabel(rule.type)}</span> <code className="rounded bg-gray-100 px-1">{describeRule(rule)}</code>
+                                    <span className="block text-gray-500">{reason}.</span>
                                   </span>
                                 </label>
                               );

@@ -20,7 +20,6 @@ const makeUpload = (Status: UploadStatus): IUpload => ({
     EngineVersion: null,
     ReportBlobName: null,
     ParquetPrefix: null,
-    AzureBlobUrl: null,
     FileSize: 1,
     FileType: 'csv',
     RetryCount: 0,

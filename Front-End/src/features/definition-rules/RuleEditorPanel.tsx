@@ -19,6 +19,7 @@ import {
 } from './ruleDraftApi';
 import { ruleProblems, type RuleStructure } from './ruleReferences';
 import { RULE_TYPE_OPTIONS, ruleTypeDescription, type BuiltInRuleType } from './ruleText';
+import { initialForm, scopeParamsToColumns, type FormState } from './ruleEditorForm';
 
 interface Props {
   /** The rule being edited; null creates a rule of a built-in type. */
@@ -26,65 +27,14 @@ interface Props {
   context: DraftContext;
   structure: RuleStructure;
   lookups: Array<{ id: string; name: string }>;
-  token: string | null;
   /** The saved definition, for dry runs; null while it is being created. */
   definitionId: string | null;
   onSave: (rule: RuleConfig) => void;
   onCancel: () => void;
 }
 
-interface FormState {
-  name: string;
-  description: string;
-  severity: 'Error' | 'Warning';
-  ruleType: RuleConfig['type'];
-  tableName: string;
-  params: Record<string, unknown>;
-}
-
-const scopeParamsToColumns = (
-  type: RuleConfig['type'],
-  params: Record<string, unknown>,
-  columns: string[],
-): Record<string, unknown> => {
-  const available = new Set(columns.map(column => column.trim().toLowerCase()));
-  const keep = (column: unknown): string =>
-    typeof column === 'string' && available.has(column.trim().toLowerCase()) ? column : '';
-  const keepMany = (value: unknown): string[] =>
-    Array.isArray(value) ? value.filter((column): column is string => typeof column === 'string' && available.has(column.trim().toLowerCase())) : [];
-
-  if (type === 'unique') return { ...params, columns: keepMany(params.columns) };
-  if (type === 'conditionalRequired') {
-    const when = params.when && typeof params.when === 'object' && !Array.isArray(params.when)
-      ? params.when as Record<string, unknown>
-      : {};
-    return { ...params, columns: keepMany(params.columns), when: { ...when, column: keep(when.column) } };
-  }
-  if (type === 'compare') return { ...params, left: keep(params.left), right: keep(params.right) };
-  if (type === 'rowCount' || type === 'reconcile' || type === 'naturalLanguage') return params;
-  return { ...params, column: keep(params.column) };
-};
-
-const initialForm = (rule: RuleConfig | null): FormState => rule
-  ? {
-      name: rule.name,
-      description: rule.description,
-      severity: rule.severity,
-      ruleType: rule.type,
-      tableName: rule.table ?? '',
-      params: rule.params as Record<string, unknown>,
-    }
-  : {
-      name: '',
-      description: '',
-      severity: 'Error',
-      ruleType: RULE_TYPE_OPTIONS[0].value,
-      tableName: '',
-      params: defaultRuleParams(RULE_TYPE_OPTIONS[0].value),
-    };
-
 /** Edits one rule of the workspace's draft. Nothing is saved to the server; Save hands the rule back to the draft. */
-export default function RuleEditorPanel({ rule, context, structure, lookups, token, definitionId, onSave, onCancel }: Props) {
+export default function RuleEditorPanel({ rule, context, structure, lookups, definitionId, onSave, onCancel }: Props) {
   const [base, setBase] = useState<RuleConfig | null>(rule);
   const [form, setForm] = useState<FormState>(() => initialForm(rule));
   const [validation, setValidation] = useState<RuleConfigValidationResult | null>(null);
@@ -231,9 +181,8 @@ export default function RuleEditorPanel({ rule, context, structure, lookups, tok
     setRegenerationError(null);
     setActivity([{ level: 'info', message: 'Sending the revised rule to the server', elapsedMs: 0 }]);
     try {
-      const result = await proposeNaturalLanguageRule({
-        token,
-        context,
+      const result = await       proposeNaturalLanguageRule({
+              context,
         request: request.trim(),
         existing: base,
         signal: controller.signal,

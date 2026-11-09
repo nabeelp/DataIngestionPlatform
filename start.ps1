@@ -177,7 +177,10 @@ foreach ($project in @($backend, $frontend)) {
 }
 
 $settings = Read-EnvironmentFile -Path $backendEnv
-$requiredSettings = @(
+# The rules service requires an explicit auth mode; local runs authenticate with the shared development key.
+if ([string]::IsNullOrEmpty($env:RULES_SERVICE_AUTH_MODE)) {
+    $env:RULES_SERVICE_AUTH_MODE = 'shared-key'
+}$requiredSettings = @(
     'DB_CONNECTION_STRING',
     'JWT_SECRET',
     'MSSQL_SA_PASSWORD',

@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, Activity, Upload, AlertTriangle, FileText, Clock, ShieldCheck, List } from 'lucide-react';
-import { getAdminStats, AdminStats } from '../services/adminApi';
+import { useAdminStatsQuery } from '../services/hooks/admin';
 
 //#region ADMIN MODULE NAVIGATION
 const ADMIN_MODULES = [
@@ -15,30 +14,10 @@ const ADMIN_MODULES = [
 //#endregion
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await getAdminStats();
-        setStats(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard statistics');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-    
-    // Refresh stats every 30 seconds
-    const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const statsQuery = useAdminStatsQuery();
+  const stats = statsQuery.data ?? null;
+  const loading = statsQuery.isPending;
+  const error = statsQuery.isError ? statsQuery.error.message || 'Failed to load dashboard statistics' : null;
 
   if (loading && !stats) {
     return (

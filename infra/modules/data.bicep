@@ -32,6 +32,10 @@ param jwtSecret string
 @description('Entra SSO client secret written to Key Vault when supplied.')
 param msClientSecret string
 
+@secure()
+@description('Citadel APIM subscription key written to Key Vault when supplied.')
+param citadelSubscriptionKey string
+
 @description('Application Insights connection string written to Key Vault.')
 param appInsightsConnectionString string
 
@@ -182,6 +186,14 @@ resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' = {
       family: 'A'
       name: 'standard'
     }
+  }
+}
+
+resource citadelKeyVaultSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (!empty(citadelSubscriptionKey)) {
+  parent: keyVault
+  name: 'citadel-subscription-key'
+  properties: {
+    value: citadelSubscriptionKey
   }
 }
 

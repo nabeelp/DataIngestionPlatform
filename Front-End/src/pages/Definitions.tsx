@@ -1,111 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Plus, Download } from 'lucide-react';
-import { apiConfig } from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { downloadTemplate } from '../services/definitionApi';
+import { isRequiredColumn } from '../contracts/columnRequirement';
+import { downloadTemplate, type DefinitionSummary } from '../services/definitionApi';
+import { useDefinitionsQuery } from '../services/hooks/definitions';
 import PublishedRulesSection from '../features/definition-rules/PublishedRulesSection';
 
-//#region INTERFACES
-interface Column {
-  name: string;
-  type: string;
-  required: boolean;
-}
-
-interface Definition {
-  id: string;
-  name: string;
-  description: string;
-  /** All columns (across sheet tables) for the summary chips. */
-  columns: Column[];
-  /** The tables uploads are validated against: one per sheet, or a single table (sheet null). */
-  tables: { sheet: string | null; columns: Column[] }[];
-  status: string;
-  createdAt: string;
-  hasTemplate: boolean;
-  versionNumber: number | null;
-  versionActivatedAt: string | null;
-}
-//#endregion
-
 export default function Definitions() {
-  const [definitions, setDefinitions] = useState<Definition[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedDef, setSelectedDef] = useState<Definition | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const definitionsQuery = useDefinitionsQuery();
+  const definitions: DefinitionSummary[] = definitionsQuery.data?.definitions ?? [];
+  const [selectedDefId, setSelectedDefId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const isAdmin = user?.Role === 'admin';
-
-  useEffect(() => {
-    fetchDefinitions();
-  }, []);
-
-  const fetchDefinitions = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const baseUrl = apiConfig.getBaseUrl();
-      const url = `${baseUrl}/definitions`;
-
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-
-      // Add auth token if available
-      const storedToken = localStorage.getItem('token');
-      if (storedToken) {
-        headers['Authorization'] = `Bearer ${storedToken}`;
-      }
-
-      const response = await fetch(url, { headers });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch definitions');
-      }
-
-      const data = await response.json();
-      
-      if (data.success && data.definitions) {
-        // Map API response to frontend format (camelCase to match existing UI)
-        const mappedDefinitions = data.definitions.map((def: any) => {
-          const sheetTables: { sheet: string; columns: Column[] }[] = def.Tables || def.tables || [];
-          const singleColumns: Column[] = def.Columns || def.columns || [];
-          const tables = sheetTables.length > 0 ? sheetTables : [{ sheet: null, columns: singleColumns }];
-          return {
-            id: def.Id || def.id,
-            name: def.Name || def.name,
-            description: def.Description || def.description,
-            columns: tables.flatMap(table => table.columns),
-            tables,
-            status: def.Status || def.status,
-            createdAt: def.CreatedAt || def.createdAt,
-            hasTemplate: Boolean(def.TemplateFilename || def.templateFilename),
-            versionNumber: def.ActiveVersion?.versionNumber ?? null,
-            versionActivatedAt: def.ActiveVersion?.activatedAt ?? null,
-          };
-        });
-        setDefinitions(mappedDefinitions);
-        
-        // Select first definition if available
-        if (mappedDefinitions.length > 0) {
-          setSelectedDef(mappedDefinitions[0]);
-        }
-      } else {
-        throw new Error('Invalid response format');
-      }
-    } catch (err) {
-      console.error('Error fetching definitions:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load definitions');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = definitionsQuery.isPending || (definitionsQuery.isError && definitionsQuery.isFetching);
+  const error = definitionsQuery.isError ? definitionsQuery.error.message || 'Failed to load definitions' : null;
+  // The first definition is selected until the user picks another one.
+  const selectedDef = definitions.find(def => def.id === selectedDefId) ?? definitions[0] ?? null;
+  const setSelectedDef = (def: DefinitionSummary) => setSelectedDefId(def.id);
+  const fetchDefinitions = () => { void definitionsQuery.refetch(); };
 
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
@@ -242,7 +158,7 @@ export default function Definitions() {
                     <div className="min-w-0">
                       <h3 className="text-sm font-medium text-gray-900 truncate">
                         {def.name}
-                        {def.versionNumber && <span className="ml-2 text-[10px] font-semibold text-gray-500">v{def.versionNumber}</span>}
+                        {def.activeVersion && <span className="ml-2 text-[10px] font-semibold text-gray-500">v{def.activeVersion.versionNumber}</span>}
                       </h3>
                       <p className="text-xs text-gray-500 truncate">{def.description}</p>
                     </div>
@@ -313,7 +229,7 @@ export default function Definitions() {
                       <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-sm font-medium text-gray-900 truncate">{col.name}</span>
-                          {col.required && (
+                          {isRequiredColumn(col) && (
                             <span className="text-[10px] text-red-500 flex-shrink-0">Required</span>
                           )}
                         </div>
@@ -336,10 +252,10 @@ export default function Definitions() {
                     editHref={isAdmin ? `/admin/file-definitions/${encodeURIComponent(selectedDef.id)}/edit?step=rules` : undefined}
                   />
                   <div className="mt-4 pt-4 border-t border-gray-200">
-                    {selectedDef.versionNumber && (
+                    {selectedDef.activeVersion && (
                       <p className="text-xs text-gray-500 mb-1">
-                        Version v{selectedDef.versionNumber}
-                        {selectedDef.versionActivatedAt ? `, active since ${formatDate(selectedDef.versionActivatedAt)}` : ''}
+                        Version v{selectedDef.activeVersion.versionNumber}
+                        {selectedDef.activeVersion.activatedAt ? `, active since ${formatDate(selectedDef.activeVersion.activatedAt)}` : ''}
                       </p>
                     )}
                     <p className="text-xs text-gray-500">Created: {formatDate(selectedDef.createdAt)}</p>

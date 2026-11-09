@@ -46,7 +46,7 @@ def get_settings() -> Settings:
         storage_account_url=os.getenv("AZURE_STORAGE_ACCOUNT_URL") or None,
         storage_api_version=os.getenv("AZURE_STORAGE_API_VERSION") or None,
         rules_service_dev_key=os.getenv("RULES_SERVICE_DEV_KEY") or None,
-        rules_service_auth_mode=os.getenv("RULES_SERVICE_AUTH_MODE", "shared-key").casefold(),
+        rules_service_auth_mode=os.getenv("RULES_SERVICE_AUTH_MODE", "").strip().casefold(),
         rules_service_api_principal_id=os.getenv("RULES_SERVICE_API_PRINCIPAL_ID") or None,
         application_insights_connection_string=os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING") or None,
         api_host=os.getenv("RULES_SERVICE_HOST", "0.0.0.0"),

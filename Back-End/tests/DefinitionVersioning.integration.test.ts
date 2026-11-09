@@ -2,7 +2,20 @@
 // Run with TEST_DB_CONNECTION_STRING pointing at a disposable database that has every script in
 // Back-End/database applied (see README). Skipped when the variable is not set.
 
-import type { IColumn } from '../src/interfaces/fileDefinition.interface';
+import type { DefinitionContract } from '../src/contracts/definition-contract';
+import { emptyDefinitionContract } from '../src/models/contractMapper';
+
+type ContractColumn = DefinitionContract['tables'][number]['columns'][number];
+
+const column = (name: string, type: ContractColumn['type'], nullable = false): ContractColumn => ({
+    name, type, mustExist: true, nullable,
+});
+
+const contractWith = (columns: ContractColumn[]): DefinitionContract => {
+    const contract = emptyDefinitionContract();
+    contract.tables[0].columns = columns;
+    return contract;
+};
 
 const TEST_DB = process.env.TEST_DB_CONNECTION_STRING;
 const describeDb = TEST_DB ? describe : describe.skip;
@@ -26,18 +39,31 @@ describeDb('definition versioning (SQL Server)', () => {
     let adminId: string;
     const createdDefinitions: string[] = [];
 
-    const newDefinition = async (columns: IColumn[] = [{ name: 'Amount', type: 'decimal', required: true }]) => {
+    const newDefinition = async (columns: ContractColumn[] = [column('Amount', 'decimal')]) => {
         const definition = await m.definitions.FileDefinitionService.createDefinition(
-            { Name: `Versioning ${Date.now()}-${Math.random()}`, Description: '', Columns: columns, Status: 'Active' },
+            { Name: `Versioning ${Date.now()}-${Math.random()}`, Description: '', Contract: contractWith(columns), Status: 'Active' },
             adminId,
         );
         createdDefinitions.push(definition.Id);
         return definition;
     };
 
-    const addRule = (definitionId: string, name: string, expression: string, order = 1) =>
+    const addRule = (definitionId: string, name: string, min: number, max: number, order = 1) =>
         m.rules.Rule.create(
-            { FileDefinitionId: definitionId, Name: name, RuleType: 'Range Check', SqlQuery: expression, ExecutionOrder: order },
+            {
+                FileDefinitionId: definitionId,
+                Config: {
+                    id: require('crypto').randomUUID(),
+                    name,
+                    description: '',
+                    severity: 'Error',
+                    executionOrder: order,
+                    enabled: true,
+                    table: null,
+                    type: 'range',
+                    params: { column: 'Amount', min, max },
+                },
+            },
             adminId,
         );
 
@@ -46,7 +72,7 @@ describeDb('definition versioning (SQL Server)', () => {
         const pool = await m.db.getConnection();
         const admin = await pool.request().query(`SELECT TOP 1 Id FROM Users WHERE Role = 'admin'`);
         adminId = admin.recordset[0]?.Id;
-        if (!adminId) throw new Error('The test database needs an admin user (run seed_local_users.sql)');
+        if (!adminId) throw new Error('The test database needs an admin user (run database/local/seed_local_users.sql)');
     });
 
     afterAll(async () => {
@@ -79,12 +105,9 @@ describeDb('definition versioning (SQL Server)', () => {
     it('keeps edits as a draft until they are published as a new version', async () => {
         const definition = await newDefinition();
         await m.definitions.FileDefinitionService.updateDefinition(definition.Id, {
-            Columns: [
-                { name: 'Amount', type: 'integer', required: true },
-                { name: 'Email', type: 'string', required: false },
-            ],
+            Contract: contractWith([column('Amount', 'integer'), column('Email', 'string', true)]),
         });
-        await addRule(definition.Id, 'Amount range', 'Amount: 0..100');
+        await addRule(definition.Id, 'Amount range', 0, 100);
 
         const draft = await m.versions.DefinitionVersionService.getDraftState(definition.Id);
         expect(draft.activeVersion?.VersionNumber).toBe(1);
@@ -99,9 +122,9 @@ describeDb('definition versioning (SQL Server)', () => {
 
         const history = await m.versions.DefinitionVersionService.listVersions(definition.Id);
         expect(history.map(v => [v.VersionNumber, v.Status])).toEqual([[2, 'Active'], [1, 'Superseded']]);
-        expect(history[1].Columns).toEqual([{ name: 'Amount', type: 'decimal', required: true }]);
-        expect(history[1].Rules).toEqual([]);
-        expect(history[0].Rules.map(r => r.Name)).toEqual(['Amount range']);
+        expect(history[1].Contract.tables[0].columns).toEqual([column('Amount', 'decimal')]);
+        expect(history[1].Contract.rules).toEqual([]);
+        expect(history[0].Contract.rules.map(r => r.name)).toEqual(['Amount range']);
         expect((await m.versions.DefinitionVersionService.getDraftState(definition.Id)).diff.hasChanges).toBe(false);
     });
 
@@ -160,8 +183,8 @@ describeDb('definition versioning (SQL Server)', () => {
             executionOrder: 1,
             enabled: true,
             table: null,
-            type: 'range',
-            params: { column: 'Amount', min: 9, max: 1 },
+            type: 'enum',
+            params: { column: 'Missing', values: ['A'] },
         });
         await pool.request().input('Id', definition.Id).input('Config', config).query(`
             INSERT INTO Rules (Id, FileDefinitionId, Config, ConfigSchemaVersion, IsEnabled)
@@ -169,7 +192,10 @@ describeDb('definition versioning (SQL Server)', () => {
         `);
 
         await expect(m.versions.DefinitionVersionService.publish(definition.Id, adminId))
-            .rejects.toMatchObject({ statusCode: 400, message: 'Rule "Broken range" is invalid: Minimum cannot exceed maximum' });
+            .rejects.toMatchObject({
+                statusCode: 400,
+                message: expect.stringMatching(/^Definition contract validation failed: \$\.rules\[0\].*Missing/),
+            });
         expect((await m.versions.DefinitionVersionService.listVersions(definition.Id)).map(v => v.VersionNumber)).toEqual([1]);
     });
 
@@ -180,7 +206,7 @@ describeDb('definition versioning (SQL Server)', () => {
 
     it('publishes concurrent requests for the same draft exactly once', async () => {
         const definition = await newDefinition();
-        await addRule(definition.Id, 'Amount range', 'Amount: 0..100');
+        await addRule(definition.Id, 'Amount range', 0, 100);
 
         const results = await Promise.allSettled([
             m.versions.DefinitionVersionService.publish(definition.Id, adminId),
@@ -197,22 +223,7 @@ describeDb('definition versioning (SQL Server)', () => {
         const pool = await m.db.getConnection();
         const id = `seeded-${Date.now()}`;
         createdDefinitions.push(id);
-        const contract = JSON.stringify({
-            schemaVersion: 1,
-            layout: 'single',
-            ignoredSheets: [],
-            encoding: 'auto',
-            tables: [{
-                sheet: null,
-                headerRow: null,
-                allowExtraColumns: true,
-                minRows: null,
-                maxRows: null,
-                columns: [{ name: 'Code', type: 'string', required: true }],
-            }],
-            rules: [],
-            lookups: {},
-        });
+        const contract = JSON.stringify(contractWith([column('Code', 'string')]));
         await pool.request().input('Id', id).input('Contract', contract).query(`
             INSERT INTO FileDefinitions (Id, Name, Description, Contract, Status)
             VALUES (@Id, @Id, '', @Contract, 'Active')
@@ -225,17 +236,17 @@ describeDb('definition versioning (SQL Server)', () => {
 
         expect(first).toMatchObject({ VersionNumber: 1, Status: 'Active', ChangeNote: 'Initial version' });
         expect(second.Id).toBe(first.Id);
-        expect(first.Columns).toEqual([{ name: 'Code', type: 'string', required: true }]);
+        expect(first.Contract.tables[0].columns).toEqual([column('Code', 'string')]);
     });
 
     it('lists version state for definitions, flagging unpublished drafts', async () => {
         const unchanged = await newDefinition();
         const edited = await newDefinition();
-        await addRule(edited.Id, 'Amount range', 'Amount: 0..100');
+        await addRule(edited.Id, 'Amount range', 0, 100);
 
         const states = await m.versions.DefinitionVersionService.getVersionStates([
-            { Id: unchanged.Id, Columns: unchanged.Columns },
-            { Id: edited.Id, Columns: edited.Columns },
+            { Id: unchanged.Id },
+            { Id: edited.Id },
         ]);
 
         expect(states.get(unchanged.Id)).toMatchObject({ activeVersion: { versionNumber: 1 }, hasUnpublishedChanges: false });

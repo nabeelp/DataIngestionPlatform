@@ -1,7 +1,8 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import { Search, Plus, Edit, Trash2, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getLookups, createLookup, updateLookup, deleteLookup, Lookup } from '../services/lookupApi';
+import { useDeleteLookupMutation, useLookupsQuery, useSaveLookupMutation } from '../services/hooks/lookups';
+import type { Lookup } from '../services/lookupApi';
 
 interface LookupForm {
   name: string;
@@ -18,32 +19,24 @@ export default function Lookups() {
   const { user } = useAuth();
   const isAdmin = user?.Role === 'admin';
 
-  const [lookups, setLookups] = useState<Lookup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const lookupsQuery = useLookupsQuery();
+  const lookups = lookupsQuery.data ?? [];
+  const loading = lookupsQuery.isFetching;
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? (lookupsQuery.isError ? lookupsQuery.error.message || 'Failed to load lookups' : null);
   const [searchTerm, setSearchTerm] = useState('');
+  const { mutateAsync: saveLookup } = useSaveLookupMutation();
+  const { mutateAsync: removeLookup } = useDeleteLookupMutation();
+  const fetchLookups = () => {
+    setError(null);
+    void lookupsQuery.refetch();
+  };
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<LookupForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    fetchLookups();
-  }, []);
-
-  const fetchLookups = async () => {
-    try {
-      setLoading(true);
-      setLookups(await getLookups());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load lookups');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openCreate = () => {
     setEditingId(null);
@@ -71,13 +64,9 @@ export default function Lookups() {
     try {
       setSaving(true);
       setFormError(null);
-      if (editingId) {
-        await updateLookup(editingId, input);
-      } else {
-        await createLookup(input);
-      }
+      await saveLookup({ id: editingId, input });
+      setError(null);
       setShowModal(false);
-      await fetchLookups();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Failed to save lookup');
     } finally {
@@ -88,8 +77,8 @@ export default function Lookups() {
   const handleDelete = async (lookup: Lookup) => {
     if (!confirm(`Delete lookup "${lookup.name}"?`)) return;
     try {
-      await deleteLookup(lookup.id);
-      await fetchLookups();
+      setError(null);
+      await removeLookup(lookup.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete lookup');
     }

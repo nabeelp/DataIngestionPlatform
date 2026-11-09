@@ -8,6 +8,8 @@ import { body, validationResult } from 'express-validator';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import * as AdminController from '../controllers/admin.controller';
 import { ComplianceService } from '../services/Compliance.service';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { BadRequestError } from '../utils/httpError';
 
 const router = Router();
 
@@ -23,16 +25,6 @@ const validateRequest = (req: Request, res: Response, next: NextFunction) => {
 // All admin routes require authentication and admin role
 router.use(authenticate);
 router.use(authorize('admin'));
-
-// One table per workbook sheet (optional); the controller checks sheet names and layout.
-const sheetTableValidators = [
-    body('tables').optional({ values: 'null' }).isArray({ max: 50 }),
-    body('tables.*.sheet').isString().isLength({ min: 1, max: 31 }),
-    body('tables.*.columns').isArray({ min: 1 }),
-    body('tables.*.columns.*.name').isString().isLength({ min: 1, max: 100 }),
-    body('tables.*.columns.*.type').isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
-    body('tables.*.columns.*.required').isBoolean(),
-];
 
 // ============================================================================
 // Dashboard Stats
@@ -60,15 +52,11 @@ router.get(
  * GET /api/admin/compliance?days=30
  * Operational compliance controls derived from platform data
  */
-router.get('/compliance', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const days = parseInt(String(req.query.days || '30'), 10);
-        const report = await ComplianceService.getReport(days);
-        res.json({ success: true, report });
-    } catch (error) {
-        next(error);
-    }
-});
+router.get('/compliance', asyncHandler(async (req, res) => {
+    const days = parseInt(String(req.query.days || '30'), 10);
+    const report = await ComplianceService.getReport(days);
+    res.json({ success: true, report });
+}));
 
 // ============================================================================
 // User Management
@@ -184,19 +172,9 @@ router.post(
     [
         body('name').isLength({ min: 1, max: 200 }).trim(),
         body('description').optional().isLength({ max: 1000 }),
-        body('columns').optional().isArray(),
-        body('columns.*.name').isString().isLength({ min: 1, max: 100 }),
-        body('columns.*.type').isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
-        body('columns.*.required').isBoolean(),
-        ...sheetTableValidators,
-        body('contract').optional().isObject(),
+        body('contract').isObject(),
         body('status').optional().isIn(['Active', 'Inactive']),
         body('rules').optional({ values: 'null' }).isArray({ max: 50 }),
-        body('rules.*.name').optional().isString().isLength({ min: 1, max: 255 }),
-        body('rules.*.ruleType').optional().isString(),
-        body('rules.*.expression').optional().isString().isLength({ max: 4000 }),
-        body('rules.*.severity').optional().isIn(['Error', 'Warning']),
-        body('rules.*.table').optional({ values: 'null' }).isString().isLength({ max: 255 }),
     ],
     validateRequest,
     AdminController.createFileDefinition
@@ -211,11 +189,6 @@ router.put(
     [
         body('name').optional().isLength({ min: 1, max: 200 }).trim(),
         body('description').optional().isLength({ max: 1000 }),
-        body('columns').optional().isArray(),
-        body('columns.*.name').optional().isString().isLength({ min: 1, max: 100 }),
-        body('columns.*.type').optional().isIn(['string', 'integer', 'decimal', 'date', 'datetime', 'boolean']),
-        body('columns.*.required').optional().isBoolean(),
-        ...sheetTableValidators,
         body('contract').optional().isObject(),
         body('rules').optional().isArray({ max: 50 }),
         body('revision').optional({ values: 'null' }).isString().isLength({ max: 64 }),
@@ -308,7 +281,7 @@ router.post(
         uploadTemplate.single('file')(req, res, (err: unknown) => {
             if (err) {
                 const message = err instanceof Error ? err.message : 'Invalid template upload';
-                return res.status(400).json({ success: false, message });
+                return next(new BadRequestError(message));
             }
             next();
         });
@@ -334,7 +307,7 @@ router.post(
                 const message = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
                     ? `Example files are limited to ${EXAMPLE_MAX_FILE_SIZE_BYTES / (1024 * 1024)} MB`
                     : err instanceof Error ? err.message : 'Invalid example file';
-                return res.status(400).json({ success: false, message });
+                return next(new BadRequestError(message));
             }
             next();
         });

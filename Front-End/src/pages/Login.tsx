@@ -1,8 +1,8 @@
 //#region IMPORTS
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { apiConfig } from '../config/api';
+import { useAuth, type ServerUser } from '../context/AuthContext';
+import { apiRequest } from '../services/http';
 //#endregion
 
 const SSO_STATE_KEY = 'ssoState';
@@ -50,11 +50,14 @@ export default function Login() {
     setError('');
 
     try {
-      const response = await fetch(`${apiConfig.getBaseUrl()}/auth/sso/url?provider=microsoft`);
-      const data = await response.json().catch(() => ({}));
+      const data = await apiRequest<{ url?: string; state?: string; session?: string }>('/auth/sso/url', {
+        query: { provider: 'microsoft' },
+        auth: false,
+        fallbackMessage: 'Failed to initiate SSO',
+      });
 
-      if (!response.ok || !data.success || !data.url || !data.state || !data.session) {
-        throw new Error(data.message || 'Failed to initiate SSO');
+      if (!data.url || !data.state || !data.session) {
+        throw new Error('Failed to initiate SSO');
       }
 
       sessionStorage.setItem(SSO_STATE_KEY, data.state);
@@ -80,23 +83,17 @@ export default function Login() {
         throw new Error('SSO session could not be verified. Please try signing in again.');
       }
 
-      const response = await fetch(`${apiConfig.getBaseUrl()}/auth/sso/login`, {
+      const data = await apiRequest<{ token: string; user: ServerUser }>('/auth/sso/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        auth: false,
+        fallbackMessage: 'SSO login failed',
+        body: {
           Provider: 'microsoft',
           Code: authCode,
           State: state,
           Session: ssoSession,
-        }),
+        },
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'SSO login failed');
-      }
 
       await loginWithSso(data.token, data.user);
       const redirectPath = data.user.Role === 'admin' ? '/admin' : '/';

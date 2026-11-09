@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "samples" / "tools"))
 from samplegen.definitions import (  # noqa: E402
     DEFINITIONS,
     _definition_contract,
+    definitions_json,
     definitions_sql,
 )
 
@@ -50,3 +51,12 @@ def test_generated_sample_seed_uses_current_database_columns() -> None:
     assert "INSERT INTO Rules (Id, FileDefinitionId, Config, ConfigSchemaVersion, IsEnabled)" in sql
     assert "SqlQuery" not in sql
     assert "Columns, Tables" not in sql
+
+
+def test_published_sample_definitions_are_contracts_and_up_to_date() -> None:
+    published = json.loads((ROOT / "samples" / "definitions" / "sample_definitions.json").read_text(encoding="utf-8"))
+
+    assert published == definitions_json()
+    for definition in published.values():
+        assert set(definition) == {"name", "description", "contract"}
+        DefinitionContract.model_validate(definition["contract"])

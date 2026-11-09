@@ -108,11 +108,11 @@ param rulesServiceApiClientId string
 @description('Dedicated rules-service API registration audience, such as api://<client-id>.')
 param rulesServiceApiAudience string
 
-@description('Foundry account resource name.')
-param foundryResourceName string
+@description('Citadel APIM base URL exposing the Responses API.')
+param citadelEndpoint string
 
-@description('Foundry project name.')
-param foundryProjectName string
+@description('Citadel model deployment name.')
+param citadelModel string
 
 @description('Tags applied to resources.')
 param tags object
@@ -164,6 +164,11 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
     configuration: {
       activeRevisionsMode: 'Single'
       secrets: [
+        {
+          name: 'citadel-subscription-key'
+          keyVaultUrl: '${keyVaultUri}secrets/citadel-subscription-key'
+          identity: apiIdentityId
+        }
         {
           name: 'jwt-secret'
           keyVaultUrl: '${keyVaultUri}secrets/jwt-secret'
@@ -330,12 +335,16 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
               value: telemetrySamplingRatio
             }
             {
-              name: 'AZURE_FOUNDRY_RESOURCE'
-              value: foundryResourceName
+              name: 'CITADEL_ENDPOINT'
+              value: citadelEndpoint
             }
             {
-              name: 'AZURE_FOUNDRY_PROJECT'
-              value: foundryProjectName
+              name: 'CITADEL_MODEL'
+              value: citadelModel
+            }
+            {
+              name: 'CITADEL_SUBSCRIPTION_KEY'
+              secretRef: 'citadel-subscription-key'
             }
           ]
           probes: [

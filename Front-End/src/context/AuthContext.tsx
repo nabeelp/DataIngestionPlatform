@@ -1,44 +1,21 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiConfig } from '../config/api';
+import { apiRequest } from '../services/http';
+import { devBypassAuth, tryMockLogin } from '../dev/mockAuth';
 import { io } from 'socket.io-client';
 import type { Socket as SocketType } from 'socket.io-client';
+import {
+  TOKEN_KEY,
+  USER_KEY,
+  clearStoredSession,
+  readStoredSession,
+  toSessionUser,
+  type ServerUser,
+  type User,
+} from './session';
 
-const devBypassAuth = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true';
-
-// Local-only test users (enabled explicitly via VITE_DEV_BYPASS_AUTH)
-const HARDCODED_USERS = [
-  {
-    id: '63BD96E4-1229-4399-8964-0795E50B3574',
-    email: 'admin@company.com',
-    username: 'admin',
-    firstName: 'System',
-    lastName: 'Administrator',
-    Role: 'admin',
-    loginMethod: 'password',
-  },
-  {
-    id: '1C5E6A9B-BF1F-40E8-99DA-7893A8960CBA',
-    email: 'user@company.com',
-    username: 'user',
-    firstName: 'Test',
-    lastName: 'User',
-    Role: 'user',
-    loginMethod: 'password',
-  },
-];
-
-const HARDCODED_PASSWORD = 'password123';
-
-// INTERFACES
-interface User {
-  id: string;
-  email: string;
-  username: string;
-  firstName: string | null;
-  lastName: string | null;
-  Role: string;
-  loginMethod: string;
-}
+export type { ServerUser } from './session';
 
 interface AuthContextType {
   user: User | null;
@@ -46,7 +23,7 @@ interface AuthContextType {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   login: (email: string, password: string) => Promise<User>;
-  loginWithSso: (token: string, user: unknown) => Promise<void>;
+  loginWithSso: (token: string, user: ServerUser) => Promise<void>;
   logout: () => Promise<void>;
   token: string | null;
   socket: SocketType | null;
@@ -54,27 +31,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/**
- * Normalize the backend user payload (PascalCase from the API, camelCase from storage).
- */
-const normalizeUser = (raw: any, fallbackLoginMethod: string): User | null => {
-  if (!raw) return null;
-  const id = raw.id ?? raw.Id;
-  const email = raw.email ?? raw.Email;
-  if (!id || !email) return null;
-  return {
-    id,
-    email,
-    username: raw.username ?? raw.Username ?? '',
-    firstName: raw.firstName ?? raw.FirstName ?? null,
-    lastName: raw.lastName ?? raw.LastName ?? null,
-    Role: raw.Role ?? raw.role ?? 'user',
-    loginMethod: raw.loginMethod ?? raw.LoginMethod ?? fallbackLoginMethod,
-  };
-};
-
 // AUTH PROVIDER
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [socket, setSocket] = useState<SocketType | null>(null);
@@ -103,60 +62,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize auth
   useEffect(() => {
-    const initializeAuth = () => {
-      try {
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
-
-        if (storedToken?.startsWith('mock_token_') && !devBypassAuth) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          return;
-        }
-        
-        if (!storedToken || !storedUser) {
-          setIsLoading(false);
-          return;
-        }
-        
-        let parsedUser: User | null = null;
-        try {
-          parsedUser = JSON.parse(storedUser);
-        } catch {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setIsLoading(false);
-          return;
-        }
-        
-        const isValidToken = 
-          storedToken.split('.').length === 3 || 
-          (devBypassAuth && storedToken.startsWith('mock_token_'));
-        
-        if (!isValidToken) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setIsLoading(false);
-          return;
-        }
-        
-        if (parsedUser && parsedUser.id && parsedUser.email) {
-          setToken(storedToken);
-          setUser(parsedUser);
-        } else {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      } finally {
-        setIsLoading(false);
+    try {
+      const session = readStoredSession(localStorage, devBypassAuth);
+      if (session) {
+        setToken(session.token);
+        setUser(session.user);
       }
-    };
-
-    initializeAuth();
+    } catch (error) {
+      console.error('Auth initialization error:', error);
+      clearStoredSession(localStorage);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const toggleSidebar = () => {
@@ -167,89 +84,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     
     try {
-      const normalizedEmail = email.toLowerCase().trim();
-      const hardcodedUser = HARDCODED_USERS.find(
-        u => u.email.toLowerCase() === normalizedEmail
-      );
+      const mockSession = tryMockLogin(email, password);
+      if (mockSession) {
+        localStorage.setItem(TOKEN_KEY, mockSession.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(mockSession.user));
 
-      if (devBypassAuth && hardcodedUser && password === HARDCODED_PASSWORD) {
-        const mockToken = `mock_token_${hardcodedUser.id}_${Date.now()}`;
-        
-        localStorage.setItem('token', mockToken);
-        localStorage.setItem('user', JSON.stringify(hardcodedUser));
-        
-        setToken(mockToken);
-        setUser(hardcodedUser);
+        setToken(mockSession.token);
+        setUser(mockSession.user);
         setIsLoading(false);
-        return hardcodedUser;
+        return mockSession.user;
       }
 
-      const baseUrl = apiConfig.getBaseUrl();
-      const response = await fetch(`${baseUrl}/auth/login`, {
+      const data = await apiRequest<{ token?: string; user?: ServerUser }>('/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ Email: email, Password: password }),
+        auth: false,
+        fallbackMessage: 'Login failed',
+        body: { Email: email, Password: password },
       });
 
-      const data = await response.json();
+      if (!data.token || !data.user) throw new Error('Invalid response');
 
-      if (!response.ok) throw new Error(data.message || 'Login failed');
-
-      if (!data.token || !data.user) {
-        throw new Error('Invalid response');
-      }
-
-      const validatedUser = normalizeUser(data.user, 'password');
+      const validatedUser = toSessionUser(data.user, 'password');
       if (!validatedUser) {
         throw new Error('Invalid response');
       }
       
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(validatedUser));
+      queryClient.clear();
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(USER_KEY, JSON.stringify(validatedUser));
       
       setToken(data.token);
       setUser(validatedUser);
       return validatedUser;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Login error:', error);
-      throw new Error(error.message || 'Login failed');
+      throw new Error(error instanceof Error && error.message ? error.message : 'Login failed');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loginWithSso = async (ssoToken: string, ssoUser: unknown): Promise<void> => {
-    const validatedUser = normalizeUser(ssoUser, 'sso');
+  const loginWithSso = async (ssoToken: string, ssoUser: ServerUser): Promise<void> => {
+    const validatedUser = toSessionUser(ssoUser, 'sso');
     if (!ssoToken || !validatedUser) {
       throw new Error('Invalid SSO data');
     }
     validatedUser.loginMethod = 'sso';
     
-    localStorage.setItem('token', ssoToken);
-    localStorage.setItem('user', JSON.stringify(validatedUser));
+    queryClient.clear();
+    localStorage.setItem(TOKEN_KEY, ssoToken);
+    localStorage.setItem(USER_KEY, JSON.stringify(validatedUser));
     
     setToken(ssoToken);
     setUser(validatedUser);
   };
 
   const logout = async () => {
-    const currentToken = token;
-    
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    const hadSession = Boolean(token);
+    // Started before the stored session is cleared so the request still carries its bearer token.
+    const logoutRequest = hadSession ? apiRequest('/auth/logout', { method: 'POST' }) : null;
+
+    clearStoredSession(localStorage);
+    queryClient.clear();
     setToken(null);
     setUser(null);
     setSocket(null);
     
-    if (currentToken) {
-      try {
-        await fetch(`${apiConfig.getBaseUrl()}/auth/logout`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${currentToken}` },
-        });
-      } catch {
-        // Logout is best-effort; the local session is already cleared.
-      }
+    try {
+      await logoutRequest;
+    } catch {
+      // Logout is best-effort; the local session is already cleared.
     }
   };
 

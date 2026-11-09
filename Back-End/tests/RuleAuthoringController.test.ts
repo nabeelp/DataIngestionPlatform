@@ -7,6 +7,7 @@ import type { DefinitionContract } from '../src/contracts/definition-contract';
 import type { RuleConfig } from '../src/contracts/rule-config';
 import { Rule } from '../src/models/Rule.model';
 import { DefinitionVersionService } from '../src/services/DefinitionVersion.service';
+import { errorHandler } from '../src/middleware/errorHandler';
 import { testRuleConfiguration, validateRuleConfiguration } from '../src/controllers/rule.controller';
 
 jest.mock('../src/config/database', () => ({ getConnection: jest.fn() }));
@@ -78,6 +79,7 @@ describe('candidate authoring lookup snapshots', () => {
         });
         app.post('/validate', validateRuleConfiguration);
         app.post('/test', testRuleConfiguration);
+        app.use(errorHandler);
         await new Promise<void>((resolve, reject) => {
             server = app.listen(0, '127.0.0.1', error => error ? reject(error) : resolve());
         });

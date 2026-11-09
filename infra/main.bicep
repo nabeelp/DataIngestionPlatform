@@ -31,14 +31,15 @@ param rulesServiceApiAudience string
 @description('Client ID of the existing Entra SSO application used by the web API.')
 param ssoClientId string
 
-@description('Full ARM resource ID of the existing Foundry project; leave empty only for preview without the role assignment.')
-param foundryProjectResourceId string = ''
+@description('Citadel APIM base URL exposing the Responses API.')
+param citadelEndpoint string = 'https://np-aigw-apim.azure-api.net/models'
 
-@description('Foundry account resource name used by the existing application configuration.')
-param foundryResourceName string = 'aif-zlyway6g7icoy-0'
+@description('Citadel model deployment name.')
+param citadelModel string = 'gpt-5.3-codex'
 
-@description('Foundry project name used by the existing application configuration.')
-param foundryProjectName string = 'citadel-governance-project'
+@description('Citadel APIM subscription key written to Key Vault when supplied.')
+@secure()
+param citadelSubscriptionKey string = ''
 
 @description('CPU cores allocated to each validation worker execution.')
 param workerCpu int = 2
@@ -166,6 +167,7 @@ module data './modules/data.bicep' = {
     sqlAdminLogin: sqlAdminLogin
     jwtSecret: jwtSecret
     msClientSecret: msClientSecret
+    citadelSubscriptionKey: citadelSubscriptionKey
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     blobPrivateDnsZoneId: network.outputs.blobPrivateDnsZoneId
@@ -228,8 +230,8 @@ module apps './modules/apps.bicep' = {
     ssoClientId: ssoClientId
     rulesServiceApiClientId: rulesServiceApiClientId
     rulesServiceApiAudience: rulesServiceApiAudience
-    foundryResourceName: foundryResourceName
-    foundryProjectName: foundryProjectName
+    citadelEndpoint: citadelEndpoint
+    citadelModel: citadelModel
     tags: tags
   }
   dependsOn: [
@@ -241,17 +243,6 @@ module serviceBusNetworkAccess './modules/servicebus-network-access.bicep' = {
   name: 'servicebus-network-access'
   params: {
     namespaceName: messaging.outputs.namespaceName
-  }
-}
-
-var foundryIdParts = split(foundryProjectResourceId, '/')
-module foundryRole './modules/foundry-role.bicep' = if (!empty(foundryProjectResourceId)) {
-  name: 'foundry-role'
-  scope: resourceGroup(foundryIdParts[2], foundryIdParts[4])
-  params: {
-    foundryProjectResourceId: foundryProjectResourceId
-    apiPrincipalId: identities.outputs.apiPrincipalId
-    foundryUserRoleDefinitionId: '53ca6127-db72-4b80-b1b0-d745d6d5456d'
   }
 }
 

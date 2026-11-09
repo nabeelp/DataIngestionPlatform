@@ -10,6 +10,8 @@ import { UploadController } from '../controllers/upload.controller';
 import { authenticate } from '../middleware/authMiddleware';
 import { appConfig } from '../config/appConfig';
 import { logger } from '../utils/logger';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { HttpError } from '../utils/httpError';
 import { DashboardService } from '../services/Dashboard.service';
 import { sanitizeFilename } from '../services/TemplateStorage.service';
 
@@ -76,103 +78,59 @@ router.use(authenticate);
  * GET /api/uploads
  * Get all uploads accessible to the user
  */
-router.get('/', async (req: Request, res: Response) => {
-    await UploadController.getUploads(req, res);
-});
+router.get('/', UploadController.getUploads);
 
 /**
  * GET /api/uploads/recent
  * Get recent uploads for dashboard
  */
-router.get('/recent', async (req: Request, res: Response) => {
-    await UploadController.getRecentUploads(req, res);
-});
+router.get('/recent', UploadController.getRecentUploads);
 
 /**
  * GET /api/uploads/dashboard?days=7
  * Upload statistics and trends for the current user's dashboard
  */
-router.get('/dashboard', async (req: Request, res: Response) => {
+router.get('/dashboard', asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const days = parseInt(String(req.query.days || '7'), 10);
     try {
-        const userId = (req as any).user?.userId;
-        const days = parseInt(String(req.query.days || '7'), 10);
         const dashboard = await DashboardService.getUserDashboard(userId, days);
         res.json({ success: true, dashboard });
     } catch (error) {
-        logger.error('[UPLOAD_ROUTES] Dashboard query failed', error);
-        res.status(500).json({ success: false, message: 'Failed to load dashboard' });
+        logger.error(`[UPLOAD_ROUTES] Dashboard query failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+        throw new HttpError('Failed to load dashboard', 500);
     }
-});
+}));
 
 /**
  * GET /api/uploads/:id
  * Get single upload details
  */
-router.get('/:id', async (req: Request, res: Response) => {
-    await UploadController.getUploadById(req, res);
-});
+router.get('/:id', UploadController.getUploadById);
 
 /**
  * POST /api/uploads/:id/dry-run
  * Preview validation using the upload's pinned definition version.
  */
-router.post('/:id/dry-run', async (req: Request, res: Response) => {
-    await UploadController.dryRun(req, res);
-});
+router.post('/:id/dry-run', UploadController.dryRun);
 
 /**
  * GET /api/uploads/:id/report
  * Stream the persisted issues report after checking upload access.
  */
-router.get('/:id/report', async (req: Request, res: Response) => {
-    await UploadController.downloadReport(req, res);
-});
+router.get('/:id/report', UploadController.downloadReport);
 
 /**
  * GET /api/uploads/:id/deliveries/:deliveryId
  * Stream a delivered file after checking upload access.
  */
-router.get('/:id/deliveries/:deliveryId', async (req: Request, res: Response) => {
-    await UploadController.downloadDelivery(req, res);
-});
-
-/**
- * POST /api/uploads
- * Upload a file (multipart form data)
- */
-router.post('/', upload.single('file'), async (req: Request, res: Response) => {
-    await UploadController.uploadFile(req, res);
-});
-
-/**
- * POST /api/uploads/:id/verify
- * Start validation for an uploaded file
- */
-router.post('/:id/verify', async (req: Request, res: Response) => {
-    await UploadController.startVerification(req, res);
-});
-
-/**
- * POST /api/uploads/:id/retry
- * Retry validation for a failed upload
- */
-router.post('/:id/retry', async (req: Request, res: Response) => {
-    await UploadController.retryValidation(req, res);
-});
-
-/**
- * DELETE /api/uploads/:id
- * Delete an upload
- */
-router.delete('/:id', async (req: Request, res: Response) => {
-    await UploadController.deleteUpload(req, res);
-});
+router.get('/:id/deliveries/:deliveryId', UploadController.downloadDelivery);
 
 // ============================================================================
-// Error handling for multer
+// Error handling for multer (scoped to the upload middleware so handler errors reach the central handler)
 // ============================================================================
 
-router.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+const handleUploadError = (err: unknown, _req: Request, res: Response, next: NextFunction) => {
     logger.error(`[MULTER-ERROR] File upload rejected: ${err instanceof Error ? err.name : 'UnknownError'}`);
     if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
@@ -191,11 +149,35 @@ router.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     if (err) {
         res.status(400).json({
             success: false,
-            message: err.message
+            message: err instanceof Error ? err.message : String(err)
         });
         return;
     }
     next();
-});
+};
+
+/**
+ * POST /api/uploads
+ * Upload a file (multipart form data)
+ */
+router.post('/', upload.single('file'), handleUploadError, UploadController.uploadFile);
+
+/**
+ * POST /api/uploads/:id/verify
+ * Start validation for an uploaded file
+ */
+router.post('/:id/verify', UploadController.startVerification);
+
+/**
+ * POST /api/uploads/:id/retry
+ * Retry validation for a failed upload
+ */
+router.post('/:id/retry', UploadController.retryValidation);
+
+/**
+ * DELETE /api/uploads/:id
+ * Delete an upload
+ */
+router.delete('/:id', UploadController.deleteUpload);
 
 export default router;

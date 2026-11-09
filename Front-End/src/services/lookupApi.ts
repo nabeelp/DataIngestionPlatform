@@ -16,8 +16,7 @@ export interface LookupInput {
 }
 
 export const getLookups = async (search?: string): Promise<Lookup[]> => {
-  const query = search ? `?search=${encodeURIComponent(search)}` : '';
-  const data = await apiRequest<{ lookups: Lookup[] }>(`/lookups${query}`);
+  const data = await apiRequest<{ lookups: Lookup[] }>('/lookups', { query: { search } });
   return data.lookups;
 };
 

@@ -43,8 +43,8 @@ strings into committed files.
   API app registrations, and to grant the API managed identity an application
   role on the Rules API registration. An Entra administrator may need to
   complete or consent to the directory operations.
-- For the optional Foundry role assignment, the existing Foundry project
-  resource ID and permission to assign **Azure AI User** on that project.
+- A Citadel APIM subscription key authorized to call the selected model through
+  `https://np-aigw-apim.azure-api.net/models/responses`.
 
 The `sbingest` setup uses a single-tenant SSO registration and a dedicated
 single-tenant Rules API registration with the `access_as_application` role. The
@@ -61,7 +61,7 @@ entities wherever Azure supports it:
 
 | Identity | Scope and role |
 |---|---|
-| API | Blob Data Contributor on `uploads`, `reports`, and `templates`; Service Bus Data Sender on `validation-requests`, Data Receiver on the `validation-events/api` subscription, and Sender/Receiver on `delivery-requests`; Key Vault Secrets User; ACR Pull; Azure AI User on the optional existing Foundry project |
+| API | Blob Data Contributor on `uploads`, `reports`, and `templates`; Service Bus Data Sender on `validation-requests`, Data Receiver on the `validation-events/api` subscription, and Sender/Receiver on `delivery-requests`; Key Vault Secrets User (including the Citadel subscription key); ACR Pull |
 | Worker / rules-service | Blob Data Reader on `uploads`, Blob Data Contributor on `reports` and `staging`; Service Bus Data Receiver on `validation-requests` and Data Sender on `validation-events`; Key Vault Secrets User for its monitoring secret; ACR Pull |
 | SQL bootstrap | ACR Pull; temporarily configured as the SQL Entra administrator only while the private-network bootstrap job runs |
 | Frontend | ACR Pull only; no application data or secret access |
@@ -180,7 +180,21 @@ azd env set JWT_SECRET "<strong-random-secret>"
 azd env set IMAGE_TAG "<immutable-image-tag>"
 ```
 
-For a Foundry role assignment, also set `FOUNDRY_PROJECT_RESOURCE_ID`. Worker
+Supply `CITADEL_SUBSCRIPTION_KEY` securely in the local deployment environment
+before provisioning; never put the actual value in commands saved to shell history.
+Bicep writes it to the `citadel-subscription-key` Key Vault secret. If omitted,
+that secret must already exist (as with the JWT and SSO secrets); otherwise
+Container Apps cannot resolve its secret reference. Blank provisioning values do
+not overwrite an existing key. Set `CITADEL_ENDPOINT` to override the default
+`https://np-aigw-apim.azure-api.net/models`, and `CITADEL_MODEL` to choose a
+gateway deployment (default `gpt-5.3-codex`, with `AZURE_FOUNDRY_MODEL` as a
+compatibility fallback). The API no longer needs direct Foundry RBAC; APIM
+owns downstream model authentication and governance. This change uses the
+existing gateway and provisions no new APIM instance. Model tokens and any
+gateway charges remain cost drivers. Validate first with unit tests and Bicep
+compilation; a live rule review is billable and sends rule text/schema names.
+
+Worker
 capacity is configurable through `WORKER_CPU` and `WORKER_MEMORY` (defaults:
 `2` vCPU and `4Gi`). `WORKLOAD_NAME` and `AZURE_ENV_NAME` control resource
 naming. The Bicep parameter file contains placeholder defaults to make offline
@@ -189,7 +203,7 @@ compilation possible; replace required identity and secret values in the local
 
 Keep this environment local and ignored by Git. Do not paste secrets into
 terminal transcripts, source files, workflow logs, or `.env.example`. The
-deployment writes the JWT secret, SSO client secret and Application Insights
+deployment writes the JWT secret, SSO client secret, Citadel subscription key and Application Insights
 connection string to Key Vault; Container Apps reference Key Vault secrets.
 Runtime SQL, Blob and Service Bus access uses managed identities rather than
 connection strings.
@@ -342,10 +356,10 @@ azd deploy --all --environment sbfracent --no-prompt
 
 The telemetry helper restores the documented full-development sampling
 settings; review ingestion costs before execution. It adds only monitoring
-settings and preserves Foundry model overrides, CORS, callbacks, identities
+settings and preserves Citadel model overrides, CORS, callbacks, identities
 and other runtime settings. Do not run blanket `azd provision` merely to repair
 telemetry: provisioning uses placeholder images and does not model all manual
-runtime overrides. In particular, preserve the intended `AZURE_FOUNDRY_MODEL`
+runtime overrides. In particular, preserve the intended `CITADEL_MODEL`
 instead of unintentionally reverting to the code default.
 
 Normal postdeploy remains non-destructive: it reapplies idempotent schema and

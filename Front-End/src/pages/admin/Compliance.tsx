@@ -1,6 +1,10 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { CheckCircle, AlertTriangle, Info, Download, Shield } from 'lucide-react';
+import { saveBlob } from '../../services/download';
+import { useLastData } from '../../services/hooks/useLastData';
 import { apiRequest } from '../../services/http';
+import { queryKeys } from '../../services/queryKeys';
 
 //#region INTERFACES
 type ControlStatus = 'Pass' | 'Review' | 'Info';
@@ -36,6 +40,14 @@ interface ComplianceReport {
 
 const PERIOD_OPTIONS = [7, 30, 90, 365];
 
+const useComplianceQuery = (days: number) =>
+  useQuery({
+    queryKey: queryKeys.compliance.report(days),
+    queryFn: async () => (await apiRequest<{ report: ComplianceReport }>('/admin/compliance', { query: { days } })).report,
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  });
+
 const csvCell = (value: unknown): string => {
   const text = value === null || value === undefined ? '' : String(value);
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -51,15 +63,7 @@ const downloadReport = (report: ComplianceReport) => {
     'Definition,Status,Enabled rules,Assigned users,Uploads,Passed,Failed,Pass rate %',
     ...report.definitions.map(d => [d.name, d.status, d.enabledRules, d.assignedUsers, d.uploads, d.passed, d.failed, d.passRate ?? ''].map(csvCell).join(',')),
   ];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `compliance-report-${report.generatedAt.slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  saveBlob(new Blob([lines.join('\n')], { type: 'text/csv' }), `compliance-report-${report.generatedAt.slice(0, 10)}.csv`);
 };
 
 const STATUS_STYLES: Record<ControlStatus, { badge: string; icon: ReactNode }> = {
@@ -70,27 +74,12 @@ const STATUS_STYLES: Record<ControlStatus, { badge: string; icon: ReactNode }> =
 
 export default function Compliance() {
   const [periodDays, setPeriodDays] = useState(30);
-  const [report, setReport] = useState<ComplianceReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadReport = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await apiRequest<{ report: ComplianceReport }>(`/admin/compliance?days=${periodDays}`);
-      setReport(data.report);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load compliance report');
-    } finally {
-      setLoading(false);
-    }
-  }, [periodDays]);
-
-  useEffect(() => {
-    loadReport();
-  }, [loadReport]);
-
+  const reportQuery = useComplianceQuery(periodDays);
+  // A failed refresh keeps showing the last loaded report (with an error banner).
+  const report = useLastData(reportQuery.data) ?? null;
+  const loading = reportQuery.isPending;
+  const error = reportQuery.isError ? reportQuery.error.message || 'Failed to load compliance report' : null;
+  const loadReport = () => { void reportQuery.refetch(); };
   const formatDateTime = (iso: string) =>
     new Date(iso).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 

@@ -1,9 +1,11 @@
+import { Asterisk, Circle } from 'lucide-react';
+import { isRequiredColumn } from '../contracts/columnRequirement';
+
 interface SummaryColumn {
   name: string;
   type: string;
-  required?: boolean;
-  mustExist?: boolean;
-  nullable?: boolean;
+  mustExist: boolean;
+  nullable: boolean;
 }
 
 interface SummaryTable {
@@ -22,11 +24,6 @@ interface Props {
   showColumnCount?: boolean;
   showTableDetails?: boolean;
 }
-
-const isRequired = (column: SummaryColumn): boolean =>
-  typeof column.required === 'boolean'
-    ? column.required
-    : (column.mustExist ?? false) && !(column.nullable ?? true);
 
 /** Shared review-style summary of the tables and columns in a file definition. */
 export default function DefinitionStructureSummary({
@@ -70,7 +67,7 @@ export default function DefinitionStructureSummary({
                 >
                   <span className="font-medium text-gray-900">{column.name}</span>
                   <span className="text-gray-600">{column.type}</span>
-                  {isRequired(column) ? (
+                  {isRequiredColumn(column) ? (
                     <span aria-label="Required" title="Required" className="text-red-600">
                       <Asterisk className="h-4 w-4" aria-hidden="true" />
                       <span className="sr-only">Required</span>
@@ -90,4 +87,3 @@ export default function DefinitionStructureSummary({
     </div>
   );
 }
-import { Asterisk, Circle } from 'lucide-react';

@@ -24,13 +24,14 @@ class TestRulesServiceError extends Error {
 jest.mock('../src/services/AzureStorage.service', () => ({
     azureStorage: { uploadFile: mockUploadFile, deleteBlob: mockDeleteBlob },
 }));
-jest.mock('../src/services/RulesService.service', () => ({
-    RulesService: { analyzeExample: mockAnalyzeExample },
+jest.mock('../src/services/RulesServiceClient', () => ({
+    RulesServiceClient: { analyzeExample: mockAnalyzeExample },
     RulesServiceError: TestRulesServiceError,
 }));
 
 // Required after the environment is set so appConfig picks it up.
 const adminRoutes: express.Router = require('../src/routes/admin.routes').default;
+const { errorHandler } = require('../src/middleware/errorHandler') as typeof import('../src/middleware/errorHandler');
 
 const tokenFor = (role: 'admin' | 'user') =>
     jwt.sign({ userId: `${role}-id`, email: `${role}@company.com`, role, loginMethod: 'password' }, JWT_SECRET, { algorithm: 'HS256' });
@@ -44,6 +45,7 @@ describe('POST /api/admin/file-definitions/analyze-example', () => {
     beforeAll(async () => {
         const app = express();
         app.use('/api/admin', adminRoutes);
+        app.use(errorHandler);
         await new Promise<void>(resolve => { server = app.listen(0, () => resolve()); });
         url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/admin/file-definitions/analyze-example`;
     });

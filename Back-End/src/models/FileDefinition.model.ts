@@ -12,18 +12,10 @@ import type {
     IFileDefinitionUser 
 } from '../interfaces/fileDefinition.interface';
 import { logger } from '../utils/logger';
-import {
-    contractFromLegacyColumns,
-    legacyColumnsFromContract,
-    legacyTablesFromContract,
-    parseDefinitionContract,
-} from './contractMapper';
+import { parseDefinitionContract } from './contractMapper';
 
-const parseJsonColumns = (row: any): any => {
-    const contract = parseDefinitionContract(row.Contract);
-    row.Contract = contract;
-    row.Columns = legacyColumnsFromContract(contract);
-    row.Tables = legacyTablesFromContract(contract);
+const parseRow = (row: any): IFileDefinition => {
+    row.Contract = parseDefinitionContract(row.Contract);
     return row;
 };
 
@@ -44,7 +36,7 @@ export class FileDefinition {
             return null;
         }
 
-        const definition = parseJsonColumns(result.recordset[0]);
+        const definition = parseRow(result.recordset[0]);
 
         // Get allowed users
         definition.AllowedUsers = await this.getAllowedUsers(id);
@@ -60,7 +52,7 @@ export class FileDefinition {
         const result = await pool.request()
             .query(`SELECT * FROM ${this.TABLE_NAME} ORDER BY CreatedAt DESC`);
         
-        return result.recordset.map(parseJsonColumns);
+        return result.recordset.map(parseRow);
     }
 
     /**
@@ -100,7 +92,7 @@ export class FileDefinition {
 
         logger.debug('[FILEDEFINITION_MODEL] Access query result count:', result.recordset.length);
 
-        return result.recordset.map(parseJsonColumns);
+        return result.recordset.map(parseRow);
     }
 
     /**
@@ -128,7 +120,7 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
         const id = uuidv4();
         const now = new Date();
 
-        const contract = dto.Contract ?? contractFromLegacyColumns(dto.Columns, dto.Tables);
+        const contract = dto.Contract;
 
         const request = pool.request()
             .input('Id', id)
@@ -181,19 +173,13 @@ static async create(dto: ICreateFileDefinitionDto, createdByUserId: string): Pro
             .input('Id', id)
             .input('UpdatedAt', now);
 
-        if (updates.Contract !== undefined || updates.Columns !== undefined || updates.Tables !== undefined) {
+        if (updates.Contract !== undefined) {
             const current = await pool.request()
                 .input('Id', id)
-                .query(`SELECT Contract FROM ${this.TABLE_NAME} WHERE Id = @Id`);
+                .query(`SELECT Id FROM ${this.TABLE_NAME} WHERE Id = @Id`);
             if (!current.recordset[0]) return null;
 
-            const currentContract = parseDefinitionContract(current.recordset[0].Contract);
-            const nextContract = updates.Contract ?? contractFromLegacyColumns(
-                updates.Columns ?? legacyColumnsFromContract(currentContract),
-                updates.Tables ?? legacyTablesFromContract(currentContract),
-                currentContract,
-            );
-            request.input('Contract', JSON.stringify(nextContract));
+            request.input('Contract', JSON.stringify(updates.Contract));
             setClauses.push('Contract = @Contract');
         }
 

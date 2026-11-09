@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, RefreshCw, History } from 'lucide-react';
-import { apiConfig } from '../config/api';
 import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
+import type { IUpload } from '../services/uploadApi';
+import { useUploadsQuery } from '../services/hooks/uploads';
+import { invalidateUploadLists } from '../services/queryKeys';
 import type { Socket } from 'socket.io-client';
 import type { UploadUpdateEvent } from '../types/websocket';
 
@@ -24,46 +27,17 @@ interface Upload {
   definitionVersion: number | null;
 }
 
-// ============================================================================
-// API Functions
-// ============================================================================
-
-const fetchUploads = async (page: number): Promise<{ uploads: Upload[]; total: number }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  const response = await fetch(`${baseUrl}/uploads?page=${page}&pageSize=20`, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch uploads');
-  }
-  
-  const data = await response.json();
-  
-  if (data.success && data.uploads) {
-    return {
-      uploads: data.uploads.map((upload: any) => ({
-        id: upload.Id || upload.id,
-        filename: upload.OriginalFilename || upload.originalFilename,
-        status: mapStatusToDisplay(upload.Status || upload.status),
-        statusCode: upload.Status || upload.status,
-        size: upload.FileSize || upload.fileSize || 0,
-        uploadedAt: upload.UploadedAt || upload.uploadedAt,
-        deliveredTo: upload.DeliveredTo || upload.deliveredTo || null,
-        definitionName: upload.DefinitionName || upload.definitionName || 'Unknown definition',
-        definitionVersion: upload.DefinitionVersionNumber || upload.definitionVersionNumber || null,
-      })),
-      total: data.total ?? data.uploads.length,
-    };
-  }
-  
-  return { uploads: [], total: 0 };
-};
+const toUpload = (upload: IUpload): Upload => ({
+  id: upload.Id,
+  filename: upload.OriginalFilename,
+  status: mapStatusToDisplay(upload.Status),
+  statusCode: upload.Status,
+  size: upload.FileSize || 0,
+  uploadedAt: upload.UploadedAt,
+  deliveredTo: upload.DeliveredTo || null,
+  definitionName: upload.DefinitionName || 'Unknown definition',
+  definitionVersion: upload.DefinitionVersionNumber || null,
+});
 
 // ============================================================================
 // Utility Functions
@@ -92,43 +66,27 @@ const mapStatusToDisplay = (status: string): string => {
 export default function UploadHistory() {
   const { socket, user } = useAuth() as { socket: Socket | null; user: { Role: string } | null };
   const historyBase = user?.Role === 'admin' ? '/admin/history' : '/history';
-  const [uploads, setUploads] = useState<Upload[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-
-  const loadUploads = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchUploads(page);
-      setUploads(data.uploads);
-      setTotal(data.total);
-    } catch (err) {
-      console.error('Error fetching uploads:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load uploads');
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
-
-  useEffect(() => {
-    loadUploads();
-  }, [loadUploads]);
+  const uploadsQuery = useUploadsQuery(page);
+  const uploads = (uploadsQuery.data?.uploads ?? []).map(toUpload);
+  const total = uploadsQuery.data?.total ?? uploads.length;
+  const loading = uploadsQuery.isFetching;
+  const error = uploadsQuery.isError ? uploadsQuery.error.message || 'Failed to load uploads' : null;
+  const loadUploads = () => { void uploadsQuery.refetch(); };
 
   useEffect(() => {
     if (!socket) return;
 
     const handleUploadUpdate = (event: UploadUpdateEvent) => {
-      if (event.type !== 'VALIDATION_UPDATE') loadUploads();
+      if (event.type !== 'VALIDATION_UPDATE') void invalidateUploadLists(queryClient);
     };
 
     socket.on('uploadUpdate', handleUploadUpdate);
     return () => {
       socket.off('uploadUpdate', handleUploadUpdate);
     };
-  }, [socket, loadUploads]);
+  }, [socket, queryClient]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';

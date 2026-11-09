@@ -3,10 +3,11 @@
  * Handles all upload-related API calls to the backend
  */
 
-import { apiConfig } from '../config/api';
+import { downloadApiFile } from './download';
+import { apiRequest } from './http';
 
 // ============================================================================
-// Types
+// Types (the JSON the backend returns: entity fields are PascalCase, dates are ISO strings)
 // ============================================================================
 
 export type UploadStatus = 
@@ -29,13 +30,16 @@ export type SheetStatus =
   | 'DELIVERED'
   | 'FAILED';
 
+export type ValidationStatus = 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'WARNING' | 'ERROR' | 'SKIPPED';
+
 export interface IUpload {
   Id: string;
   FileDefinitionId: string;
+  /** Definition version the upload is validated against; null for uploads created before versioning. */
+  FileDefinitionVersionId?: string | null;
   UploadedBy: string;
   OriginalFilename: string;
   StoredFilename: string;
-  AzureBlobUrl: string | null;
   FileSize: number;
   FileType: string;
   RowCountNo: number | null;
@@ -49,6 +53,9 @@ export interface IUpload {
   DeliveredTo: string | null;
   DeliveredAt: string | null;
   ErrorMessage: string | null;
+  /** Added by the list and detail endpoints (not by /uploads/recent). */
+  DefinitionName?: string;
+  DefinitionVersionNumber?: number | null;
 }
 
 export interface IUploadSheet {
@@ -77,7 +84,7 @@ export interface IValidationResult {
   WarningRules: number;
   ProgressPercent: number;
   CurrentRule: string | null;
-  Status: 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'WARNING';
+  Status: Exclude<ValidationStatus, 'ERROR' | 'SKIPPED'>;
   StartedAt: string | null;
   CompletedAt: string | null;
   TotalErrors: number;
@@ -89,15 +96,18 @@ export interface IValidationRuleDetail {
   Id: string;
   ValidationResultId: string;
   UploadId: string;
-  RuleId: string;
+  /** Null for built-in checks such as the definition's column schema. */
+  RuleId: string | null;
   RuleName: string;
   RuleType: string;
   RuleSeverity: string;
   ExecutionOrder: number;
-  Status: 'PENDING' | 'IN_PROGRESS' | 'PASSED' | 'FAILED' | 'WARNING' | 'ERROR';
+  Status: ValidationStatus;
   IssueCount: number;
+  /** JSON-encoded list of validation issues. */
   Issues: string;
   ElapsedMs: number;
+  /** Sheet the check applies to; null when it covers every sheet (or the CSV). */
   Sheet?: string | null;
   StartedAt: string | null;
   CompletedAt: string | null;
@@ -126,194 +136,113 @@ export interface IUploadsResponse {
   pageSize: number;
 }
 
+export interface IRecentUploadsResponse {
+  success: boolean;
+  uploads: IUpload[];
+}
+
 export interface IUploadResponse {
   success: boolean;
   upload: IUpload;
-}
-
-export interface IApiError {
-  success: false;
   message: string;
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+/** `GET /uploads/:id`. */
+export interface IUploadDetailResponse {
+  success: boolean;
+  upload: IUpload;
+  /** The definition version the upload was validated against; null for uploads created before versioning. */
+  definitionVersion: { id: string; versionNumber: number; activatedAt: string } | null;
+  sheets: IUploadSheet[];
+  validationResult: IValidationResult | null;
+  ruleDetails: IValidationRuleDetail[];
+  deliveryRecords: IDeliveryRecord[];
+}
 
-const getAuthHeaders = (): HeadersInit => {
-  const token = localStorage.getItem('token');
-  return {
-    'Authorization': token ? `Bearer ${token}` : '',
-  };
-};
-
-const handleResponse = async <T>(response: Response): Promise<T> => {
-  if (!response.ok) {
-    const error: IApiError = await response.json();
-    throw new Error(error.message || `HTTP error ${response.status}`);
-  }
-  return response.json();
-};
+export interface IUploadActionResponse {
+  success: boolean;
+  message: string;
+}
 
 // ============================================================================
 // Upload API Methods
 // ============================================================================
 
+export const UPLOADS_PAGE_SIZE = 20;
+
+/** One page of the user's uploads, newest first. */
+export const getUploads = (page: number, pageSize: number = UPLOADS_PAGE_SIZE): Promise<IUploadsResponse> =>
+  apiRequest<IUploadsResponse>('/uploads', { query: { page, pageSize } });
+
 /**
  * Get recent uploads for dashboard
  */
-export const getRecentUploads = async (limit: number = 10): Promise<IUploadsResponse> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const response = await fetch(`${baseUrl}/uploads/recent?limit=${limit}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
-  });
+export const getRecentUploads = (limit: number = 10): Promise<IRecentUploadsResponse> =>
+  apiRequest<IRecentUploadsResponse>('/uploads/recent', { query: { limit } });
 
-  return handleResponse<IUploadsResponse>(response);
-};
+export const getUploadDetails = (id: string, signal?: AbortSignal): Promise<IUploadDetailResponse> =>
+  apiRequest<IUploadDetailResponse>(`/uploads/${encodeURIComponent(id)}`, {
+    signal,
+    fallbackMessage: 'Failed to fetch upload details',
+  });
 
 /** Download via the API so upload access checks and bearer authentication are preserved. */
-export const downloadUploadReport = async (id: string): Promise<void> => {
-  const response = await fetch(`${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(id)}/report`, {
-    method: 'GET',
-    headers: getAuthHeaders(),
+export const downloadUploadReport = (id: string): Promise<void> =>
+  downloadApiFile(`/uploads/${encodeURIComponent(id)}/report`, {
+    fallbackFilename: `${id}-issues.csv`,
+    failureMessage: status => `Failed to download issues report (HTTP ${status})`,
   });
 
-  if (!response.ok) {
-    let message = `Failed to download issues report (HTTP ${response.status})`;
-    if (response.headers.get('Content-Type')?.includes('application/json')) {
-      const error: unknown = await response.json();
-      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
-        message = error.message || message;
-      }
-    }
-    throw new Error(message);
-  }
-
-  const blob = await response.blob();
-  const filename = response.headers.get('Content-Disposition')
-    ?.match(/filename="([^"]+)"/i)?.[1] ?? `${id}-issues.csv`;
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  try {
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-  } finally {
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-};
-
 /** Download a delivered file through the authenticated API, not a public Blob URL. */
-export const downloadUploadDelivery = async (uploadId: string, deliveryId: string): Promise<void> => {
-  const response = await fetch(
-    `${apiConfig.getBaseUrl()}/uploads/${encodeURIComponent(uploadId)}/deliveries/${encodeURIComponent(deliveryId)}`,
+export const downloadUploadDelivery = (uploadId: string, deliveryId: string): Promise<void> =>
+  downloadApiFile(
+    `/uploads/${encodeURIComponent(uploadId)}/deliveries/${encodeURIComponent(deliveryId)}`,
     {
-      method: 'GET',
-      headers: getAuthHeaders(),
+      fallbackFilename: `${deliveryId}-delivery`,
+      failureMessage: status => `Failed to download delivery output (HTTP ${status})`,
     },
   );
-
-  if (!response.ok) {
-    let message = `Failed to download delivery output (HTTP ${response.status})`;
-    if (response.headers.get('Content-Type')?.includes('application/json')) {
-      const error: unknown = await response.json();
-      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
-        message = error.message || message;
-      }
-    }
-    throw new Error(message);
-  }
-
-  const blob = await response.blob();
-  const filename = response.headers.get('Content-Disposition')
-    ?.match(/filename="([^"]+)"/i)?.[1] ?? `${deliveryId}-delivery`;
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  try {
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-  } finally {
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-};
 
 /**
  * Upload a file
  */
-export const uploadFile = async (file: File, definitionId: string): Promise<IUploadResponse> => {
-  const baseUrl = apiConfig.getBaseUrl();
+export const uploadFile = (file: File, definitionId: string): Promise<IUploadResponse> => {
   const formData = new FormData();
-  
   formData.append('file', file);
   formData.append('definitionId', definitionId);
-
-  const response = await fetch(`${baseUrl}/uploads`, {
+  return apiRequest<IUploadResponse>('/uploads', {
     method: 'POST',
-    headers: {
-      ...getAuthHeaders(),
-    },
     body: formData,
+    fallbackMessage: 'Failed to upload file',
   });
-
-  return handleResponse<IUploadResponse>(response);
 };
 
 /**
  * Start validation for an uploaded file
  */
-export const startVerification = async (id: string): Promise<{ success: boolean; message: string }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const response = await fetch(`${baseUrl}/uploads/${id}/verify`, {
+export const startVerification = (id: string): Promise<IUploadActionResponse> =>
+  apiRequest<IUploadActionResponse>(`/uploads/${encodeURIComponent(id)}/verify`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
+    fallbackMessage: 'Failed to start verification',
   });
-
-  return handleResponse<{ success: boolean; message: string }>(response);
-};
 
 /**
  * Retry validation for a failed upload
  */
-export const retryValidation = async (id: string): Promise<{ success: boolean; message: string }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const response = await fetch(`${baseUrl}/uploads/${id}/retry`, {
+export const retryValidation = (id: string): Promise<IUploadActionResponse> =>
+  apiRequest<IUploadActionResponse>(`/uploads/${encodeURIComponent(id)}/retry`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
+    fallbackMessage: 'Failed to retry',
   });
-
-  return handleResponse<{ success: boolean; message: string }>(response);
-};
 
 /**
  * Delete an upload
  */
-export const deleteUpload = async (id: string): Promise<{ success: boolean; message: string }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const response = await fetch(`${baseUrl}/uploads/${id}`, {
+export const deleteUpload = (id: string): Promise<IUploadActionResponse> =>
+  apiRequest<IUploadActionResponse>(`/uploads/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
+    fallbackMessage: 'Failed to delete upload',
   });
-
-  return handleResponse<{ success: boolean; message: string }>(response);
-};
 
 // ============================================================================
 // Utility Functions

@@ -1,11 +1,11 @@
 /**
  * Opt-in live evaluation of natural-language rule generation.
  *
- * Calls the configured Azure AI Foundry model (billable) for each golden prompt, runs the normal proposal pipeline
+ * Calls the configured Citadel model (billable) for each golden prompt, runs the normal proposal pipeline
  * (which validates the rule and tests its examples in the Python rules service), and writes a JSON report.
  * Score the data behavior of the generated rules with: Validation-Service/scripts/score_nl_eval.py <report>
  *
- * Prerequisites: AZURE_FOUNDRY_* settings, `az login`, and the rules service running (RULES_SERVICE_* settings).
+ * Prerequisites: CITADEL_* settings and the rules service running (RULES_SERVICE_* settings).
  *
  * Usage: npm run eval:nl-rules -- --yes [--category cross-sheet] [--only id1,id2] [--repeat 2] [--out report.json]
  */
@@ -14,7 +14,7 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { appConfig } from '../src/config/appConfig';
-import { proposeNaturalLanguageRule, type RuleDiagnosticEvent } from '../src/services/NaturalLanguageRule.service';
+import { proposeNaturalLanguageRule, type RuleDiagnosticEvent } from '../src/services/naturalLanguageRule';
 import { goldenContract, loadGoldenCorpus } from '../tests/helpers/goldenCorpus';
 
 const args = process.argv.slice(2);
@@ -70,7 +70,7 @@ const MAX_CONSECUTIVE_INFRASTRUCTURE_ERRORS = 3;
 
 /** Failures caused by the environment rather than by what the model proposed. */
 export function isInfrastructureFailure(message: string): boolean {
-    return /rules service could not complete|could not connect|call to the model failed|did not respond within|Foundry returned an error \(5\d\d\)|rate-limiting|stopped before returning a complete proposal/i
+    return /rules service could not complete|could not connect|call to the model failed|did not respond within|(?:Citadel|Foundry) returned an error \(5\d\d\)|rate-limiting|stopped before returning a complete proposal/i
         .test(message);
 }
 
@@ -84,7 +84,7 @@ export async function main(): Promise<void> {
     const maxCalls = cases.length * repeat * 3;
 
     console.log(`Selected ${cases.length} case(s) x ${repeat} run(s); up to ${maxCalls} model calls to `
-        + `${appConfig.azure.foundry.model} (${appConfig.azure.foundry.project}).`);
+        + `${appConfig.azure.citadel.model} through Citadel.`);
     if (!liveEvaluationConfirmed(args)) {
         console.log('Nothing was called. Re-run with `npm run eval:nl-rules --yes` '
             + 'or `npm run eval:nl-rules -- --yes` to confirm the model calls and their cost.');
@@ -184,7 +184,7 @@ export async function main(): Promise<void> {
     mkdirSync(path.dirname(out), { recursive: true });
     writeFileSync(out, JSON.stringify({
         generatedAt: new Date().toISOString(),
-        model: appConfig.azure.foundry.model,
+        model: appConfig.azure.citadel.model,
         // Non-null when the run stopped early; the results below are then incomplete.
         aborted: abortedReason,
         summary,

@@ -56,50 +56,6 @@ router.get(
 );
 
 /**
- * POST /api/definitions
- * Create a new definition
- * Admin only
- */
-router.post(
-    '/',
-    authenticate,
-    authorize('admin'),
-    [
-        body('Name').isLength({ min: 1, max: 200 }).trim(),
-        body('Description').optional().isLength({ max: 1000 }),
-        body('Columns').isArray({ min: 1 }),
-        body('Columns.*.name').isString().isLength({ min: 1, max: 100 }),
-        body('Columns.*.type').isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
-        body('Columns.*.required').isBoolean(),
-        body('Status').optional().isIn(['Active', 'Inactive']),
-    ],
-    validateRequest,
-    DefinitionController.createDefinition
-);
-
-/**
- * PUT /api/definitions/:id
- * Update a definition
- * Admin only
- */
-router.put(
-    '/:id',
-    authenticate,
-    authorize('admin'),
-    [
-        body('Name').optional().isLength({ min: 1, max: 200 }).trim(),
-        body('Description').optional().isLength({ max: 1000 }),
-        body('Columns').optional().isArray({ min: 1 }),
-        body('Columns.*.name').optional().isString().isLength({ min: 1, max: 100 }),
-        body('Columns.*.type').optional().isIn(['string', 'integer', 'decimal', 'datetime', 'boolean']),
-        body('Columns.*.required').optional().isBoolean(),
-        body('Status').optional().isIn(['Active', 'Inactive']),
-    ],
-    validateRequest,
-    DefinitionController.updateDefinition
-);
-
-/**
  * DELETE /api/definitions/:id
  * Delete a definition
  * Admin only

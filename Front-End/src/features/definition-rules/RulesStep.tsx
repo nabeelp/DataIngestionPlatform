@@ -3,7 +3,7 @@ import { AlertTriangle, ListChecks, Plus, Search, Sparkles, X } from 'lucide-rea
 import type { DefinitionContract } from '../../contracts/definition-contract';
 import type { RuleConfig } from '../../contracts/rule-config';
 import DefinitionStructureSummary from '../../components/DefinitionStructureSummary';
-import { getLookups } from '../../services/lookupApi';
+import { useLookupsQuery } from '../../services/hooks/lookups';
 import NaturalLanguageRuleForm from './NaturalLanguageRuleForm';
 import RuleEditorPanel from './RuleEditorPanel';
 import RuleList from './RuleList';
@@ -19,7 +19,6 @@ interface Props {
   contract: DefinitionContract;
   /** The saved definition; null while it is being created. */
   definitionId: string | null;
-  token: string | null;
   health: RuleHealth;
   preflight: PreflightState;
   /** Set when the draft was loaded from the server and rules could not be read. */
@@ -46,7 +45,6 @@ export default function RulesStep({
   dispatch,
   contract,
   definitionId,
-  token,
   health,
   preflight,
   loadError,
@@ -56,15 +54,11 @@ export default function RulesStep({
   const [editor, setEditor] = useState<Editor>({ kind: 'closed' });
   const [search, setSearch] = useState('');
   const [severity, setSeverity] = useState<SeverityFilter>('all');
-  const [lookups, setLookups] = useState<Array<{ id: string; name: string }>>([]);
-
-  useEffect(() => {
-    let active = true;
-    getLookups().then(items => {
-      if (active) setLookups(items.map(item => ({ id: item.id, name: item.name })));
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, []);
+  const lookupsQuery = useLookupsQuery();
+  const lookups = useMemo(
+    () => (lookupsQuery.data ?? []).map(item => ({ id: item.id, name: item.name })),
+    [lookupsQuery.data],
+  );
 
   const context: DraftContext = useMemo(() => ({ contract, rules: draft.rules }), [contract, draft.rules]);
   const structure = useMemo(() => structureOf(contract), [contract]);
@@ -282,7 +276,6 @@ export default function RulesStep({
                   <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                     <NaturalLanguageRuleForm
                       context={context}
-                      token={token}
                       onCancel={() => setEditor({ kind: 'closed' })}
                       onAdd={(rule, options) => {
                         dispatch({ type: 'upsert', rule });
@@ -299,7 +292,6 @@ export default function RulesStep({
                     context={context}
                     structure={structure}
                     lookups={lookups}
-                    token={token}
                     definitionId={definitionId}
                     onCancel={() => setEditor({ kind: 'closed' })}
                     onSave={rule => {

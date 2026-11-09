@@ -43,18 +43,12 @@ export class FileDefinitionService {
     ): Promise<IFileDefinition> {
         try {
             logger.info(`[FILEDEF_SVC] Creating definition "${dto.Name}" by user ${createdByUserId}`);
-            
-            // Validate columns: a single table needs columns; sheet tables carry their own.
-            const hasTables = Array.isArray(dto.Tables) && dto.Tables.length > 0;
-            if (!hasTables && (!dto.Columns || !Array.isArray(dto.Columns) || dto.Columns.length === 0)) {
-                throw new Error('Columns array is required and must not be empty');
-            }
 
             const definition = await FileDefinition.create(dto, createdByUserId);
             const createdRuleIds: string[] = [];
             try {
-                for (const [index, rule] of initialRules.entries()) {
-                    const created = await Rule.create({ ...rule, FileDefinitionId: definition.Id, ExecutionOrder: index + 1 }, createdByUserId);
+                for (const rule of initialRules) {
+                    const created = await Rule.create({ ...rule, FileDefinitionId: definition.Id }, createdByUserId);
                     createdRuleIds.push(created.Id);
                 }
             } catch (error) {
@@ -78,12 +72,6 @@ export class FileDefinitionService {
     static async updateDefinition(id: string, updates: IUpdateFileDefinitionDto): Promise<IFileDefinition> {
         try {
             logger.info(`[FILEDEF_SVC] Updating definition ${id}`);
-
-            // Validate columns if provided (sheet tables replace single-table columns)
-            const hasTables = Array.isArray(updates.Tables) && updates.Tables.length > 0;
-            if (updates.Columns && (!Array.isArray(updates.Columns) || (updates.Columns.length === 0 && !hasTables))) {
-                throw new Error('Columns must be a non-empty array');
-            }
 
             const definition = await FileDefinition.update(id, updates);
             if (!definition) {
@@ -226,13 +214,12 @@ export class FileDefinitionService {
                 throw new Error('File definition not found');
             }
 
-            // Prepare export-safe data (ensure columns is array)
+            // The export is the full draft contract: structure, enabled rules and the lookups they use.
             const exportData = {
                 id: definition.Id,
                 name: definition.Name,
                 description: definition.Description || '',
-                columns: Array.isArray(definition.Columns) ? definition.Columns : JSON.parse(definition.Columns || '[]'),
-                tables: definition.Tables ?? [],
+                contract: await DefinitionVersionService.getDraftContract(id),
                 status: definition.Status || 'Active',
                 templateFilename: definition.TemplateFilename || null,
                 createdAt: definition.CreatedAt,

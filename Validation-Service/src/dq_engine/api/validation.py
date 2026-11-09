@@ -1,474 +1,18 @@
 from __future__ import annotations
 
-import json
-import re
 from datetime import date
-from pathlib import Path
 from typing import Any
 
-import polars as pl
-from jsonschema import Draft7Validator, FormatChecker
-from jsonschema.exceptions import ValidationError as SchemaValidationError
-from pydantic import TypeAdapter, ValidationError
-from referencing import Registry, Resource
+from pydantic import ValidationError
 
+from dq_engine.api.contract_checks import contract_rule_errors, contract_structure_errors
+from dq_engine.api.rule_compile import compile_rule
+from dq_engine.api.schema_errors import RULE_ADAPTER, pydantic_errors, schema_errors
 from dq_engine.contracts.models import (
     DefinitionContract,
     NaturalLanguageRule,
-    RuleConfig,
 )
-from dq_engine.engine import validate_parsed
-from dq_engine.io.models import FileMetadata, ParsedFile, ParsedTable
-from dq_engine.rules import sqlguard
-from dq_engine.rules.base import RuleConfigurationError
 from dq_engine.rules.examples import run_examples
-
-_ROOT = Path(__file__).resolve().parents[4]
-_CONTRACTS = _ROOT / "contracts"
-_RULE_ADAPTER: TypeAdapter[RuleConfig] = TypeAdapter(RuleConfig)
-_RULE_SCHEMA = json.loads((_CONTRACTS / "rule-config.schema.json").read_text(encoding="utf-8"))
-_SCHEMA_REGISTRY = Registry().with_resource(
-    _RULE_SCHEMA["$id"],
-    Resource.from_contents(_RULE_SCHEMA),
-)
-
-
-def _relevant_schema_errors(error: SchemaValidationError) -> list[SchemaValidationError]:
-    if error.validator not in {"oneOf", "anyOf"} or not error.context:
-        return [error]
-    if isinstance(error.instance, dict):
-        for index, branch in enumerate(error.validator_value):
-            properties = branch.get("properties", {})
-            for discriminator in ("type", "op"):
-                constraint = properties.get(discriminator, {})
-                value = error.instance.get(discriminator)
-                if discriminator in error.instance and (
-                    ("const" in constraint and value == constraint["const"])
-                    or ("enum" in constraint and value in constraint["enum"])
-                ):
-                    return [
-                        leaf
-                        for child in error.context
-                        if child.schema_path[0] == index
-                        for leaf in _relevant_schema_errors(child)
-                    ]
-    # Date bounds can be either an ISO date or a relative-date object.
-    for index, branch in enumerate(error.validator_value):
-        if (branch.get("type") == "string" and isinstance(error.instance, str)) or (
-            branch.get("type") == "object" and isinstance(error.instance, dict)
-        ):
-            return [
-                leaf
-                for child in error.context
-                if child.schema_path[0] == index
-                for leaf in _relevant_schema_errors(child)
-            ]
-    return [error]
-
-
-def _setting_label(path: list[str | int]) -> str:
-    key = next((part for part in reversed(path) if isinstance(part, str)), "configuration")
-    labels = {
-        "min": "minimum", "max": "maximum", "fn": "aggregation function",
-        "op": "comparison operator", "as": "comparison type", "lookupId": "lookup",
-        "failWhen": "failure condition", "when": "condition", "params": "rule settings",
-        "type": "rule type",
-    }
-    return labels.get(key, re.sub(r"([a-z])([A-Z])", r"\1 \2", key).lower())
-
-
-def _rule_schema_messages(
-    error: SchemaValidationError,
-    rule_type: object,
-) -> list[tuple[list[str | int], str]]:
-    path = list(error.absolute_path)
-    label = _setting_label(path)
-    if error.validator == "required":
-        return [
-            (path + [key], f"Specify the {_setting_label([key])}.")
-            for key in error.validator_value
-            if key not in error.instance
-        ]
-    if error.validator in {"oneOf", "anyOf"}:
-        alternatives = error.validator_value
-        if alternatives == [{"required": ["min"]}, {"required": ["max"]}]:
-            subject = {
-                "rowCount": "row count", "length": "length", "dateRange": "date",
-                "aggregate": "result",
-            }.get(str(rule_type), "value")
-            return [(path, f"Enter a minimum or maximum {subject}.")]
-        return [(path, f"Check the {label} and supply a supported configuration.")]
-    if error.validator == "additionalProperties":
-        return [(path, f"Remove unsupported settings from the {label}.")]
-    if error.validator == "type":
-        types = error.validator_value
-        expected = {
-            "integer": "a whole number", "number": "a number", "string": "text",
-            "boolean": "true or false", "array": "a list", "object": "an object", "null": "empty",
-        }
-        description = " or ".join(expected[item] for item in (types if isinstance(types, list) else [types]))
-        return [(path, f"Set the {label} to {description}.")]
-    if error.validator in {"enum", "const"}:
-        choices = error.validator_value if error.validator == "enum" else [error.validator_value]
-        return [(path, f"Choose a supported {label}: {', '.join(str(choice) for choice in choices)}.")]
-    if error.validator in {"minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "maxProperties"}:
-        limit = error.validator_value
-        plural = "" if limit == 1 else "s"
-        instruction = {
-            "minimum": f"at least {limit}", "maximum": f"at most {limit}",
-            "minLength": f"at least {limit} character{plural}", "maxLength": f"at most {limit} character{plural}",
-            "minItems": f"at least {limit} item{plural}", "maxItems": f"at most {limit} item{plural}",
-            "maxProperties": f"at most {limit} setting{plural}",
-        }[error.validator]
-        return [(path, f"Specify {instruction} for the {label}.")]
-    if error.validator == "uniqueItems":
-        return [(path, f"Remove duplicate entries from the {label}.")]
-    if error.validator == "format":
-        return [(path, f"Enter a valid {error.validator_value} for the {label}.")]
-    return [(path, f"Enter a valid {label}.")]
-
-
-def _schema_errors(schema_name: str, payload: object) -> list[dict[str, str]]:
-    schema_path = _CONTRACTS / schema_name
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    validator = Draft7Validator(
-        schema,
-        registry=_SCHEMA_REGISTRY,
-        format_checker=FormatChecker(),
-    )
-    errors = sorted(
-        validator.iter_errors(payload),
-        key=lambda error: tuple(
-            (type(part).__name__, str(part))
-            for part in error.absolute_path
-        ),
-    )
-    findings: list[dict[str, str]] = []
-    for error in errors:
-        is_rule = schema_name == "rule-config.schema.json" or list(error.absolute_path)[:1] == ["rules"]
-        rule_data = payload
-        if (
-            schema_name != "rule-config.schema.json" and is_rule
-            and isinstance(payload, dict) and len(error.absolute_path) > 1
-        ):
-            rule_data = payload["rules"][error.absolute_path[1]]
-        rule_type = rule_data.get("type") if isinstance(rule_data, dict) else None
-        messages = (
-            [
-                item
-                for leaf in _relevant_schema_errors(error)
-                for item in _rule_schema_messages(leaf, rule_type)
-            ] if is_rule else [(list(error.absolute_path), error.message)]
-        )
-        for path, message in messages:
-            finding = {
-                "path": "$" + "".join(
-                    f"[{part}]" if isinstance(part, int) else f".{part}"
-                    for part in path
-                ),
-                "message": message,
-            }
-            if finding not in findings:
-                findings.append(finding)
-            if len(findings) >= 50:
-                return findings
-    return findings
-
-
-def _pydantic_errors(error: ValidationError) -> list[dict[str, str]]:
-    return [
-        {
-            "path": "$" + "".join(
-                f"[{part}]" if isinstance(part, int) else f".{part}"
-                for part in item["loc"]
-            ),
-            "message": item["msg"],
-        }
-        for item in error.errors(include_input=False)[:50]
-    ]
-
-
-def _table_name(sheet: str | None) -> str:
-    return sheet or ""
-
-
-def _canonical_table(
-    contract: DefinitionContract,
-    requested: str,
-    *,
-    allow_single_alias: bool = False,
-) -> str | None:
-    if contract.layout == "single":
-        if allow_single_alias or requested.strip().casefold() in {"", contract.tables[0].sheet or ""}:
-            return ""
-        return None
-    match = next(
-        (
-            _table_name(table.sheet)
-            for table in contract.tables
-            if table.sheet and table.sheet.strip().casefold() == requested.strip().casefold()
-        ),
-        None,
-    )
-    return match
-
-
-def _contract_structure_errors(contract: DefinitionContract) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
-    if contract.layout == "sheets":
-        normalized = [table.sheet.strip().casefold() for table in contract.tables if table.sheet]
-        if len(normalized) != len(set(normalized)):
-            errors.append({"path": "$.tables", "message": "Table sheet names must be unique."})
-    for index, table in enumerate(contract.tables):
-        names = [column.name.strip().casefold() for column in table.columns]
-        if len(names) != len(set(names)):
-            errors.append({
-                "path": f"$.tables[{index}].columns",
-                "message": "Column names must be unique, ignoring case and surrounding whitespace.",
-            })
-    return errors
-
-
-def _contract_rule_errors(
-    contract: DefinitionContract,
-    rule: RuleConfig,
-) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
-    tables = {_table_name(table.sheet).strip().casefold(): table for table in contract.tables}
-
-    rule_data = rule.model_dump(by_alias=True, exclude_none=True)
-    params: dict[str, Any] = rule_data["params"]
-    references: list[tuple[str, str]] = []
-    rule_type = str(rule_data["type"])
-    target = rule.table
-    if rule_type == "reconcile":
-        references.extend(
-            (str(reference["table"]), str(reference["column"]))
-            for reference in (params["left"], params["right"])
-        )
-    elif rule_type == "naturalLanguage":
-        columns_by_table: dict[str, list[str]] = params["columns"]
-        if params["mode"] == "query":
-            for table_name, columns in columns_by_table.items():
-                references.extend((table_name, column) for column in columns)
-        else:
-            if contract.layout == "single":
-                configured_items = list(columns_by_table.items())
-                if len(configured_items) != 1:
-                    errors.append({
-                        "path": "$.params.columns",
-                        "message": "A single-layout row rule must declare one table's columns.",
-                    })
-                references.extend(("", column) for column in (
-                    configured_items[0][1] if configured_items else []
-                ))
-            elif target is not None:
-                target_name = _canonical_table(contract, target)
-                configured_columns = next(
-                    (
-                        columns
-                        for name, columns in columns_by_table.items()
-                        if name.strip().casefold() == target.strip().casefold()
-                    ),
-                    [],
-                )
-                references.extend((target_name or target, column) for column in configured_columns)
-                if not configured_columns:
-                    errors.append({
-                        "path": "$.params.columns",
-                        "message": "A row rule must declare columns for its target table.",
-                    })
-    elif rule_type == "unique":
-        references.extend((target or "", str(column)) for column in params["columns"])
-    elif rule_type in {"enum", "range", "pattern", "length", "lookup", "dateRange", "aggregate"}:
-        references.append((target or "", str(params["column"])))
-    elif rule_type == "conditionalRequired":
-        references.extend((target or "", str(column)) for column in params["columns"])
-        references.append((target or "", str(params["when"]["column"])))
-    elif rule_type == "compare":
-        references.extend(
-            (target or "", str(params[key]))
-            for key in ("left", "right")
-        )
-
-    global_rule = rule_type == "reconcile" or (
-        rule_type == "naturalLanguage" and params["mode"] == "query"
-    )
-    if contract.layout == "sheets" and not global_rule:
-        if target is None or _canonical_table(contract, target) is None:
-            errors.append({
-                "path": "$.table",
-                "message": "A sheet-layout rule must target a declared table.",
-            })
-    elif target is not None and contract.layout == "single":
-        if _canonical_table(contract, target) is None:
-            errors.append({
-                "path": "$.table",
-                "message": "A single-layout rule cannot target an undeclared table.",
-            })
-
-    for table_name, column_name in references:
-        canonical_name = _canonical_table(
-            contract,
-            table_name,
-            allow_single_alias=rule_type == "naturalLanguage",
-        )
-        if canonical_name is None:
-            errors.append({
-                "path": "$.params",
-                "message": f'Rule references undeclared table "{table_name}".',
-            })
-            continue
-        definition = tables.get(canonical_name.strip().casefold())
-        if definition is None:
-            errors.append({
-                "path": "$.params",
-                "message": f'Rule references undeclared table "{table_name}".',
-            })
-            continue
-        declared = {column.name.strip().casefold() for column in definition.columns}
-        rule_columns: set[str] = set()
-        if rule_type == "naturalLanguage":
-            rule_columns = {
-                column.strip().casefold()
-                for name, columns in params["columns"].items()
-                if name.strip().casefold() == table_name.strip().casefold()
-                for column in columns
-            }
-            if contract.layout == "single" and len(params["columns"]) == 1:
-                rule_columns.update(
-                    column.strip().casefold()
-                    for columns in params["columns"].values()
-                    for column in columns
-                )
-        if column_name.strip().casefold() not in declared | rule_columns:
-            errors.append({
-                "path": "$.params",
-                "message": f'Rule references undeclared column "{column_name}" in table "{table_name}".',
-            })
-
-    if isinstance(rule, NaturalLanguageRule) and rule.params.mode == "query":
-        table_mapping: dict[str, list[str]] = {}
-        for index, table in enumerate(contract.tables):
-            name = _table_name(table.sheet)
-            mapping = next(
-                (
-                    columns
-                    for key, columns in rule.params.columns.items()
-                    if key.strip().casefold() == name.strip().casefold()
-                ),
-                None,
-            )
-            if mapping is None and contract.layout == "single" and len(rule.params.columns) == 1:
-                mapping = next(iter(rule.params.columns.values()))
-            if mapping is None:
-                # A cross-sheet query reads only the sheets it declares.
-                continue
-            table_mapping[f"t_{index}"] = [*mapping, "__row"]
-        if not table_mapping:
-            errors.append({
-                "path": "$.params.columns",
-                "message": "Query-mode rules must declare columns for at least one table.",
-            })
-            return errors
-        try:
-            sqlguard.validate_query(
-                sqlguard.substitute_validation_date(
-                    rule.params.query or "",
-                    date(2025, 1, 15),
-                ),
-                table_mapping,
-            )
-        except RuleConfigurationError as error:
-            errors.append({"path": "$.params.query", "message": str(error)})
-    elif isinstance(rule, NaturalLanguageRule):
-        try:
-            sqlguard.validate_row_expression(
-                sqlguard.substitute_validation_date(
-                    rule.params.failWhen or "",
-                    date(2025, 1, 15),
-                ),
-                [column for _, column in references],
-            )
-        except RuleConfigurationError as error:
-            errors.append({"path": "$.params.failWhen", "message": str(error)})
-    return errors
-
-
-def _sample_value(column_type: str) -> str:
-    return {
-        "integer": "1",
-        "decimal": "1.0",
-        "date": "2025-01-15",
-        "datetime": "2025-01-15 00:00:00",
-        "boolean": "true",
-    }.get(column_type, "sample")
-
-
-def _compile_rule(contract: DefinitionContract, rule: RuleConfig) -> list[dict[str, str]]:
-    rule_data = rule.model_dump(by_alias=True, exclude_none=True)
-    params: dict[str, Any] = rule_data["params"]
-    rule_type = str(rule_data["type"])
-    columns_by_table: dict[str, list[str]] = {}
-    for definition in contract.tables:
-        name = _table_name(definition.sheet)
-        columns = [column.name for column in definition.columns]
-        rule_column_map: dict[str, list[str]] = (
-            params.get("columns", {}) if rule_type == "naturalLanguage" else {}
-        )
-        for mapped_name, declared in rule_column_map.items():
-            if mapped_name.strip().casefold() in {name.strip().casefold(), ""}:
-                columns.extend(declared)
-        if contract.layout == "single" and len(rule_column_map) == 1:
-            columns.extend(next(iter(rule_column_map.values())))
-        if rule_type == "reconcile":
-            for reference in (params["left"], params["right"]):
-                if reference["table"].strip().casefold() == name.strip().casefold():
-                    columns.append(reference["column"])
-        columns = list(dict.fromkeys(columns))
-        columns_by_table[name] = columns
-
-    parsed_tables: dict[str, ParsedTable] = {}
-    for definition in contract.tables:
-        name = _table_name(definition.sheet)
-        columns = columns_by_table[name]
-        values = {
-            column: [
-                _sample_value(next(
-                    (
-                        item.type
-                        for item in definition.columns
-                        if item.name.strip().casefold() == column.strip().casefold()
-                    ),
-                    "string",
-                ))
-            ]
-            for column in columns
-        }
-        frame = pl.DataFrame(values, schema={column: pl.String for column in columns})
-        parsed_tables[name] = ParsedTable(
-            name=name,
-            definition=definition,
-            frame=frame,
-            row_numbers=[(definition.headerRow or 1) + 1],
-            source_columns=columns,
-        )
-
-    parsed = ParsedFile(
-        metadata=FileMetadata(Path("<rule-validation>"), "csv", "utf-8", ","),
-        tables=parsed_tables,
-    )
-    result = validate_parsed(
-        parsed,
-        contract.model_copy(update={"rules": [rule]}),
-        date(2025, 1, 15),
-    )
-    check = next((item for item in result.checks if item.id == rule.id), None)
-    if check is None:
-        return [{"path": "$.rule", "message": "Rule did not produce an execution result."}]
-    if check.status == "ERROR":
-        return [{"path": "$.rule", "message": check.issues[0].message}]
-    return []
 
 
 def _single_rule_context(contract_data: object) -> object:
@@ -480,19 +24,19 @@ def _single_rule_context(contract_data: object) -> object:
 
 def validate_rule_payload(contract_data: object, rule_data: object) -> dict[str, Any]:
     contract_data = _single_rule_context(contract_data)
-    errors = _schema_errors("definition-contract.schema.json", contract_data)
-    errors.extend(_schema_errors("rule-config.schema.json", rule_data))
+    errors = schema_errors("definition-contract.schema.json", contract_data)
+    errors.extend(schema_errors("rule-config.schema.json", rule_data))
     if errors:
         return {"ok": False, "errors": errors, "normalizedRule": None, "explanation": None}
     try:
         contract = DefinitionContract.model_validate(contract_data)
-        rule = _RULE_ADAPTER.validate_python(rule_data)
+        rule = RULE_ADAPTER.validate_python(rule_data)
     except ValidationError as error:
-        return {"ok": False, "errors": _pydantic_errors(error), "normalizedRule": None, "explanation": None}
-    errors = _contract_structure_errors(contract)
-    errors.extend(_contract_rule_errors(contract, rule))
+        return {"ok": False, "errors": pydantic_errors(error), "normalizedRule": None, "explanation": None}
+    errors = contract_structure_errors(contract)
+    errors.extend(contract_rule_errors(contract, rule))
     if not errors:
-        errors.extend(_compile_rule(contract, rule))
+        errors.extend(compile_rule(contract, rule))
     explanation = rule.params.explanation if isinstance(rule, NaturalLanguageRule) else rule.description
     normalized_rule = rule.model_dump(by_alias=True)
     normalized_rule["params"] = rule.params.model_dump(by_alias=True, exclude_none=True)
@@ -505,19 +49,19 @@ def validate_rule_payload(contract_data: object, rule_data: object) -> dict[str,
 
 
 def validate_contract_payload(contract_data: object) -> dict[str, Any]:
-    errors = _schema_errors("definition-contract.schema.json", contract_data)
+    errors = schema_errors("definition-contract.schema.json", contract_data)
     if errors:
         return {"ok": False, "errors": errors}
     try:
         contract = DefinitionContract.model_validate(contract_data)
     except ValidationError as error:
-        return {"ok": False, "errors": _pydantic_errors(error)}
+        return {"ok": False, "errors": pydantic_errors(error)}
 
-    errors = _contract_structure_errors(contract)
+    errors = contract_structure_errors(contract)
     for rule_index, rule in enumerate(contract.rules):
-        rule_errors = _contract_rule_errors(contract, rule)
+        rule_errors = contract_rule_errors(contract, rule)
         if not rule_errors:
-            rule_errors.extend(_compile_rule(contract, rule))
+            rule_errors.extend(compile_rule(contract, rule))
         errors.extend(
             {
                 "path": f"$.rules[{rule_index}]{item['path'][1:]}",
@@ -551,9 +95,9 @@ def test_rule_examples(
         return {"ok": False, "errors": validation["errors"], "results": []}
     try:
         contract = DefinitionContract.model_validate(contract_data)
-        rule = _RULE_ADAPTER.validate_python(rule_data)
+        rule = RULE_ADAPTER.validate_python(rule_data)
     except ValidationError as error:
-        return {"ok": False, "errors": _pydantic_errors(error), "results": []}
+        return {"ok": False, "errors": pydantic_errors(error), "results": []}
     if not isinstance(rule, NaturalLanguageRule):
         return {
             "ok": False,
@@ -575,7 +119,7 @@ def test_rule_examples(
             else None
         )
     except (TypeError, ValidationError) as error:
-        details = _pydantic_errors(error) if isinstance(error, ValidationError) else [
+        details = pydantic_errors(error) if isinstance(error, ValidationError) else [
             {"path": "$.examples", "message": "Examples must be an array."}
         ]
         return {"ok": False, "errors": details, "results": []}

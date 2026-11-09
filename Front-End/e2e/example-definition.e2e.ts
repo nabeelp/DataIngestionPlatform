@@ -108,13 +108,13 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
     // Numeric columns get a rounded-out range suggestion; identifiers such as OrderId do not.
     const suggestions = orders.getByRole('group', { name: /Suggested rules for Orders/ });
     await expect(suggestions.getByRole('checkbox')).toHaveCount(2);
-    await expect(suggestions.getByRole('checkbox', { name: /Range Check Amount: 0\.\.20/ })).toBeVisible();
+    await expect(suggestions.getByRole('checkbox', { name: /Numeric range Amount must be between 0 and 20/ })).toBeVisible();
     await expect(suggestions.getByRole('checkbox', { name: /OrderId/ })).toHaveCount(0);
     await suggestions.getByRole('button', { name: 'Select all suggested rules' }).click();
     await expect(suggestions.getByRole('checkbox', { checked: true })).toHaveCount(2);
     await suggestions.getByRole('button', { name: 'Clear' }).click();
     await expect(suggestions.getByRole('checkbox', { checked: true })).toHaveCount(0);
-    await orders.getByRole('checkbox', { name: /Status: Closed, Open/ }).check();
+    await orders.getByRole('checkbox', { name: /Status must be one of: Closed, Open/ }).check();
     await expect(refunds.getByRole('table', { name: 'Proposed columns for Refunds' }).locator('tbody tr')).toHaveCount(2);
 
     await expect(form.getByRole('button', { name: 'Next' })).toBeEnabled();
@@ -156,21 +156,36 @@ test('admins create one table per sheet from a multi-sheet XLSX example, with a 
       rules: [],
     });
     expect(history.hasUnpublishedChanges).toBe(false);
-    expect(history.versions[0].columns).toEqual([]);
-    expect(history.versions[0].tables).toEqual([
-      {
-        sheet: 'Orders',
-        columns: [
-          { name: 'OrderId', type: 'integer', required: true },
-          { name: 'Amount', type: 'string', required: true },
-          { name: 'OrderDate', type: 'datetime', required: true },
-          { name: 'Status', type: 'string', required: false },
-          { name: 'Comment', type: 'string', required: false },
-        ],
-      },
-      { sheet: 'Refunds', columns: [{ name: 'OrderId', type: 'integer', required: true }, { name: 'Reason', type: 'string', required: true }] },
+    // Version 1 carries the structure and the accepted suggestion as one contract; there is no separate columns/tables/rules projection.
+    const published = history.versions[0];
+    expect(published).not.toHaveProperty('columns');
+    expect(published).not.toHaveProperty('tables');
+    expect(published).not.toHaveProperty('rules');
+    expect(published.contract).toMatchObject({
+      layout: 'sheets',
+      tables: [
+        {
+          sheet: 'Orders',
+          columns: [
+            { name: 'OrderId', type: 'integer', mustExist: true, nullable: false },
+            { name: 'Amount', type: 'string', mustExist: true, nullable: false },
+            { name: 'OrderDate', type: 'datetime', mustExist: true, nullable: false },
+            { name: 'Status', type: 'string', mustExist: false, nullable: true },
+            { name: 'Comment', type: 'string', mustExist: true, nullable: true },
+          ],
+        },
+        {
+          sheet: 'Refunds',
+          columns: [
+            { name: 'OrderId', type: 'integer', mustExist: true, nullable: false },
+            { name: 'Reason', type: 'string', mustExist: true, nullable: false },
+          ],
+        },
+      ],
+    });
+    expect(published.contract.rules).toEqual([
+      expect.objectContaining({ name: 'Status allowed values', type: 'enum', table: 'Orders', params: expect.objectContaining({ column: 'Status', values: ['Closed', 'Open'] }) }),
     ]);
-    expect(history.versions[0].rules).toEqual([expect.objectContaining({ ruleType: 'Enum Check', expression: 'Status: Closed, Open', table: 'Orders' })]);
 
     // Uploads are validated sheet by sheet: sheet names match ignoring case and extra sheets are ignored.
     const valid = await uploadFile(page, name, path.join(FIXTURES, 'orders-upload-valid.xlsx'));
@@ -255,12 +270,19 @@ test('admins create a definition from a CSV example, which has no sheets', async
 
     definitionId = await createFromWorkspace(page);
     const history = await api(page, 'GET', `/admin/file-definitions/${definitionId}/versions`);
-    expect(history.versions[0].columns).toEqual([
-      { name: 'CustomerId', type: 'integer', required: true },
-      { name: 'Email', type: 'string', required: true },
-      { name: 'Active', type: 'boolean', required: true },
-    ]);
-    expect(history.versions[0].rules).toEqual([]);
+    const published = history.versions[0].contract;
+    expect(published).toMatchObject({
+      layout: 'single',
+      tables: [{
+        sheet: null,
+        columns: [
+          { name: 'CustomerId', type: 'integer', mustExist: true, nullable: false },
+          { name: 'Email', type: 'string', mustExist: true, nullable: false },
+          { name: 'Active', type: 'boolean', mustExist: true, nullable: false },
+        ],
+      }],
+    });
+    expect(published.rules).toEqual([]);
   } finally {
     if (definitionId) await api(page, 'DELETE', `/admin/file-definitions/${definitionId}`);
   }

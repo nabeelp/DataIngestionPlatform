@@ -3,8 +3,8 @@ import type { Server } from 'http';
 import express from 'express';
 
 const proposeNaturalLanguageRule = jest.fn();
-jest.mock('../src/services/NaturalLanguageRule.service', () => {
-    const actual = jest.requireActual('../src/services/NaturalLanguageRule.service');
+jest.mock('../src/services/naturalLanguageRule', () => {
+    const actual = jest.requireActual('../src/services/naturalLanguageRule');
     return {
         ...actual,
         proposeNaturalLanguageRule: (...args: unknown[]) => proposeNaturalLanguageRule(...args),
@@ -12,14 +12,15 @@ jest.mock('../src/services/NaturalLanguageRule.service', () => {
 });
 
 const buildAuthoringContract = jest.fn();
-jest.mock('../src/services/RuleAuthoring.service', () => ({
-    ...jest.requireActual('../src/services/RuleAuthoring.service'),
+jest.mock('../src/services/RuleDraft.service', () => ({
+    ...jest.requireActual('../src/services/RuleDraft.service'),
     buildAuthoringContract: (...args: unknown[]) => buildAuthoringContract(...args),
 }));
 
 const { proposeRuleFromDescription } = require('../src/controllers/rule.controller') as typeof import('../src/controllers/rule.controller');
-const { RuleGenerationError, RuleGenerationCancelledError } = require('../src/services/NaturalLanguageRule.service') as typeof import('../src/services/NaturalLanguageRule.service');
-const { AuthoringInputError } = require('../src/services/RuleAuthoring.service') as typeof import('../src/services/RuleAuthoring.service');
+const { errorHandler } = require('../src/middleware/errorHandler') as typeof import('../src/middleware/errorHandler');
+const { RuleGenerationError, RuleGenerationCancelledError } = require('../src/services/naturalLanguageRule') as typeof import('../src/services/naturalLanguageRule');
+const { AuthoringInputError } = require('../src/services/RuleDraft.service') as typeof import('../src/services/RuleDraft.service');
 
 const contract = { schemaVersion: 1, tables: [], rules: [], lookups: {} };
 const body = { Request: ' Email must not end with microsoft.com ', Contract: { schemaVersion: 1 }, Rules: [] };
@@ -36,6 +37,7 @@ describe('natural-language rule proposal endpoint', () => {
             (req as { user?: unknown }).user = { userId: 'admin-id', role: 'admin' };
             next();
         }, proposeRuleFromDescription);
+        app.use(errorHandler);
         await new Promise<void>(resolve => { server = app.listen(0, () => resolve()); });
         url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/rules/natural-language/propose`;
     });

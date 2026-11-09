@@ -1,185 +1,57 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { UploadCloud, ChevronDown, ChevronLeft, ChevronRight, FileText, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw } from 'lucide-react';
-import { apiConfig } from '../config/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { UploadCloud, ChevronDown, XCircle } from 'lucide-react';
 import { roleBasePath } from '../config/routes';
 import { useAuth } from '../context/AuthContext';
 import type { UploadProgressEvent } from '../types/websocket';
 import DefinitionContextCard from '../components/DefinitionContextCard';
-import { getFileDefinitions, type DefinitionSummary } from '../services/definitionApi';
+import type { DefinitionSummary } from '../services/definitionApi';
+import { useDefinitionsQuery } from '../services/hooks/definitions';
+import { useUploadFileMutation } from '../services/hooks/uploads';
+import { invalidateUploadLists } from '../services/queryKeys';
+import UploadHistoryPanel from './upload-page/UploadHistoryPanel';
+import { useUploadRecordsQuery, type UploadRecord } from './upload-page/uploadPageApi';
 
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface UploadRecord {
-  id: string;
-  filename: string;
-  definitionId: string;
-  definitionName: string;
-  definitionVersion: number | null;
-  size: number;
-  rows: number;
-  status:
-    | 'Pending'
-    | 'Validation In Progress'
-    | 'Validation Passed'
-    | 'Validation Failed'
-    | 'Delivery Pending'
-    | 'Delivery In Progress'
-    | 'Delivered'
-    | 'Failed';
-  uploadedAt: string;
-  statusCode?: string;
-}
-
-// ============================================================================
-// API Functions
-// ============================================================================
-
-const fetchUploads = async (page: number): Promise<{ uploads: UploadRecord[]; total: number }> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  const response = await fetch(`${baseUrl}/uploads?page=${page}&pageSize=20`, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch uploads');
-  }
-  
-  const data = await response.json();
-  
-  if (data.success && data.uploads) {
-    return {
-      uploads: data.uploads.map((upload: any) => ({
-        id: upload.Id || upload.id,
-        filename: upload.OriginalFilename || upload.originalFilename,
-        definitionId: upload.FileDefinitionId || upload.fileDefinitionId,
-        definitionName: upload.DefinitionName || upload.definitionName || 'Unknown definition',
-        definitionVersion: upload.DefinitionVersionNumber || upload.definitionVersionNumber || null,
-        size: upload.FileSize || upload.fileSize || 0,
-        rows: upload.RowCountNo || upload.rowCountNo || 0,
-        status: mapStatusToDisplay(upload.Status || upload.status),
-        uploadedAt: upload.UploadedAt || upload.uploadedAt,
-        statusCode: upload.Status || upload.status,
-      })),
-      total: data.total ?? data.uploads.length,
-    };
-  }
-  
-  return { uploads: [], total: 0 };
-};
-
-const uploadFile = async (file: File, definitionId: string): Promise<any> => {
-  const baseUrl = apiConfig.getBaseUrl();
-  const token = localStorage.getItem('token');
-  
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('definitionId', definitionId);
-  
-  const response = await fetch(`${baseUrl}/uploads`, {
-    method: 'POST',
-    headers: {
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: formData,
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to upload file');
-  }
-  
-  return response.json();
-};
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-const mapStatusToDisplay = (status: string): string => {
-  const statusMap: Record<string, string> = {
-    'UPLOADED': 'Pending',
-    'VALIDATION_QUEUED': 'Pending',
-    'VALIDATION_IN_PROGRESS': 'Validation In Progress',
-    'VALIDATION_FAILED': 'Validation Failed',
-    'VALIDATION_PASSED': 'Validation Passed',
-    'VALIDATED': 'Validation Passed',
-    'DELIVERY_QUEUED': 'Delivery Pending',
-    'DELIVERY_IN_PROGRESS': 'Delivery In Progress',
-    'DELIVERED': 'Delivered',
-    'DELIVERY_FAILED': 'Failed',
-  };
-  return statusMap[status] || status;
-};
-
-// ============================================================================
-// Component
-// ============================================================================
+const NO_DEFINITIONS: DefinitionSummary[] = [];
+const NO_UPLOADS: UploadRecord[] = [];
 
 const Upload = () => {
   const auth = useAuth();
   const socket = auth?.socket;
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedDefinition, setSelectedDefinition] = useState<string>(() => searchParams.get('definitionId') ?? '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
-  const [uploadHistory, setUploadHistory] = useState<UploadRecord[]>([]);
+  const definitionsQuery = useDefinitionsQuery();
+  const definitions = definitionsQuery.data?.definitions ?? NO_DEFINITIONS;
+  const loadingDefinitions = definitionsQuery.isPending;
   const [historyPage, setHistoryPage] = useState(1);
-  const [historyTotal, setHistoryTotal] = useState(0);
+  const historyQuery = useUploadRecordsQuery(historyPage);
+  const uploadHistory = historyQuery.data?.uploads ?? NO_UPLOADS;
+  const historyTotal = historyQuery.data?.total ?? 0;
+  const loading = historyQuery.isPending;
+  const uploadMutation = useUploadFileMutation();
   const [latestUploadId, setLatestUploadId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingDefinitions, setLoadingDefinitions] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-  // Load definitions on mount
-  useEffect(() => {
-    const loadDefinitions = async () => {
-      try {
-        const result = await getFileDefinitions();
-        setDefinitions(result.definitions);
-        setSelectedDefinition(current => {
-          if (result.definitions.some(definition => definition.id === current)) return current;
-          return result.definitions.length === 1 ? result.definitions[0].id : '';
-        });
-      } catch (error) {
-        console.error('Error fetching definitions:', error);
-      } finally {
-        setLoadingDefinitions(false);
-      }
-    };
-    
-    loadDefinitions();
-  }, []);
 
-  // Load uploads on mount
-  const loadUploads = useCallback(async () => {
-    try {
-      const result = await fetchUploads(historyPage);
-      setUploadHistory(result.uploads);
-      setHistoryTotal(result.total);
-    } catch (error) {
-      console.error('Error fetching uploads:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [historyPage]);
-
+  // Keep the chosen definition valid for the loaded list; a single definition is chosen automatically.
   useEffect(() => {
-    loadUploads();
-  }, [loadUploads]);
+    if (!definitionsQuery.data) return;
+    const loaded = definitionsQuery.data.definitions;
+    setSelectedDefinition(current => {
+      if (loaded.some(definition => definition.id === current)) return current;
+      return loaded.length === 1 ? loaded[0].id : '';
+    });
+  }, [definitionsQuery.data]);
+
+  const loadUploads = useCallback(() => invalidateUploadLists(queryClient), [queryClient]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -229,24 +101,19 @@ const handleFileUpload = async (file: File) => {
     setUploadMessage(null);
 
     try {
-      const result = await uploadFile(file, selectedDefinition);
-      const uploadId = result.upload?.Id || result.uploadId || result.id;
-      
-      if (result.success) {
-        // The backend queues validation as part of the upload; subscribe for live progress.
-        if (uploadId && socket) socket.emit('subscribeToUpload', uploadId);
-        setUploadMessage({ type: 'success', text: result.message || `✅ File uploaded! ID: ${uploadId || 'N/A'}` });
-        setLatestUploadId(uploadId || null);
-      } else {
-        setUploadMessage({ type: 'error', text: result.message || 'Upload failed' });
-      }
-      
-      await loadUploads();
+      const result = await uploadMutation.mutateAsync({ file, definitionId: selectedDefinition });
+      const uploadId = result.upload.Id;
+
+      // The backend queues validation as part of the upload; subscribe for live progress.
+      if (socket) socket.emit('subscribeToUpload', uploadId);
+      setUploadMessage({ type: 'success', text: result.message || `✅ File uploaded! ID: ${uploadId}` });
+      setLatestUploadId(uploadId);
+
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
-    } catch (error: any) {
-      setUploadMessage({ type: 'error', text: error.message || 'Failed to upload file' });
+    } catch (error) {
+      setUploadMessage({ type: 'error', text: error instanceof Error && error.message ? error.message : 'Failed to upload file' });
     } finally {
       setIsUploading(false);
     }
@@ -266,7 +133,7 @@ const handleFileUpload = async (file: File) => {
 
     // Progress updates are frequent; refresh the list only on stage changes.
     if (data.type !== 'VALIDATION_UPDATE') {
-      loadUploads();
+      void loadUploads();
     }
   };
 
@@ -276,42 +143,6 @@ const handleFileUpload = async (file: File) => {
     socket.off('uploadProgress', handleProgress);
   };
 }, [socket, loadUploads]);
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'numeric',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'Validation Passed':
-      case 'Delivered':
-        return <CheckCircle size={14} className="text-green-500" />;
-      case 'Validation Failed':
-      case 'Failed':
-        return <XCircle size={14} className="text-red-500" />;
-      case 'Pending':
-      case 'Validation In Progress':
-      case 'Delivery In Progress':
-        return <Clock size={14} className="text-yellow-500" />;
-      default:
-        return <AlertCircle size={14} className="text-gray-400" />;
-    }
-  };
 
   const filteredUploads = uploadHistory.filter((item) => {
   const matchesSearch = item.filename
@@ -329,7 +160,6 @@ const handleFileUpload = async (file: File) => {
     () => definitions.find(definition => definition.id === selectedDefinition) ?? null,
     [definitions, selectedDefinition],
   );
-  const historyPageCount = Math.max(1, Math.ceil(historyTotal / 20));
 
   const handleDefinitionChange = (definitionId: string) => {
     setSelectedDefinition(definitionId);
@@ -526,197 +356,19 @@ const handleFileUpload = async (file: File) => {
       {/* RIGHT PANEL */}
       {/* ========================================================= */}
 
-  <main className="w-full lg:w-[65%] bg-white rounded-xl border border-slate-200 shadow overflow-hidden">
-
-        {/* Header */}
-
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Upload History
-            </h2>
-
-            <p className="text-xs text-slate-500">
-              Track and inspect runtime file validations.
-            </p>
-          </div>
-
-          <button
-            onClick={loadUploads}
-            className="flex items-center gap-2 border border-blue-100 bg-white hover:bg-blue-50 rounded-lg px-4 py-2 text-sm text-blue-700 transition-colors"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-
-        </div>
-
-        {/* Search + Filters */}
-
-        <div className="p-5 bg-slate-50 border-b border-slate-100 flex flex-col md:flex-row gap-4 justify-between">
-
-          <div className="relative flex-1 max-w-md">
-
-            <input
-              type="text"
-              placeholder="Search files..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg pl-4 pr-4 py-2 outline-none text-sm focus:border-blue-400"
-            />
-
-          </div>
-
-          <div className="flex gap-2">
-
-            {['All', 'Validation Passed', 'Validation Failed'].map(
-              (status) => (
-                <button
-                  key={status}
-                  onClick={() => setStatusFilter(status)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium
-                    ${
-                      statusFilter === status
-                      ? 'bg-blue-600 text-white border border-blue-600'
-                      : 'bg-white border border-blue-100 text-slate-600 hover:bg-blue-50'
-                    }`}
-                >
-                  {status === 'Validation Passed'
-                    ? 'Passed'
-                    : status === 'Validation Failed'
-                    ? 'Failed'
-                    : 'All'}
-                </button>
-              )
-            )}
-
-          </div>
-
-        </div>
-
-        {/* History List */}
-
-        <div className="divide-y divide-slate-100">
-
-          {loading ? (
-            <div className="p-10 text-center">
-              Loading uploads...
-            </div>
-          ) : filteredUploads.length === 0 ? (
-            <div className="p-10 text-center text-slate-400">
-              No upload history found
-            </div>
-          ) : (
-            filteredUploads.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between p-5 hover:bg-slate-50"
-              >
-                {/* File */}
-
-                <div className="w-[40%] flex items-center gap-4">
-
-                  <div
-                    className={`p-3 rounded-lg ${
-                      item.filename.endsWith('.xlsx')
-                        ? 'bg-green-50'
-                        : 'bg-blue-50'
-                    }`}
-                  >
-                    <FileText
-                      size={20}
-                      className={
-                        item.filename.endsWith('.xlsx')
-                          ? 'text-green-600'
-                          : 'text-blue-600'
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {item.filename}
-                    </p>
-
-                    <p className="text-xs text-slate-400">
-                      {formatDate(item.uploadedAt)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.definitionName}{item.definitionVersion ? ` · v${item.definitionVersion}` : ''}
-                    </p>
-                  </div>
-
-                </div>
-
-                {/* Size */}
-
-                <div className="w-[20%] text-sm text-slate-600">
-                  {formatFileSize(item.size)} • {item.rows} rows
-                </div>
-
-                {/* Status */}
-
-                <div className="w-[25%]">
-
-                  <span
-                    className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border
-                    ${
-                      item.status === 'Validation Passed'
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : item.status === 'Validation Failed'
-                        ? 'bg-red-50 text-red-700 border-red-200'
-                        : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                    }`}
-                  >
-                    {getStatusIcon(item.status)}
-                    {item.status}
-                  </span>
-
-                </div>
-
-                {/* Action */}
-
-                <div className="w-[15%] text-right">
-                  <Link
-                    to={`${roleBasePath(auth?.user?.Role)}/history/${item.id}`}
-                    className="text-blue-600 hover:text-blue-800 font-semibold"
-                  >
-                    View
-                  </Link>
-                </div>
-
-              </div>
-            ))
-          )}
-
-        </div>
-
-        {historyTotal > 20 && (
-          <nav aria-label="Upload history pages" className="flex items-center justify-between border-t border-slate-100 p-4">
-            <p className="text-sm text-slate-500">Page {historyPage} of {historyPageCount} · {historyTotal} uploads</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={historyPage === 1}
-                onClick={() => setHistoryPage(page => Math.max(1, page - 1))}
-                className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium disabled:opacity-40"
-              >
-                <ChevronLeft size={16} /> Previous
-              </button>
-              <button
-                type="button"
-                disabled={historyPage === historyPageCount}
-                onClick={() => setHistoryPage(page => Math.min(historyPageCount, page + 1))}
-                className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium disabled:opacity-40"
-              >
-                Next <ChevronRight size={16} />
-              </button>
-            </div>
-          </nav>
-        )}
-
-      </main>
+      <UploadHistoryPanel
+        uploads={filteredUploads}
+        loading={loading}
+        role={auth?.user?.Role}
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        onRefresh={loadUploads}
+        page={historyPage}
+        total={historyTotal}
+        onPageChange={setHistoryPage}
+      />
 
     </div>
   </div>

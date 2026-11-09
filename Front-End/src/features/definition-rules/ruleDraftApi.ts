@@ -5,8 +5,7 @@
 
 import type { DefinitionContract } from '../../contracts/definition-contract';
 import type { RuleConfig } from '../../contracts/rule-config';
-import { apiConfig } from '../../config/api';
-import { apiRequest } from '../../services/http';
+import { apiUrl, authHeaders, apiRequest } from '../../services/http';
 
 export type ActivityLevel = 'info' | 'success' | 'warning' | 'error';
 
@@ -116,7 +115,8 @@ export interface PublishedRules {
 /** The rules of the version uploads are validated against. */
 export async function getPublishedRules(definitionId: string): Promise<PublishedRules> {
   const data = await apiRequest<{ rules: RuleConfig[]; versionNumber?: number | null }>(
-    `/rules/definitions/${encodeURIComponent(definitionId)}?published=true`,
+    `/rules/definitions/${encodeURIComponent(definitionId)}`,
+    { query: { published: true } },
   );
   return { rules: data.rules ?? [], versionNumber: data.versionNumber ?? null };
 }
@@ -155,7 +155,6 @@ export async function runDraftDryRun(
 }
 
 interface ProposeOptions {
-  token: string | null;
   context: DraftContext;
   request: string;
   /** Set when regenerating an existing natural-language rule, so the proposal keeps its identity. */
@@ -169,19 +168,19 @@ interface ProposeOptions {
  * RuleConfig is returned for the workspace to add to its draft. Aborting the signal stops the review on the server.
  */
 export async function proposeNaturalLanguageRule({
-  token,
   context,
   request,
   existing,
   signal,
   onActivity,
 }: ProposeOptions): Promise<ReviewResult> {
-  const response = await fetch(`${apiConfig.getBaseUrl()}/rules/natural-language/propose`, {
+  // Streamed (NDJSON) responses cannot go through apiRequest, so this call uses fetch with the shared auth header.
+  const response = await fetch(apiUrl('/rules/natural-language/propose'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: NDJSON,
-      ...(token ? { Authorization: ['Bearer', token].join(' ') } : {}),
+      ...authHeaders(),
     },
     body: JSON.stringify({
       ...body(context, existing?.id),
