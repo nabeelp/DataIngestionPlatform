@@ -17,6 +17,7 @@ beforeEach(() => {
     appConfig.azure.citadel = {
         endpoint: 'https://np-aigw-apim.azure-api.net/models/',
         subscriptionKey: 'unit-test-subscription-key',
+        subscriptionKeyHeader: 'api-key',
         model: 'test-model',
     };
 });
@@ -49,7 +50,8 @@ it('sends streaming Responses requests only to Citadel with the APIM header and 
     expect(String(url)).toBe('https://np-aigw-apim.azure-api.net/models/responses');
     expect(options?.method).toBe('POST');
     const headers = new Headers(options?.headers);
-    expect(headers.get('Ocp-Apim-Subscription-Key')).toBe('unit-test-subscription-key');
+    expect(headers.get('api-key')).toBe('unit-test-subscription-key');
+    expect(headers.has('Ocp-Apim-Subscription-Key')).toBe(false);
     expect(headers.has('Authorization')).toBe(false);
     expect(JSON.parse(String(options?.body))).toMatchObject({
         model: 'test-model', stream: true, store: false,
@@ -58,8 +60,28 @@ it('sends streaming Responses requests only to Citadel with the APIM header and 
 
     appConfig.azure.citadel.subscriptionKey = 'rotated-test-key';
     await callModel(call, jest.fn());
-    expect(new Headers(fetch.mock.calls[1][1]?.headers).get('Ocp-Apim-Subscription-Key')).toBe('rotated-test-key');
+    expect(new Headers(fetch.mock.calls[1][1]?.headers).get('api-key')).toBe('rotated-test-key');
 });
+
+it('recreates the client when the configured subscription header changes', async () => {
+    const fetch = mockResponse();
+    await callModel(call, jest.fn());
+    appConfig.azure.citadel.subscriptionKeyHeader = 'Ocp-Apim-Subscription-Key';
+    await callModel(call, jest.fn());
+    const headers = new Headers(fetch.mock.calls[1][1]?.headers);
+    expect(headers.get('Ocp-Apim-Subscription-Key')).toBe('unit-test-subscription-key');
+    expect(headers.has('api-key')).toBe(false);
+    expect(headers.has('Authorization')).toBe(false);
+});
+
+it.each(['', ' ', 'invalid header', 'api-key:', 'api-key\r\nInjected'])(
+    'rejects invalid subscription header %j before making a request', async subscriptionKeyHeader => {
+        const fetch = mockResponse();
+        appConfig.azure.citadel.subscriptionKeyHeader = subscriptionKeyHeader;
+        await expect(callModel(call, jest.fn())).rejects.toThrow('CITADEL_SUBSCRIPTION_KEY_HEADER');
+        expect(fetch).not.toHaveBeenCalled();
+    },
+);
 
 it.each([
     'http://np-aigw-apim.azure-api.net/models',

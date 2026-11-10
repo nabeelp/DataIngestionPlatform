@@ -35,8 +35,9 @@ test('prepares non-secret provisioning settings without persisting the subscript
         .map(([, args]) => [args[2], args[3]]));
     assert.equal(settings.SQL_ADMIN_LOGIN, env.SQL_ADMIN_LOGIN);
     assert.equal(settings.RULES_SERVICE_API_ROLE_ID, guid);
-    assert.equal(settings.CITADEL_MODEL, 'gpt-5.3-codex');
+    assert.equal(settings.CITADEL_MODEL, 'gpt-6-luna');
     assert.equal(settings.CITADEL_ENDPOINT, 'https://np-aigw-apim.azure-api.net/models');
+    assert.equal(settings.CITADEL_SUBSCRIPTION_KEY_HEADER, 'api-key');
     assert.equal(settings.CITADEL_SUBSCRIPTION_KEY, undefined);
     assert.ok(!JSON.stringify(runner.calls).includes(env.CITADEL_SUBSCRIPTION_KEY));
 });
@@ -45,12 +46,14 @@ test('preserves explicit workload, model, worker and telemetry overrides', () =>
     const calls = [];
     prepare({
         ...env, WORKLOAD_NAME: 'custom', CITADEL_MODEL: 'custom-model',
+        CITADEL_SUBSCRIPTION_KEY_HEADER: 'Ocp-Apim-Subscription-Key',
         WORKER_CPU: '4', WORKER_MEMORY: '8Gi', APPLICATIONINSIGHTS_SAMPLING_RATIO: '0.5',
     }, (command, args) => {
         calls.push(args);
         return args[1] === 'get-value' ? 'ca-custom-api-sbfracent' : '';
     });
     assert.ok(calls.some(args => args[2] === 'CITADEL_MODEL' && args[3] === 'custom-model'));
+    assert.ok(calls.some(args => args[2] === 'CITADEL_SUBSCRIPTION_KEY_HEADER' && args[3] === 'Ocp-Apim-Subscription-Key'));
     assert.ok(calls.some(args => args[2] === 'WORKER_CPU' && args[3] === '4'));
     assert.ok(calls.some(args => args[2] === 'APPLICATIONINSIGHTS_SAMPLING_RATIO' && args[3] === '0.5'));
 });
@@ -70,6 +73,8 @@ for (const [name, setting] of [
     ['RULES_SERVICE_API_AUDIENCE', 'invalid'],
     ['WORKLOAD_NAME', 'invalid/name'],
     ['CITADEL_ENDPOINT', 'http://insecure.example/models'],
+    ['CITADEL_SUBSCRIPTION_KEY_HEADER', 'invalid header'],
+    ['CITADEL_SUBSCRIPTION_KEY_HEADER', 'api-key\r\nInjected'],
 ]) {
     test(`rejects invalid ${name} before invoking CLI commands`, () => {
         const runner = prepareRunner();
@@ -100,7 +105,8 @@ function verificationFixture() {
         env: [
             { name: 'CITADEL_SUBSCRIPTION_KEY', secretRef: 'citadel-subscription-key' },
             { name: 'CITADEL_ENDPOINT', value: 'https://np-aigw-apim.azure-api.net/models' },
-            { name: 'CITADEL_MODEL', value: 'gpt-5.3-codex' },
+            { name: 'CITADEL_MODEL', value: 'gpt-6-luna' },
+            { name: 'CITADEL_SUBSCRIPTION_KEY_HEADER', value: 'api-key' },
         ],
     };
     const fixture = { app, vault, enabled: 'true', assignments: '1', calls: [] };
@@ -109,7 +115,8 @@ function verificationFixture() {
         if (command === 'azd') {
             if (args[2] === 'API_IDENTITY_PRINCIPAL_ID') return guid;
             if (args[2] === 'CITADEL_ENDPOINT') return app.env[1].value;
-            if (args[2] === 'CITADEL_MODEL') return 'gpt-5.3-codex';
+            if (args[2] === 'CITADEL_MODEL') return 'gpt-6-luna';
+            if (args[2] === 'CITADEL_SUBSCRIPTION_KEY_HEADER') return 'api-key';
             return args[2];
         }
         if (args[0] === 'keyvault') return JSON.stringify(vault);
@@ -141,6 +148,8 @@ for (const [name, mutate, expected] of [
     ['wrong secret reference', fixture => { fixture.app.env[0].secretRef = 'old-key'; }, /secret reference/],
     ['literal key', fixture => { fixture.app.env[0].value = 'synthetic-literal'; }, /literal value/],
     ['model drift', fixture => { fixture.app.env[2].value = 'old-model'; }, /CITADEL_MODEL/],
+    ['header drift', fixture => { fixture.app.env[3].value = 'wrong-header'; }, /CITADEL_SUBSCRIPTION_KEY_HEADER/],
+    ['missing header', fixture => { fixture.app.env.splice(3, 1); }, /CITADEL_SUBSCRIPTION_KEY_HEADER/],
     ['missing endpoint', fixture => { fixture.app.env.splice(1, 1); }, /CITADEL_ENDPOINT/],
     ['missing AcrPull', fixture => { fixture.assignments = '0'; }, /AcrPull/],
     ['invalid role count', fixture => { fixture.assignments = 'invalid'; }, /AcrPull/],

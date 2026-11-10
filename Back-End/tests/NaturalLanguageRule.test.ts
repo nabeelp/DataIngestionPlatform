@@ -112,7 +112,7 @@ const request = 'Email must end with @contoso.example';
 describe('RuleConfig natural-language authoring', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', model: 'test-model' };
+        appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', subscriptionKeyHeader: 'api-key', model: 'test-model' };
         jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_schema, rule) => ({
             ok: true,
             errors: [],

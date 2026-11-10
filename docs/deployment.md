@@ -187,8 +187,11 @@ that secret must already exist (as with the JWT and SSO secrets); otherwise
 Container Apps cannot resolve its secret reference. Blank provisioning values do
 not overwrite an existing key. Set `CITADEL_ENDPOINT` to override the default
 `https://np-aigw-apim.azure-api.net/models`, and `CITADEL_MODEL` to choose a
-gateway deployment (default `gpt-5.3-codex`, with `AZURE_FOUNDRY_MODEL` as a
-compatibility fallback). The API no longer needs direct Foundry RBAC; APIM
+gateway deployment (default `gpt-6-luna`, with `AZURE_FOUNDRY_MODEL` as a
+compatibility fallback). `CITADEL_SUBSCRIPTION_KEY_HEADER` selects the HTTP
+header carrying the subscription key (default `api-key`). Set it to
+`Ocp-Apim-Subscription-Key` for gateways that use the standard APIM header.
+The API no longer needs direct Foundry RBAC; APIM
 owns downstream model authentication and governance. This change uses the
 existing gateway and provisions no new APIM instance. Model tokens and any
 gateway charges remain cost drivers. Validate first with unit tests and Bicep
@@ -309,7 +312,8 @@ addition to the existing Azure OIDC/subscription/location variables:
   are rejected before provisioning. Unlike image-only deployment, provisioning
   needs these settings and permission for the postprovision directory operations.
 - Optional: `WORKLOAD_NAME` (default `dataingest`), `CITADEL_ENDPOINT`,
-  `CITADEL_MODEL`, `WORKER_CPU`, `WORKER_MEMORY`,
+  `CITADEL_MODEL`, `CITADEL_SUBSCRIPTION_KEY_HEADER` (default `api-key`),
+  `WORKER_CPU`, `WORKER_MEMORY`,
   `APPLICATIONINSIGHTS_SAMPLING_RATIO` and
   `APPLICATIONINSIGHTS_BROWSER_SAMPLING_PERCENTAGE`. Omitted values use the
   Bicep defaults documented above; explicitly configure existing overrides to

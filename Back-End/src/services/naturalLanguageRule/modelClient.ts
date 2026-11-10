@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { validateHeaderName } from 'node:http';
 import OpenAI from 'openai';
 import type { Response as ModelResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { appConfig } from '../../config/appConfig';
@@ -33,7 +34,7 @@ const isAbort = (error: unknown, signal?: AbortSignal): boolean =>
 
 let cachedClient: { key: string; client: OpenAI } | null = null;
 
-function modelClient(config: { endpoint: string; subscriptionKey: string }): OpenAI {
+function modelClient(config: { endpoint: string; subscriptionKey: string; subscriptionKeyHeader: string }): OpenAI {
     const key = createHash('sha256').update(JSON.stringify(config)).digest('hex');
     if (cachedClient?.key !== key) {
         cachedClient = {
@@ -42,8 +43,8 @@ function modelClient(config: { endpoint: string; subscriptionKey: string }): Ope
                 baseURL: config.endpoint.replace(/\/+$/, ''),
                 apiKey: config.subscriptionKey,
                 defaultHeaders: {
-                    'Ocp-Apim-Subscription-Key': config.subscriptionKey,
                     Authorization: null,
+                    [config.subscriptionKeyHeader]: config.subscriptionKey,
                 },
                 timeout: MODEL_TIMEOUT_MS,
                 maxRetries: 1,
@@ -70,6 +71,11 @@ export async function callModel(
     }
     if (!config.subscriptionKey.trim() || !config.model.trim()) {
         throw new RuleGenerationError('Citadel requires CITADEL_SUBSCRIPTION_KEY and a non-empty CITADEL_MODEL');
+    }
+    try {
+        validateHeaderName(config.subscriptionKeyHeader);
+    } catch {
+        throw new RuleGenerationError('CITADEL_SUBSCRIPTION_KEY_HEADER must be a valid, non-empty HTTP header name');
     }
 
     const { instructions, input } = call;

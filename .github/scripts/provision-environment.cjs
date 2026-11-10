@@ -1,4 +1,5 @@
 const { execFileSync } = require('node:child_process');
+const { validateHeaderName } = require('node:http');
 
 function run(command, args) {
     try {
@@ -36,7 +37,8 @@ function prepare(env, runCommand = run) {
         ...Object.fromEntries(required.map(name => [name, env[name]])),
         WORKLOAD_NAME: env.WORKLOAD_NAME || 'dataingest',
         CITADEL_ENDPOINT: env.CITADEL_ENDPOINT || 'https://np-aigw-apim.azure-api.net/models',
-        CITADEL_MODEL: env.CITADEL_MODEL || 'gpt-5.3-codex',
+        CITADEL_SUBSCRIPTION_KEY_HEADER: env.CITADEL_SUBSCRIPTION_KEY_HEADER || 'api-key',
+        CITADEL_MODEL: env.CITADEL_MODEL || 'gpt-6-luna',
         WORKER_CPU: env.WORKER_CPU || '2',
         WORKER_MEMORY: env.WORKER_MEMORY || '4Gi',
         APPLICATIONINSIGHTS_SAMPLING_RATIO: env.APPLICATIONINSIGHTS_SAMPLING_RATIO || '1',
@@ -47,6 +49,11 @@ function prepare(env, runCommand = run) {
     }
     if (!/^https:\/\/[^/\s]+(?:\/[^\s]*)?$/.test(settings.CITADEL_ENDPOINT)) {
         throw new Error('CITADEL_ENDPOINT must be an HTTPS URL.');
+    }
+    try {
+        validateHeaderName(settings.CITADEL_SUBSCRIPTION_KEY_HEADER);
+    } catch {
+        throw new Error('CITADEL_SUBSCRIPTION_KEY_HEADER must be a valid, non-empty HTTP header name.');
     }
     const existingApi = value(runCommand, 'API_CONTAINER_APP_NAME');
     if (existingApi !== `ca-${settings.WORKLOAD_NAME}-api-${env.AZURE_ENV_NAME}`) {
@@ -85,7 +92,7 @@ function verify(runCommand = run) {
     if (subscriptionKey?.secretRef !== 'citadel-subscription-key' || subscriptionKey.value != null) {
         throw new Error('CITADEL_SUBSCRIPTION_KEY must use the Citadel secret reference, not a literal value.');
     }
-    for (const name of ['CITADEL_ENDPOINT', 'CITADEL_MODEL']) {
+    for (const name of ['CITADEL_ENDPOINT', 'CITADEL_MODEL', 'CITADEL_SUBSCRIPTION_KEY_HEADER']) {
         if (app.env?.find(item => item.name === name)?.value !== value(runCommand, name)) {
             throw new Error(`The API '${name}' does not match the provisioning configuration.`);
         }

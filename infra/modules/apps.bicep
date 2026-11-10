@@ -111,6 +111,9 @@ param rulesServiceApiAudience string
 @description('Citadel APIM base URL exposing the Responses API.')
 param citadelEndpoint string
 
+@description('HTTP header carrying the Citadel APIM subscription key.')
+param citadelSubscriptionKeyHeader string
+
 @description('Citadel model deployment name.')
 param citadelModel string
 
@@ -337,6 +340,10 @@ resource apiContainerApp 'Microsoft.App/containerApps@2025-07-01' = {
             {
               name: 'CITADEL_ENDPOINT'
               value: citadelEndpoint
+            }
+            {
+              name: 'CITADEL_SUBSCRIPTION_KEY_HEADER'
+              value: citadelSubscriptionKeyHeader
             }
             {
               name: 'CITADEL_MODEL'

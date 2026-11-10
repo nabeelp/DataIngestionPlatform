@@ -74,7 +74,7 @@ describe('readNdjson', () => {
 describe('proposeNaturalLanguageRule', () => {
   it('sends the unsaved draft, asks for a stream and reports activity before resolving', async () => {
     const fetchMock = stubStream([
-      '{"type":"progress","level":"info","message":"Asking gpt-5.3-codex","elapsedMs":10}\n',
+      '{"type":"progress","level":"info","message":"Asking gpt-6-luna","elapsedMs":10}\n',
       '{"type":"progress","level":"info","message":"The model is still reasoning about the rule (5.0 s)","elapsedMs":5010}\n',
       '{"type":"result","success":true,"outcome":"rejected","reason":"Needs CRM data"}\n',
     ]);
@@ -91,7 +91,7 @@ describe('proposeNaturalLanguageRule', () => {
     expect(body.Contract.lookups).toEqual({});
     expect(body.Rules.map((item: RuleConfig) => item.id)).toEqual(['a', 'b']);
     expect(body).not.toHaveProperty('Config');
-    expect(activity.map(entry => entry.message)).toEqual(['Asking gpt-5.3-codex', 'The model is still reasoning about the rule (5.0 s)']);
+    expect(activity.map(entry => entry.message)).toEqual(['Asking gpt-6-luna', 'The model is still reasoning about the rule (5.0 s)']);
   });
 
   it('sends the rule being regenerated and leaves it out of the other rules', async () => {

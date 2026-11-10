@@ -34,8 +34,11 @@ param ssoClientId string
 @description('Citadel APIM base URL exposing the Responses API.')
 param citadelEndpoint string = 'https://np-aigw-apim.azure-api.net/models'
 
+@description('HTTP header carrying the Citadel APIM subscription key.')
+param citadelSubscriptionKeyHeader string = 'api-key'
+
 @description('Citadel model deployment name.')
-param citadelModel string = 'gpt-5.3-codex'
+param citadelModel string = 'gpt-6-luna'
 
 @description('Citadel APIM subscription key written to Key Vault when supplied.')
 @secure()
@@ -231,6 +234,7 @@ module apps './modules/apps.bicep' = {
     rulesServiceApiClientId: rulesServiceApiClientId
     rulesServiceApiAudience: rulesServiceApiAudience
     citadelEndpoint: citadelEndpoint
+    citadelSubscriptionKeyHeader: citadelSubscriptionKeyHeader
     citadelModel: citadelModel
     tags: tags
   }

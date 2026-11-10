@@ -141,7 +141,7 @@ Back-End**: an older service rejects `relatedRows` as an unknown field, so every
   uv run python scripts/score_nl_eval.py ../temp/nl-eval.json   # data-behaviour score per category
   ```
 
-  Needs `CITADEL_SUBSCRIPTION_KEY`, optional `CITADEL_ENDPOINT`/`CITADEL_MODEL`, and the rules service running. At most 3 model calls per prompt per run (two rule
+  Needs `CITADEL_SUBSCRIPTION_KEY`, optional `CITADEL_ENDPOINT`/`CITADEL_MODEL` and `CITADEL_SUBSCRIPTION_KEY_HEADER` (default `api-key`), and the rules service running. At most 3 model calls per prompt per run (two rule
   proposals and one examples-only rewrite). Reports go to `Back-End/eval-results/` (git-ignored: they contain raw model output
   and each case's `diagnostics`). Per category the summary shows decision/type match, `runnable`, `corrected` /
   `recoveredAfterCorrection`, model calls and input/output tokens; the scorer checks that each generated rule flags exactly the
