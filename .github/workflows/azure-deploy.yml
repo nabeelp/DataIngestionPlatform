@@ -125,6 +125,7 @@ jobs:
           RULES_SERVICE_API_ROLE_ID: ${{ vars.RULES_SERVICE_API_ROLE_ID }}
           MS_CLIENT_ID: ${{ vars.MS_CLIENT_ID }}
           CITADEL_ENDPOINT: ${{ vars.CITADEL_ENDPOINT }}
+          CITADEL_SUBSCRIPTION_KEY_HEADER: ${{ vars.CITADEL_SUBSCRIPTION_KEY_HEADER }}
           CITADEL_MODEL: ${{ vars.CITADEL_MODEL }}
           WORKER_CPU: ${{ vars.WORKER_CPU }}
           WORKER_MEMORY: ${{ vars.WORKER_MEMORY }}

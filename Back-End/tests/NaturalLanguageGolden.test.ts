@@ -51,7 +51,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 beforeEach(() => {
     jest.clearAllMocks();
-    appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', model: 'test-model' };
+    appConfig.azure.citadel = { endpoint: 'https://test.azure-api.net/models', subscriptionKey: 'test-key', subscriptionKeyHeader: 'api-key', model: 'test-model' };
     jest.mocked(RulesServiceClient.validateRule).mockImplementation(async (_contract, rule) => ({
         ok: true, errors: [], normalizedRule: rule, explanation: null,
     }));

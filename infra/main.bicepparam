@@ -10,6 +10,7 @@ param rulesServiceApiClientId = readEnvironmentVariable('RULES_SERVICE_API_CLIEN
 param rulesServiceApiAudience = readEnvironmentVariable('RULES_SERVICE_API_AUDIENCE', 'api://00000000-0000-0000-0000-000000000000')
 param ssoClientId = readEnvironmentVariable('MS_CLIENT_ID', '00000000-0000-0000-0000-000000000000')
 param citadelEndpoint = readEnvironmentVariable('CITADEL_ENDPOINT', 'https://np-aigw-apim.azure-api.net/models')
+param citadelSubscriptionKeyHeader = readEnvironmentVariable('CITADEL_SUBSCRIPTION_KEY_HEADER', 'api-key')
 param citadelModel = readEnvironmentVariable('CITADEL_MODEL', readEnvironmentVariable('AZURE_FOUNDRY_MODEL', 'gpt-6-luna'))
 param citadelSubscriptionKey = readEnvironmentVariable('CITADEL_SUBSCRIPTION_KEY', '')
 param workerCpu = int(readEnvironmentVariable('WORKER_CPU', '2'))
