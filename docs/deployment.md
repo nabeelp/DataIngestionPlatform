@@ -187,7 +187,7 @@ that secret must already exist (as with the JWT and SSO secrets); otherwise
 Container Apps cannot resolve its secret reference. Blank provisioning values do
 not overwrite an existing key. Set `CITADEL_ENDPOINT` to override the default
 `https://np-aigw-apim.azure-api.net/models`, and `CITADEL_MODEL` to choose a
-gateway deployment (default `gpt-5.3-codex`, with `AZURE_FOUNDRY_MODEL` as a
+gateway deployment (default `gpt-6-luna`, with `AZURE_FOUNDRY_MODEL` as a
 compatibility fallback). The API no longer needs direct Foundry RBAC; APIM
 owns downstream model authentication and governance. This change uses the
 existing gateway and provisions no new APIM instance. Model tokens and any

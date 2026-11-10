@@ -77,7 +77,7 @@ export const appConfig = {
         citadel: {
             endpoint: process.env.CITADEL_ENDPOINT || 'https://np-aigw-apim.azure-api.net/models',
             subscriptionKey: process.env.CITADEL_SUBSCRIPTION_KEY || '',
-            model: process.env.CITADEL_MODEL || process.env.AZURE_FOUNDRY_MODEL || 'gpt-5.3-codex',
+            model: process.env.CITADEL_MODEL || process.env.AZURE_FOUNDRY_MODEL || 'gpt-6-luna',
         },
         storage: {
             connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',

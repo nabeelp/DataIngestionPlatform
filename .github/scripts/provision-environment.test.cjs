@@ -35,7 +35,7 @@ test('prepares non-secret provisioning settings without persisting the subscript
         .map(([, args]) => [args[2], args[3]]));
     assert.equal(settings.SQL_ADMIN_LOGIN, env.SQL_ADMIN_LOGIN);
     assert.equal(settings.RULES_SERVICE_API_ROLE_ID, guid);
-    assert.equal(settings.CITADEL_MODEL, 'gpt-5.3-codex');
+    assert.equal(settings.CITADEL_MODEL, 'gpt-6-luna');
     assert.equal(settings.CITADEL_ENDPOINT, 'https://np-aigw-apim.azure-api.net/models');
     assert.equal(settings.CITADEL_SUBSCRIPTION_KEY, undefined);
     assert.ok(!JSON.stringify(runner.calls).includes(env.CITADEL_SUBSCRIPTION_KEY));
@@ -100,7 +100,7 @@ function verificationFixture() {
         env: [
             { name: 'CITADEL_SUBSCRIPTION_KEY', secretRef: 'citadel-subscription-key' },
             { name: 'CITADEL_ENDPOINT', value: 'https://np-aigw-apim.azure-api.net/models' },
-            { name: 'CITADEL_MODEL', value: 'gpt-5.3-codex' },
+            { name: 'CITADEL_MODEL', value: 'gpt-6-luna' },
         ],
     };
     const fixture = { app, vault, enabled: 'true', assignments: '1', calls: [] };
@@ -109,7 +109,7 @@ function verificationFixture() {
         if (command === 'azd') {
             if (args[2] === 'API_IDENTITY_PRINCIPAL_ID') return guid;
             if (args[2] === 'CITADEL_ENDPOINT') return app.env[1].value;
-            if (args[2] === 'CITADEL_MODEL') return 'gpt-5.3-codex';
+            if (args[2] === 'CITADEL_MODEL') return 'gpt-6-luna';
             return args[2];
         }
         if (args[0] === 'keyvault') return JSON.stringify(vault);

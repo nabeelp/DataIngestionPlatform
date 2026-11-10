@@ -35,7 +35,7 @@ param ssoClientId string
 param citadelEndpoint string = 'https://np-aigw-apim.azure-api.net/models'
 
 @description('Citadel model deployment name.')
-param citadelModel string = 'gpt-5.3-codex'
+param citadelModel string = 'gpt-6-luna'
 
 @description('Citadel APIM subscription key written to Key Vault when supplied.')
 @secure()

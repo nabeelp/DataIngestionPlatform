@@ -36,7 +36,7 @@ function prepare(env, runCommand = run) {
         ...Object.fromEntries(required.map(name => [name, env[name]])),
         WORKLOAD_NAME: env.WORKLOAD_NAME || 'dataingest',
         CITADEL_ENDPOINT: env.CITADEL_ENDPOINT || 'https://np-aigw-apim.azure-api.net/models',
-        CITADEL_MODEL: env.CITADEL_MODEL || 'gpt-5.3-codex',
+        CITADEL_MODEL: env.CITADEL_MODEL || 'gpt-6-luna',
         WORKER_CPU: env.WORKER_CPU || '2',
         WORKER_MEMORY: env.WORKER_MEMORY || '4Gi',
         APPLICATIONINSIGHTS_SAMPLING_RATIO: env.APPLICATIONINSIGHTS_SAMPLING_RATIO || '1',
