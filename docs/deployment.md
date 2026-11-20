@@ -44,9 +44,10 @@ strings into committed files.
   role on the Rules API registration. An Entra administrator may need to
   complete or consent to the directory operations.
 - A Citadel APIM subscription key authorized to call the selected model through
-  `https://np-aigw-apim.azure-api.net/models/responses`.
+  your gateway's `/models/responses` route (set `CITADEL_ENDPOINT`; the repository
+  default is the original developer's gateway and must be replaced).
 
-The `sbingest` setup uses a single-tenant SSO registration and a dedicated
+The reference setup uses a single-tenant SSO registration and a dedicated
 single-tenant Rules API registration with the `access_as_application` role. The
 postprovision hook configures the API's exact frontend CORS origin and callback,
 adds the frontend callback URI to the SSO registration, and grants the Rules
@@ -127,13 +128,10 @@ boolean `true`, disable rate-limit validation, or select the leftmost header IP.
 Reassess this setting if another proxy is introduced or callers can reach the
 container listener through a shorter path.
 
-To deploy this fix, apply the API template setting using the existing
-`azd provision` workflow, then build and deploy the API with `azd deploy api`.
+The proxy-trust setting is part of the API template and is applied by `azd provision`;
+an image-only API deployment does not apply new Bicep environment settings.
 Provisioning can affect other infrastructure: review those changes before
-running it. Updating the environment variable alone on an old API image does
-not fix the issue; both the rebuilt image and the setting are required.
-An API image-only deployment to an existing Container App also does not apply
-new Bicep environment settings.
+running it.
 
 Verify the active API image/revision and only the non-secret
 `TRUST_PROXY_HOPS` setting. Check `/health`, then send normal authenticated
@@ -144,22 +142,9 @@ prefixes. Confirm the live ingress path during deployment without exposing a
 public IP-debug endpoint or exhausting production rate limits.
 If acceptance fails, restore the previous API image and environment
 configuration together using the existing revision/deployment workflow.
-
-This fix adds no Azure services. Deployment needs the existing image build/push
-and Container App update permissions. Rate-limit state remains in memory and
-replica-local; the API template currently caps the API at one replica.
-
-The proxy fix was deployed to the existing France Central API on
-2026-10-07 using a scoped ACR remote build and a single Container App update
-that set both the image and `TRUST_PROXY_HOPS=1`. This intentionally avoided
-the project-wide AZD hooks, which also bootstrap SQL and update the worker.
-Image tag: `proxytrust-20261007-0525`; active healthy revision:
-`ca-dataingest-api-sbfracent--proxytrust-20261007-0525`.
-Health returned HTTP 200, an unauthenticated protected API request with a
-forwarded prefix returned the expected HTTP 401, and fresh revision logs
-contained startup/Service Bus initialization without the forwarded-header
-validation error. Authenticated workflows and live multi-client isolation
-remain untested; no production limits were exhausted.
+Rate-limit state remains in memory and replica-local; the API template
+currently caps the API at one replica. Authenticated workflows and live
+multi-client isolation have not been verified in Azure.
 
 ## Parameters and secrets
 
@@ -185,8 +170,9 @@ before provisioning; never put the actual value in commands saved to shell histo
 Bicep writes it to the `citadel-subscription-key` Key Vault secret. If omitted,
 that secret must already exist (as with the JWT and SSO secrets); otherwise
 Container Apps cannot resolve its secret reference. Blank provisioning values do
-not overwrite an existing key. Set `CITADEL_ENDPOINT` to override the default
-`https://np-aigw-apim.azure-api.net/models`, and `CITADEL_MODEL` to choose a
+not overwrite an existing key. Set `CITADEL_ENDPOINT` to your gateway's base URL (the repository default,
+`https://np-aigw-apim.azure-api.net/models`, is the original developer's gateway
+and must be overridden), and `CITADEL_MODEL` to choose a
 gateway deployment (default `gpt-6-luna`, with `AZURE_FOUNDRY_MODEL` as a
 compatibility fallback). `CITADEL_SUBSCRIPTION_KEY_HEADER` selects the HTTP
 header carrying the subscription key (default `api-key`). Set it to
@@ -226,7 +212,9 @@ automatic merge trigger unless an equivalent approval gate is available.
 Create a dedicated deployment app/service principal with a federated credential
 whose issuer is `https://token.actions.githubusercontent.com`, audience is
 `api://AzureADTokenExchange` and subject is
-`repo:nabeelp@19663473/DataIngestionPlatform@1394763110:environment:azure-deployment`.
+`repo:<owner>@<owner-id>/<repository>@<repository-id>:environment:azure-deployment`
+(for the original repository: `repo:nabeelp@19663473/DataIngestionPlatform@1394763110:environment:azure-deployment`;
+a customer repository has its own IDs).
 This repository uses GitHub's ID-qualified OIDC subject; match the exact
 issued subject rather than assuming the older name-only repository format.
 Do not reuse application runtime identities or create a client secret.

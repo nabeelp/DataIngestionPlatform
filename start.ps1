@@ -226,7 +226,7 @@ if ($dbSettings.UserID -ne 'sa' -or $dbSettings.Password -ne $script:saPassword)
     throw 'DB_CONNECTION_STRING must use the local SQL Server credentials configured in Back-End/.env.'
 }
 
-$ports = @(1433, 5173, $backendPort, 5672, $emulatorHttpPort, 10000, 10001, 10002) | Select-Object -Unique
+$ports = @(1433, 5173, $backendPort, $rulesPort, 5672, $emulatorHttpPort, 10000, 10001, 10002) | Select-Object -Unique
 $composePortContainers = @{
     1433 = 'data-ingestion-sql'
     5672 = 'servicebus-emulator'

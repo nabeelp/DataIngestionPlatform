@@ -165,7 +165,7 @@ export class User {
                 WHERE Id = @Id
             `);
 
-        // Lock account after 5 failed attempts
+        // Lock account after 4 failed attempts (the count has just been incremented)
         if (result.rowsAffected[0] > 0) {
             const user = await this.findById(id);
             if (user && user.FailedLoginAttempts >= 4) {

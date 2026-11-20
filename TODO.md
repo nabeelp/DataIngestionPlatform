@@ -7,6 +7,7 @@ resolved items are removed. Update this file in the same change that fixes or ad
 
 ## Next
 
+- **PoC handover:** work through the customer-supplied items and the production gate in [docs/poc-handover.md](docs/poc-handover.md); HAND-01, PKG-01 and SEC-01 below are the open hygiene items from the handover review.
 - **Azure deployment acceptance:** after explicit owner approval, run the authenticated OPS-01 workflow (delivery, replay, owner-authorized download, deletion)
   against the deployed environment. See [docs/deployment.md](docs/deployment.md).
 - **Token storage and revocation** (part of AUTH-01): move the app JWT from `localStorage` to an httpOnly SameSite cookie with CSRF protection, and add revocation.
@@ -55,13 +56,15 @@ resolved items are removed. Update this file in the same change that fixes or ad
 | OPS-09 | The worker identity can read all Key Vault secrets although it needs only the telemetry one | Open | Accept the PoC boundary explicitly or separate the vault or scope |
 | PERF-01 | Dense-error workloads are unproven (per-rule materialisation, 1,000,000-issue report cap) | Open | Bound intermediate materialisation; measure 0/1/50/100% failure density on the 4 vCPU / 8 GiB reference host |
 | QA-01 | Integration suites skip without a database; no SQL/emulator, browser or container gate in CI | Partial | Add a disposable-database and emulator CI job and a smoke gate that cannot skip |
-| DOC-01 | Manifest and snapshot disagree for a few samples (for example duplicate headers); the lockout comment in `User.model.ts` says 5 but the threshold is 4 | Partial | Align the manifest expectations with the golden snapshot where the engine intentionally differs; fix the comment |
+| DOC-01 | Manifest and snapshot disagree for a few samples (for example duplicate headers) | Partial | Align the manifest expectations with the golden snapshot where the engine intentionally differs |
+| SEC-01 | Dependency advisories: the backend still reports a moderate `@opentelemetry/instrumentation-http` finding (fix needs a breaking `@azure/monitor-opentelemetry` change) and a dev-only `ajv` finding; the frontend audit was not completed because the package-feed audit endpoint rate-limited the review. No automated dependency scanning in CI | Partial | Re-run `npm audit` and `pip-audit`/`uv` audit in both Node projects and the validation service, adopt the OpenTelemetry fix when upstream allows it, and add Dependabot or an audit job to CI |
+| PKG-01 | Lockfiles pin Microsoft-hosted package mirrors (`packagefeedproxy.microsoft.io`, `pkgs.visualstudio.com`) in `package-lock.json` and `uv.lock`, and `Validation-Service/pyproject.toml` sets that mirror as the default uv index | Open | Regenerate the lockfiles against the public registries (or the customer's approved feed) and update `[[tool.uv.index]]` so builds do not depend on a third-party mirror |
+| HAND-01 | Defaults point at the original developer's Citadel gateway (`CITADEL_ENDPOINT`), the repository has no licence file, and the deployment guide shows the original repository's OIDC subject | Open | Make the gateway endpoint a required, customer-supplied setting (no default); add the agreed licence; replace the OIDC subject example with a placeholder. See [docs/poc-handover.md](docs/poc-handover.md) |
 
 ## P3
 
 | ID | Item | Status | Next action |
 |---|---|---|---|
-| LOCAL-01 | `start.ps1` preflight omits the configured rules-service port | Partial | Add the rules port to the preflight list |
 | PERF-02 | The frontend bundle (about 1.1 MB) includes every route eagerly | Open | Add route-level lazy loading or targeted chunks |
 
 ## Maintainability follow-ups from the legacy cleanup
