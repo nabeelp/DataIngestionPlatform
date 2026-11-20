@@ -6,7 +6,7 @@ on:
       environment:
         description: Existing azd environment to deploy
         required: true
-        default: sbfracent
+        default: dev
         type: string
       deployment_target:
         description: Deploy applications only, or explicitly provision infrastructure and deploy all services

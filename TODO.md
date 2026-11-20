@@ -7,6 +7,7 @@ resolved items are removed. Update this file in the same change that fixes or ad
 
 ## Next
 
+- **PoC handover:** work through the customer-supplied items and the production gate in [docs/poc-handover.md](docs/poc-handover.md).
 - **Azure deployment acceptance:** after explicit owner approval, run the authenticated OPS-01 workflow (delivery, replay, owner-authorized download, deletion)
   against the deployed environment. See [docs/deployment.md](docs/deployment.md).
 - **Token storage and revocation** (part of AUTH-01): move the app JWT from `localStorage` to an httpOnly SameSite cookie with CSRF protection, and add revocation.
@@ -55,13 +56,13 @@ resolved items are removed. Update this file in the same change that fixes or ad
 | OPS-09 | The worker identity can read all Key Vault secrets although it needs only the telemetry one | Open | Accept the PoC boundary explicitly or separate the vault or scope |
 | PERF-01 | Dense-error workloads are unproven (per-rule materialisation, 1,000,000-issue report cap) | Open | Bound intermediate materialisation; measure 0/1/50/100% failure density on the 4 vCPU / 8 GiB reference host |
 | QA-01 | Integration suites skip without a database; no SQL/emulator, browser or container gate in CI | Partial | Add a disposable-database and emulator CI job and a smoke gate that cannot skip |
-| DOC-01 | Manifest and snapshot disagree for a few samples (for example duplicate headers); the lockout comment in `User.model.ts` says 5 but the threshold is 4 | Partial | Align the manifest expectations with the golden snapshot where the engine intentionally differs; fix the comment |
+| DOC-01 | Manifest and snapshot disagree for a few samples (for example duplicate headers) | Partial | Align the manifest expectations with the golden snapshot where the engine intentionally differs |
+| SEC-01 | Remaining dependency advisories: backend moderate `@opentelemetry/instrumentation-http` (inbound query strings on spans; not exploitable here because `Back-End/src/telemetry/privacy.ts` exports only allow-listed attributes; `@azure/monitor-opentelemetry` 1.21.0 still pins the vulnerable 0.221) and frontend dev-only `vitest`/`tinypool` (critical) and `typescript-eslint` (moderate), which need major upgrades | Partial | Adopt `@opentelemetry/instrumentation-http` 0.222+ when `@azure/monitor-opentelemetry` allows it; upgrade `vitest` and `typescript-eslint` and re-run the dependency audit job |
 
 ## P3
 
 | ID | Item | Status | Next action |
 |---|---|---|---|
-| LOCAL-01 | `start.ps1` preflight omits the configured rules-service port | Partial | Add the rules port to the preflight list |
 | PERF-02 | The frontend bundle (about 1.1 MB) includes every route eagerly | Open | Add route-level lazy loading or targeted chunks |
 
 ## Maintainability follow-ups from the legacy cleanup

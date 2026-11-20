@@ -1,8 +1,8 @@
 # Data Ingestion Platform: Architecture Overview
 
-**For:** Architecture Review Board · **Status:** Deployed for development; authenticated OPS-01 cloud acceptance pending. The target region is **France Central** (see [deployment.md](deployment.md)).
+**For:** customer technical and architecture stakeholders · **Status:** proof of concept, deployed for development; authenticated OPS-01 cloud acceptance pending. See the [PoC handover](poc-handover.md) for scope and limits. The target region is **France Central** (see [deployment.md](deployment.md)).
 
-> **Hosting change:** the web front end runs on **Azure Container Apps** instead of Azure Static Web Apps. Static Web Apps isn't offered in France Central, and Container Apps puts every tier on one platform.
+> **Hosting:** the web front end runs on **Azure Container Apps** rather than Azure Static Web Apps, which isn't offered in France Central. Container Apps puts every tier on one platform.
 
 ## 1. Summary
 
@@ -107,7 +107,7 @@ sequenceDiagram
     end
 ```
 
-**Upload states:** `UPLOADED → VALIDATION_QUEUED → VALIDATION_IN_PROGRESS → VALIDATION_PASSED | VALIDATION_FAILED`. A passed upload then becomes `VALIDATED` (no delivery) or moves `DELIVERY_IN_PROGRESS → DELIVERED | DELIVERY_FAILED`. Transitions use compare-and-set in SQL, so duplicate or out-of-order events are ignored.
+**Upload states:** `UPLOADED → VALIDATION_QUEUED → VALIDATION_IN_PROGRESS → VALIDATION_PASSED | VALIDATION_FAILED`. A passed upload then becomes `VALIDATED` (no delivery) or moves `DELIVERY_QUEUED → DELIVERY_IN_PROGRESS → DELIVERED | DELIVERY_FAILED`. Transitions use compare-and-set in SQL, so duplicate or out-of-order events are ignored.
 
 ### 4.2 Natural-language rule authoring
 
@@ -188,7 +188,7 @@ flowchart LR
 - **AI data handling:**
   - Only the rule text and schema names are sent through Citadel, never file contents.
   - Full model output is logged only when debug logging is explicitly enabled.
-  - The backend calls `https://np-aigw-apim.azure-api.net/models/responses` using an APIM subscription key from Key Vault (ignored `.env` locally). No key reaches the browser; APIM handles downstream model authentication.
+  - The backend calls `<CITADEL_ENDPOINT>/responses` (the customer's Citadel APIM gateway) using an APIM subscription key from Key Vault (ignored `.env` locally). No key reaches the browser; APIM handles downstream model authentication.
 
 ## 7. Networking
 
@@ -219,7 +219,7 @@ flowchart LR
 - **Telemetry:** Azure Monitor OpenTelemetry instruments the Node API, Python rules API, and validation worker with separate service roles; the worker exports validation-stage spans (download, parse, rules, write, persist) and a rows/sec metric with bounded exporter flushing before job exit. The React browser uses the Application Insights JavaScript SDK through public runtime routing configuration. Exported telemetry excludes raw query strings and application payloads. Container console/system logs remain a separate Log Analytics pipeline with 30-day workspace retention. Prometheus metrics are still exposed by the API. See [telemetry configuration and verification](deployment.md#application-insights-telemetry).
 - **Queue health:** queue depth and dead-letter counts are shown on the admin Monitoring page.
 - **Logging policy:** no cell values, file contents, tokens or secrets in logs.
-- **CI** (GitHub Actions on every PR and push to main): zero-warning lint, type-check, unit tests and build for all three components, a check that the generated TypeScript contracts are up to date, and compilation of the Bicep templates and parameter file. The Playwright end-to-end suite and the sample corpus need the full local stack and are run manually before a release (see the [README](../README.md#testing)).
+- **CI** (GitHub Actions on every PR and push to main): zero-warning lint, type-check, unit tests and build for all three components, a production dependency audit (high or critical advisories fail; Dependabot raises weekly update PRs), a check that the generated TypeScript contracts are up to date, and compilation of the Bicep templates and parameter file. The Playwright end-to-end suite and the sample corpus need the full local stack and are run manually before a release (see the [README](../README.md#testing)).
 - **CD:**
   - A manual workflow uses OIDC and a protected GitHub environment. It supports targeted frontend and validation-worker image deployments, plus an all-services `azd deploy`; provisioning is a separate step that requires approval.
   - Images for the web front end, the API and the rules service/worker are built remotely in ACR with immutable tags.
@@ -250,7 +250,7 @@ There is no fixed estimate yet. It depends on active hours and data volumes.
 | D5 | Versioned definitions, uploads pinned to a version | Mutable definitions | Reproducibility, auditability, safe rule changes |
 | D6 | LLM output limited to declarative RuleConfig or guarded SQL | LLM-generated code | Removes code-execution and prompt-injection blast radius; deterministic runtime |
 | D7 | Standard tiers (Service Bus, ACR) with Entra-only public access rather than Premium + Private Link | Premium everywhere | Lower PoC recurring cost; Service Bus has broader network reach, with Entra authentication and RBAC still enforced |
-| D8 | Host the web front end on Azure Container Apps | Static Web Apps (previous choice), App Service, Blob static website + Front Door | Static Web Apps isn't offered in France Central. Container Apps shares the platform, identity model, ACR, logging and `azd` pipeline with the other services, has an SLA (SWA Free has none), and allows a future same-origin proxy or private ingress. Trade-offs: no built-in global CDN, and the team must patch the nginx image |
+| D8 | Host the web front end on Azure Container Apps | Static Web Apps (not offered in France Central), App Service, Blob static website + Front Door | Static Web Apps isn't offered in France Central. Container Apps shares the platform, identity model, ACR, logging and `azd` pipeline with the other services, has an SLA (SWA Free has none), and allows a future same-origin proxy or private ingress. Trade-offs: no built-in global CDN, and the team must patch the nginx image |
 
 ## 12. Risks, gaps and recommendations
 
@@ -263,10 +263,10 @@ There is no fixed estimate yet. It depends on active hours and data volumes.
 | Medium | Service Bus has a public endpoint without an IP allowlist; local/SAS authentication is disabled | If network-level restriction is required, add NAT Gateway plus a static egress IP and IP rules, or upgrade Service Bus to Premium and use Private Link; review the additional recurring cost |
 | Medium | No zone redundancy or DR | ZRS/GRS storage, zone-redundant SQL, a zone-redundant Container Apps environment, and documented RPO/RTO |
 | Medium | The front end sends only `nosniff` and `Referrer-Policy` headers. There is no Content-Security-Policy, frame protection or HSTS, which matters more while the token is in `localStorage` | Add CSP (`default-src 'self'`, `connect-src` limited to the API origin), `frame-ancestors 'none'` and HSTS in `nginx.conf` |
-| Low | The front-end change hasn't been validated in Azure yet (runtime config, CORS, SSO callback, cold start) | Run the post-deployment checks in [deployment.md](deployment.md) after the first France Central deployment |
+| Low | The front end's runtime config, CORS, SSO callback and cold start were checked only with unauthenticated requests | Run the post-deployment checks in [deployment.md](deployment.md) with a signed-in test user after each new environment is deployed |
 | Low | No CDN or WAF in front of the public front end and API | Add Azure Front Door with WAF if users are spread across regions or policy requires a WAF |
 | Medium | Performance figures come from a dev host only | Re-run `dq-engine bench` on the 4 vCPU / 8 GiB reference before go-live; load-test intake |
-| Medium | Earlier provisioning failed for lack of regional capacity (SQL in East US 2; Container Apps in Central US). France Central is the new target, but capacity isn't guaranteed. Soft-deleted Key Vaults remain in the earlier regions | Run `azd provision --preview` in France Central and get approval before provisioning. Decide whether to purge the old Key Vaults |
+| Medium | Regional capacity isn't guaranteed: provisioning in other regions during development failed for lack of Azure SQL and Container Apps capacity, and quota or provider metadata does not guarantee capacity | Run `azd provision --preview` in the target region and get approval before provisioning. In the original development subscription, soft-deleted Key Vaults remain in the earlier regions; they do not affect a new subscription |
 | Low | No retention policy for `uploads`/`reports`, and `deliveries` has no expiry | Define data retention and deletion aligned with the customer's data-handling policy |
 | Low | NL rules: example tests reduce but do not prove semantic equivalence | Keep human review and publish approval; add an evaluation set for the authoring prompt |
 
@@ -291,9 +291,10 @@ costs more than the checks and competes with the operational database), DuckDB a
 and no `.xls`), and .NET/Go row-by-row engines (faster than Node but still row-oriented). Python gives about 90% of Rust's speed with much faster development; the
 worker and API boundary is only the queue and the JSON rule format, so the engine could be replaced without changing the UI or API.
 
-## 13. Asks of the board
+## 13. Decisions for the customer
 
-1. Approve the target architecture (D1–D8) for pilot deployment, including moving the front end to Container Apps.
+1. Approve the target architecture (D1–D8) for pilot deployment, including the Container Apps front end.
 2. Accept the PoC deviations: public authenticated rules-service endpoint and Standard tiers without Private Link. Alternatively, mandate Premium networking before the pilot.
 3. Confirm whether the **High** items are pilot-blocking or production-blocking.
-4. Approve France Central as the target region (data residency and service availability) and the provisioning budget.
+4. Approve the target region (data residency and service availability; France Central is the documented target) and the provisioning budget.
+5. Supply the model gateway, Entra registrations, deployment identity and first administrator listed in the [PoC handover](poc-handover.md#what-the-customer-must-supply-or-replace).

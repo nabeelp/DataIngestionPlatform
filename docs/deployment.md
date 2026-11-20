@@ -4,18 +4,18 @@ The repository contains an `azd`/Bicep deployment for the API, React SPA,
 Python validation service and worker, plus Azure SQL, Blob Storage, Service
 Bus, Key Vault, Container Registry, monitoring and private networking.
 
-**Status.** The target is France Central (earlier attempts in East US 2 and
-Central US failed on regional SQL and Container Apps capacity; soft-deleted Key
-Vaults remain in those regions and have not been purged). The frontend runs in
-Container Apps because Azure Static Web Apps is not offered in France Central.
-The API, frontend and rules service are deployed; the frontend scales from zero
-to two replicas on an HTTP concurrency rule. The latest check returned HTTP 200
-from the frontend health, root and runtime-config routes and the API health
-route; the rules service requires Entra authentication; SQL bootstrap succeeded
-and restored the configured SQL administrator. Authenticated OPS-01 cloud
-workflow acceptance (delivery, replay, owner-authorized download and deletion)
-remains pending a test identity and test data. Provider metadata and quota
-retrieval do not guarantee capacity, so run `azd provision --preview` first.
+**Status.** The reference environment was deployed to France Central; earlier
+attempts in other regions failed on regional Azure SQL and Container Apps
+capacity, and provider metadata and quota retrieval do not guarantee capacity,
+so run `azd provision --preview` in your target region first. The frontend runs
+in Container Apps because Azure Static Web Apps is not offered in France
+Central, and it scales from zero to two replicas on an HTTP concurrency rule.
+In the reference environment the frontend health, root and runtime-config routes
+and the API health route returned HTTP 200, the rules service required Entra
+authentication, and SQL bootstrap succeeded and restored the configured SQL
+administrator. Authenticated OPS-01 cloud workflow acceptance (delivery, replay,
+owner-authorized download and deletion) has not been run; it needs a test
+identity and test data.
 
 ## Local development remains independent
 
@@ -44,9 +44,9 @@ strings into committed files.
   role on the Rules API registration. An Entra administrator may need to
   complete or consent to the directory operations.
 - A Citadel APIM subscription key authorized to call the selected model through
-  `https://np-aigw-apim.azure-api.net/models/responses`.
+  your gateway's `/models/responses` route (set `CITADEL_ENDPOINT`; it has no default).
 
-The `sbingest` setup uses a single-tenant SSO registration and a dedicated
+The reference setup uses a single-tenant SSO registration and a dedicated
 single-tenant Rules API registration with the `access_as_application` role. The
 postprovision hook configures the API's exact frontend CORS origin and callback,
 adds the frontend callback URI to the SSO registration, and grants the Rules
@@ -127,13 +127,10 @@ boolean `true`, disable rate-limit validation, or select the leftmost header IP.
 Reassess this setting if another proxy is introduced or callers can reach the
 container listener through a shorter path.
 
-To deploy this fix, apply the API template setting using the existing
-`azd provision` workflow, then build and deploy the API with `azd deploy api`.
+The proxy-trust setting is part of the API template and is applied by `azd provision`;
+an image-only API deployment does not apply new Bicep environment settings.
 Provisioning can affect other infrastructure: review those changes before
-running it. Updating the environment variable alone on an old API image does
-not fix the issue; both the rebuilt image and the setting are required.
-An API image-only deployment to an existing Container App also does not apply
-new Bicep environment settings.
+running it.
 
 Verify the active API image/revision and only the non-secret
 `TRUST_PROXY_HOPS` setting. Check `/health`, then send normal authenticated
@@ -144,22 +141,9 @@ prefixes. Confirm the live ingress path during deployment without exposing a
 public IP-debug endpoint or exhausting production rate limits.
 If acceptance fails, restore the previous API image and environment
 configuration together using the existing revision/deployment workflow.
-
-This fix adds no Azure services. Deployment needs the existing image build/push
-and Container App update permissions. Rate-limit state remains in memory and
-replica-local; the API template currently caps the API at one replica.
-
-The proxy fix was deployed to the existing France Central API on
-2026-10-07 using a scoped ACR remote build and a single Container App update
-that set both the image and `TRUST_PROXY_HOPS=1`. This intentionally avoided
-the project-wide AZD hooks, which also bootstrap SQL and update the worker.
-Image tag: `proxytrust-20261007-0525`; active healthy revision:
-`ca-dataingest-api-sbfracent--proxytrust-20261007-0525`.
-Health returned HTTP 200, an unauthenticated protected API request with a
-forwarded prefix returned the expected HTTP 401, and fresh revision logs
-contained startup/Service Bus initialization without the forwarded-header
-validation error. Authenticated workflows and live multi-client isolation
-remain untested; no production limits were exhausted.
+Rate-limit state remains in memory and replica-local; the API template
+currently caps the API at one replica. Authenticated workflows and live
+multi-client isolation have not been verified in Azure.
 
 ## Parameters and secrets
 
@@ -185,8 +169,9 @@ before provisioning; never put the actual value in commands saved to shell histo
 Bicep writes it to the `citadel-subscription-key` Key Vault secret. If omitted,
 that secret must already exist (as with the JWT and SSO secrets); otherwise
 Container Apps cannot resolve its secret reference. Blank provisioning values do
-not overwrite an existing key. Set `CITADEL_ENDPOINT` to override the default
-`https://np-aigw-apim.azure-api.net/models`, and `CITADEL_MODEL` to choose a
+not overwrite an existing key. `CITADEL_ENDPOINT` has no default: set it to your
+gateway's `/models` base URL (an HTTPS URL, no credentials or query string) before
+provisioning. Set `CITADEL_MODEL` to choose a
 gateway deployment (default `gpt-6-luna`, with `AZURE_FOUNDRY_MODEL` as a
 compatibility fallback). `CITADEL_SUBSCRIPTION_KEY_HEADER` selects the HTTP
 header carrying the subscription key (default `api-key`). Set it to
@@ -201,7 +186,8 @@ Worker
 capacity is configurable through `WORKER_CPU` and `WORKER_MEMORY` (defaults:
 `2` vCPU and `4Gi`). `WORKLOAD_NAME` and `AZURE_ENV_NAME` control resource
 naming. The Bicep parameter file contains placeholder defaults to make offline
-compilation possible; replace required identity and secret values in the local
+compilation possible; replace required identity, gateway (`CITADEL_ENDPOINT`, which
+compiles with a `.invalid` placeholder) and secret values in the local
 `azd` environment before a real deployment.
 
 Keep this environment local and ignored by Git. Do not paste secrets into
@@ -226,7 +212,8 @@ automatic merge trigger unless an equivalent approval gate is available.
 Create a dedicated deployment app/service principal with a federated credential
 whose issuer is `https://token.actions.githubusercontent.com`, audience is
 `api://AzureADTokenExchange` and subject is
-`repo:nabeelp@19663473/DataIngestionPlatform@1394763110:environment:azure-deployment`.
+`repo:<owner>@<owner-id>/<repository>@<repository-id>:environment:azure-deployment`
+(read the exact subject issued for your repository; the IDs are specific to it).
 This repository uses GitHub's ID-qualified OIDC subject; match the exact
 issued subject rather than assuming the older name-only repository format.
 Do not reuse application runtime identities or create a client secret.
@@ -307,11 +294,12 @@ addition to the existing Azure OIDC/subscription/location variables:
 
 - Required: `SQL_ADMIN_OBJECT_ID`, `SQL_ADMIN_LOGIN`,
   `RULES_SERVICE_API_CLIENT_ID`, `RULES_SERVICE_API_AUDIENCE`,
-  `RULES_SERVICE_API_ROLE_ID` and `MS_CLIENT_ID`. Use the existing SQL
+  `RULES_SERVICE_API_ROLE_ID`, `MS_CLIENT_ID` and `CITADEL_ENDPOINT` (your
+  gateway's HTTPS base URL, set as a GitHub environment variable). Use the existing SQL
   administrator and Entra registrations; empty values and placeholder GUIDs
   are rejected before provisioning. Unlike image-only deployment, provisioning
   needs these settings and permission for the postprovision directory operations.
-- Optional: `WORKLOAD_NAME` (default `dataingest`), `CITADEL_ENDPOINT`,
+- Optional: `WORKLOAD_NAME` (default `dataingest`),
   `CITADEL_MODEL`, `CITADEL_SUBSCRIPTION_KEY_HEADER` (default `api-key`),
   `WORKER_CPU`, `WORKER_MEMORY`,
   `APPLICATIONINSIGHTS_SAMPLING_RATIO` and
@@ -349,12 +337,12 @@ a billable synthetic rule review to validate the gateway end to end.
 
 ### Resetting a disposable environment while retaining users
 
-Use an in-place reset when the deployed database already has JSON
-`FileDefinitions.Contract`, `Rules.Config` and `Uploads.BlobContainer`.
-The current scripts add `FileDefinitionVersions.DefinitionMetadata` and remove
-four obsolete upload columns; that does not require deleting the database.
-An older incompatible schema requires a separate reviewed procedure, never an
-automatic database replacement.
+Use an in-place reset to return a disposable environment to an empty state
+(for example before a customer demo) when the deployed database already has JSON
+`FileDefinitions.Contract`, `Rules.Config` and `Uploads.BlobContainer`; the
+schema scripts are idempotent and bring a compatible database up to date without
+deleting it. An older incompatible schema requires a separate reviewed
+procedure, never an automatic database replacement.
 
 The reset removes every non-user application row and all live objects in
 `uploads`, `reports`, `templates`, `staging` and `deliveries`. It preserves
@@ -376,7 +364,7 @@ job to inspect the exact reset inventory:
 
 ```powershell
 pwsh -NoProfile -File scripts/postdeploy.ps1 -Prepare `
-  -ConfirmEnvironment sbfracent -ExpectedUsers 2 `
+  -ConfirmEnvironment <environment> -ExpectedUsers <current-user-count> `
   -BootstrapImage "<acr-login-server>/<api-repository>:<IMAGE_TAG>"
 ```
 
@@ -406,10 +394,10 @@ some CLI versions ignore a numeric zero passed through the job update flag.
 Next reconcile missing telemetry without reprovisioning:
 
 ```powershell
-pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment sbfracent
+pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment <environment>
 # After reviewing the target and approving configuration changes:
-pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment sbfracent -Execute
-azd deploy --all --environment sbfracent --no-prompt
+pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment <environment> -Execute
+azd deploy --all --environment <environment> --no-prompt
 ```
 
 The telemetry helper restores the documented full-development sampling
@@ -421,20 +409,21 @@ runtime overrides. In particular, preserve the intended `CITADEL_MODEL`
 instead of unintentionally reverting to the code default.
 
 Normal postdeploy remains non-destructive: it reapplies idempotent schema and
-managed-identity grants and updates the worker image. Preparing the schema
-**before** rollout avoids starting the new API without its metadata column.
+managed-identity grants and updates the worker image. Apply schema changes
+**before** rolling out an API that needs them.
 Deploy the API, Python rules API, frontend and worker together when shared
 contracts change; frontend-only and worker-only deployments are insufficient.
 
-The manual GitHub workflow is an alternative after the complete feature branch
-is published, CI passes, and the `azure-deployment` environment/OIDC identity
-is configured. A PR or merge alone does not deploy. Perform the same separately
-approved reset preparation before dispatching `deployment_target=all`; never
-attach destructive reset to an automatic PR/push trigger.
+The manual GitHub workflow is an alternative once CI passes on `main` and the
+`azure-deployment` environment/OIDC identity is configured. A PR or merge alone
+does not deploy. Perform the same separately approved reset preparation before
+dispatching `deployment_target=all`; never attach destructive reset to an
+automatic PR/push trigger.
 
 Capture prior image digests/configuration before rollout. Old tags may have
-been overwritten, and old binaries may still query columns removed by this
-release; do not assume image-only rollback is schema-compatible. Verify retained
+been overwritten, and old binaries may still query columns that a newer schema
+script removed; do not assume image-only rollback is schema-compatible (the
+backlog item OPS-06 tracks a formal rollback record). Verify retained
 users, authentication, definition publication, representative synthetic
 uploads, reports, delivery/replay and telemetry. Remove acceptance-test data
 and verify the final intended empty state before handoff.
@@ -558,7 +547,7 @@ endpoint hours, ACR storage, Log Analytics ingestion/retention, and network
 egress. The SQL database is configured to auto-pause after 60 minutes, but its
 actual billed compute depends on active workload. There is no reliable fixed
 monthly estimate without expected active hours, database storage, file/queue
-volume, and log ingestion; review the fresh France Central deployment preview
+volume, and log ingestion; review the deployment preview for your target region
 and Azure Pricing Calculator, accounting for any contract discounts. The
 minimum-one API replica and 30-day Log Analytics retention mean this is not a
 zero-cost sandbox.

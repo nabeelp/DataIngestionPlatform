@@ -74,6 +74,27 @@ jobs:
       - name: Generated contracts are current
         run: test -z "$(git status --porcelain -- Front-End/src/contracts)" || (git status --short -- Front-End/src/contracts && git diff -- Front-End/src/contracts && exit 1)
 
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@v6
+      - name: Back-End production dependencies (high or critical advisories fail)
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: Back-End
+      - name: Front-End production dependencies (high or critical advisories fail)
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: Front-End
+      - name: Validation-Service production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-hashes -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+        working-directory: Validation-Service
+
   documentation:
     name: Documentation
     runs-on: ubuntu-latest

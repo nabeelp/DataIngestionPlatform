@@ -60,6 +60,9 @@ export async function callModel(
     signal?: AbortSignal,
 ): Promise<ModelCallResult> {
     const config = appConfig.azure.citadel;
+    if (!config.endpoint.trim()) {
+        throw new RuleGenerationError('CITADEL_ENDPOINT is required: set it to your Citadel gateway base URL');
+    }
     let endpoint: URL;
     try {
         endpoint = new URL(config.endpoint);

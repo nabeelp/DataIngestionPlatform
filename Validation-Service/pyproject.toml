@@ -26,17 +26,13 @@ dq-engine = "dq_engine.cli:main"
 [dependency-groups]
 dev = [
   "mypy>=1.18,<2",
-  "pytest>=8.4,<9",
+  "pytest>=9.0.3,<10",
   "ruff>=0.14,<1",
 ]
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
-
-[[tool.uv.index]]
-url = "https://packagefeedproxy.microsoft.io/pypi/simple/"
-default = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_engine"]

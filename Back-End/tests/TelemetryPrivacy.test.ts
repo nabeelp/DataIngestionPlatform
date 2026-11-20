@@ -56,6 +56,7 @@ describe('exported telemetry privacy', () => {
                 'http.response.status_code': 500,
                 'http.route': '/api/v1/uploads/:id',
                 'url.full': 'https://api.example.test/uploads/private.csv?token=secret',
+                'url.query': 'sig=sas-signature',
                 'http.target': '/uploads/private.csv?token=secret',
                 'db.statement': 'SELECT private-data',
                 'gen_ai.input.messages': 'private-rule',
@@ -78,7 +79,7 @@ describe('exported telemetry privacy', () => {
             'exception.message': 'Application operation failed',
         });
         expect(JSON.stringify({ attributes: record.attributes, events: record.events, status: record.status }))
-            .not.toMatch(/sensitive-cell-value|private.csv|private-data|private-rule|Bearer/);
+            .not.toMatch(/sensitive-cell-value|private.csv|private-data|private-rule|Bearer|sas-signature/);
         await provider.shutdown();
     });
 
