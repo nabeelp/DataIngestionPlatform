@@ -4,18 +4,18 @@ The repository contains an `azd`/Bicep deployment for the API, React SPA,
 Python validation service and worker, plus Azure SQL, Blob Storage, Service
 Bus, Key Vault, Container Registry, monitoring and private networking.
 
-**Status.** The target is France Central (earlier attempts in East US 2 and
-Central US failed on regional SQL and Container Apps capacity; soft-deleted Key
-Vaults remain in those regions and have not been purged). The frontend runs in
-Container Apps because Azure Static Web Apps is not offered in France Central.
-The API, frontend and rules service are deployed; the frontend scales from zero
-to two replicas on an HTTP concurrency rule. The latest check returned HTTP 200
-from the frontend health, root and runtime-config routes and the API health
-route; the rules service requires Entra authentication; SQL bootstrap succeeded
-and restored the configured SQL administrator. Authenticated OPS-01 cloud
-workflow acceptance (delivery, replay, owner-authorized download and deletion)
-remains pending a test identity and test data. Provider metadata and quota
-retrieval do not guarantee capacity, so run `azd provision --preview` first.
+**Status.** The reference environment was deployed to France Central; earlier
+attempts in other regions failed on regional Azure SQL and Container Apps
+capacity, and provider metadata and quota retrieval do not guarantee capacity,
+so run `azd provision --preview` in your target region first. The frontend runs
+in Container Apps because Azure Static Web Apps is not offered in France
+Central, and it scales from zero to two replicas on an HTTP concurrency rule.
+In the reference environment the frontend health, root and runtime-config routes
+and the API health route returned HTTP 200, the rules service required Entra
+authentication, and SQL bootstrap succeeded and restored the configured SQL
+administrator. Authenticated OPS-01 cloud workflow acceptance (delivery, replay,
+owner-authorized download and deletion) has not been run; it needs a test
+identity and test data.
 
 ## Local development remains independent
 
@@ -337,12 +337,12 @@ a billable synthetic rule review to validate the gateway end to end.
 
 ### Resetting a disposable environment while retaining users
 
-Use an in-place reset when the deployed database already has JSON
-`FileDefinitions.Contract`, `Rules.Config` and `Uploads.BlobContainer`.
-The current scripts add `FileDefinitionVersions.DefinitionMetadata` and remove
-four obsolete upload columns; that does not require deleting the database.
-An older incompatible schema requires a separate reviewed procedure, never an
-automatic database replacement.
+Use an in-place reset to return a disposable environment to an empty state
+(for example before a customer demo) when the deployed database already has JSON
+`FileDefinitions.Contract`, `Rules.Config` and `Uploads.BlobContainer`; the
+schema scripts are idempotent and bring a compatible database up to date without
+deleting it. An older incompatible schema requires a separate reviewed
+procedure, never an automatic database replacement.
 
 The reset removes every non-user application row and all live objects in
 `uploads`, `reports`, `templates`, `staging` and `deliveries`. It preserves
@@ -364,7 +364,7 @@ job to inspect the exact reset inventory:
 
 ```powershell
 pwsh -NoProfile -File scripts/postdeploy.ps1 -Prepare `
-  -ConfirmEnvironment sbfracent -ExpectedUsers 2 `
+  -ConfirmEnvironment <environment> -ExpectedUsers <current-user-count> `
   -BootstrapImage "<acr-login-server>/<api-repository>:<IMAGE_TAG>"
 ```
 
@@ -394,10 +394,10 @@ some CLI versions ignore a numeric zero passed through the job update flag.
 Next reconcile missing telemetry without reprovisioning:
 
 ```powershell
-pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment sbfracent
+pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment <environment>
 # After reviewing the target and approving configuration changes:
-pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment sbfracent -Execute
-azd deploy --all --environment sbfracent --no-prompt
+pwsh -NoProfile -File scripts/sync-telemetry.ps1 -ConfirmEnvironment <environment> -Execute
+azd deploy --all --environment <environment> --no-prompt
 ```
 
 The telemetry helper restores the documented full-development sampling
@@ -409,20 +409,21 @@ runtime overrides. In particular, preserve the intended `CITADEL_MODEL`
 instead of unintentionally reverting to the code default.
 
 Normal postdeploy remains non-destructive: it reapplies idempotent schema and
-managed-identity grants and updates the worker image. Preparing the schema
-**before** rollout avoids starting the new API without its metadata column.
+managed-identity grants and updates the worker image. Apply schema changes
+**before** rolling out an API that needs them.
 Deploy the API, Python rules API, frontend and worker together when shared
 contracts change; frontend-only and worker-only deployments are insufficient.
 
-The manual GitHub workflow is an alternative after the complete feature branch
-is published, CI passes, and the `azure-deployment` environment/OIDC identity
-is configured. A PR or merge alone does not deploy. Perform the same separately
-approved reset preparation before dispatching `deployment_target=all`; never
-attach destructive reset to an automatic PR/push trigger.
+The manual GitHub workflow is an alternative once CI passes on `main` and the
+`azure-deployment` environment/OIDC identity is configured. A PR or merge alone
+does not deploy. Perform the same separately approved reset preparation before
+dispatching `deployment_target=all`; never attach destructive reset to an
+automatic PR/push trigger.
 
 Capture prior image digests/configuration before rollout. Old tags may have
-been overwritten, and old binaries may still query columns removed by this
-release; do not assume image-only rollback is schema-compatible. Verify retained
+been overwritten, and old binaries may still query columns that a newer schema
+script removed; do not assume image-only rollback is schema-compatible (the
+backlog item OPS-06 tracks a formal rollback record). Verify retained
 users, authentication, definition publication, representative synthetic
 uploads, reports, delivery/replay and telemetry. Remove acceptance-test data
 and verify the final intended empty state before handoff.
@@ -546,7 +547,7 @@ endpoint hours, ACR storage, Log Analytics ingestion/retention, and network
 egress. The SQL database is configured to auto-pause after 60 minutes, but its
 actual billed compute depends on active workload. There is no reliable fixed
 monthly estimate without expected active hours, database storage, file/queue
-volume, and log ingestion; review the fresh France Central deployment preview
+volume, and log ingestion; review the deployment preview for your target region
 and Azure Pricing Calculator, accounting for any contract discounts. The
 minimum-one API replica and 30-day Log Analytics retention mean this is not a
 zero-cost sandbox.

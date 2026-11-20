@@ -107,7 +107,7 @@ sequenceDiagram
     end
 ```
 
-**Upload states:** `UPLOADED → VALIDATION_QUEUED → VALIDATION_IN_PROGRESS → VALIDATION_PASSED | VALIDATION_FAILED`. A passed upload then becomes `VALIDATED` (no delivery) or moves `DELIVERY_IN_PROGRESS → DELIVERED | DELIVERY_FAILED`. Transitions use compare-and-set in SQL, so duplicate or out-of-order events are ignored.
+**Upload states:** `UPLOADED → VALIDATION_QUEUED → VALIDATION_IN_PROGRESS → VALIDATION_PASSED | VALIDATION_FAILED`. A passed upload then becomes `VALIDATED` (no delivery) or moves `DELIVERY_QUEUED → DELIVERY_IN_PROGRESS → DELIVERED | DELIVERY_FAILED`. Transitions use compare-and-set in SQL, so duplicate or out-of-order events are ignored.
 
 ### 4.2 Natural-language rule authoring
 

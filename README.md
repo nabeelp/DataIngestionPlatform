@@ -33,13 +33,27 @@ If startup times out, inspect `docker logs --tail 100 servicebus-emulator` and `
 Every upload is streamed from Blob Storage to the Python service, parsed (including all Excel sheets), and checked in one pass:
 
 - **File definition columns** (always): required columns must exist, required values must not be empty, and non-empty values must match the column type (`string`, `integer`, `decimal`, `date`, `datetime`, `boolean`).
-- **Rules** (optional, per definition) add business logic on top of the column checks and are stored and exchanged as versioned `RuleConfig` JSON. There are no rule types for required columns, required values or data types: set those on the column definitions instead, and a definition that still carries such a rule is rejected. The editor's common built-in checks use a simple declarative syntax:
+- **Rules** (optional, per definition) add business logic on top of the column checks and are stored and exchanged as versioned `RuleConfig` JSON. There are no rule types for required columns, required values or data types: set those on the column definitions instead, and a definition that still carries such a rule is rejected. The rule types are:
 
-| Rule type | Expression example | Checks |
-|---|---|---|
-| Enum Check | `Status: Active, Inactive` | Values are in the list |
-| Range Check | `StockQuantity: 0..10000` | Numeric values are within the inclusive range (either bound may be omitted) |
-| Natural Language | Plain-language request | A validated `naturalLanguage` RuleConfig containing restricted SQL, declared columns, examples and provenance |
+| Rule type (editor label) | Checks |
+|---|---|
+| Allowed values (`enum`) | Values are in a fixed list |
+| Numeric range (`range`) | Numeric values are within the inclusive range (either bound may be omitted) |
+| Pattern (`pattern`) | Text matches a regular expression |
+| Length (`length`) | Text length is within a minimum and/or maximum |
+| Unique values (`unique`) | A column or combination of columns is not duplicated |
+| Lookup (`lookup`) | Values exist in a reusable **lookup** list |
+| Date range (`dateRange`) | Dates fall within fixed or relative bounds |
+| Conditional required values (`conditionalRequired`) | Columns are populated when another column meets a condition |
+| Compare columns (`compare`) | Two columns satisfy a typed comparison (less than, equal, and so on) |
+| Row count (`rowCount`) | A table's row count is within a minimum and/or maximum |
+| Aggregate (`aggregate`) | A sum, average, minimum, maximum, count or distinct count meets a bound |
+| Reconcile tables (`reconcile`) | Aggregates from two sheets agree, optionally within a tolerance |
+| Natural language (`naturalLanguage`) | A plain-language request stored with restricted SQL, declared columns, examples and provenance |
+
+The rule list shows allowed-values and range rules as a short expression, for example `Status: Active, Inactive` or `StockQuantity: 0..10000`.
+
+**Lookups** (sidebar → Lookups) are reusable value lists that admins create and edit and that `lookup` rules reference. All signed-in users can view them. Deleting a lookup that a definition references is not yet safe (FUN-06 in [TODO.md](TODO.md)).
 
 Rule failures with severity `Warning` do not fail the upload. Up to 100 sample issues are stored per rule, along with the total count.
 
@@ -64,7 +78,7 @@ The model returns a built-in `RuleConfig` whenever it can express the request ex
 
 A reviewed rule is only a proposal until you choose **Add to definition**; it then joins the workspace's draft and is saved with the definition, and it only applies to uploads after a definition version is published. A Natural Language rule's SQL logic, declared columns and table scope are preserved when editing; its name, description and severity can be changed, and reordering is done in the list. To change its logic, regenerate it from the request and choose **Use regenerated rule**. Review the stored explanation, expression and examples before publishing, especially how empty values are treated. Model output is checked against its examples, which reduces but does not prove semantic equivalence to your request.
 
-**Activity and errors.** While a review runs, the rule panel shows a live **Activity** log (streamed from the backend as newline-delimited JSON): reading the draft schema, each call to the model, when Citadel accepts the request, when the model is reasoning or writing, a reminder every 5 seconds while it is silent, each Python validation/example check, retries, and the proposed rule. The submit button counts the elapsed seconds, and **Stop review** cancels the review; the backend then stops the model call. When a review fails, the panel shows the reason, such as Citadel access/deployment errors, rate limiting, model refusal, invalid RuleConfig/SQL, or a closed connection. The model response ID is included when available; logs contain operational metadata rather than rule text or file data. Transient model failures are retried, up to three model calls per review.
+**Activity and errors.** While a review runs, the rule panel shows a live **Activity** log (streamed from the backend as newline-delimited JSON): reading the draft schema, each call to the model, when Citadel accepts the request, when the model is reasoning or writing, a reminder every 5 seconds while it is silent, each Python validation/example check, retries, and the proposed rule. The activity panel shows the elapsed seconds, and **Stop generation** (which replaces **Generate rule** while a review runs) cancels the review; the backend then stops the model call. When a review fails, the panel shows the reason, such as Citadel access/deployment errors, rate limiting, model refusal, invalid RuleConfig/SQL, or a closed connection. The model response ID is included when available; logs contain operational metadata rather than rule text or file data. Transient model failures are retried, up to three model calls per review.
 
 **How rules run.** Built-in RuleConfig types compile to Polars expressions. Natural Language SQL is parsed and restricted by the Python `sqlguard`; it can read only the declared columns and approved SQL functions, and it cannot access external tables, the network or the file system. SQL-backed rules and their examples are validated before saving and are included in the published version snapshot, so uploads keep using the rule configuration they were pinned to.
 
@@ -144,6 +158,13 @@ Uploads and issues reports are stored in Azure Blob Storage; locally, Azurite pr
 - The mock login is development-only and depends on the seeded demo user IDs. It lives in `Back-End/src/dev/mockAuth.ts` and `Front-End/src/dev/mockAuth.ts`, and the local-only SQL (demo users, assignments, sample definitions) in `Back-End/database/local/`. Disable both bypass flags outside local development.
 - Socket.IO connections use the same access token, and clients only receive events for uploads they can access.
 
+### Roles and pages
+
+| Role | Pages |
+|---|---|
+| `user` | **My Files** (the definitions an admin granted, with their published columns and rules), **Upload File**, **Upload History** and details (results, issues report, delivery download, retry), **Lookups** (read only) and a personal dashboard |
+| `admin` | Everything above for all uploads, plus the **Admin Dashboard**, **User Management** (create, edit, unlock and delete users; grant definition access), **File Definitions** (the workspace, versions and **Dry run against a recent upload** in the Rules step), editable **Lookups**, **Audit Logs**, **Monitoring** (queue depth, dead-letter counts and recent throughput) and **Compliance** (a validation summary by definition for a chosen period, exportable as CSV) |
+
 ## Testing
 
 CI (GitHub Actions) runs zero-warning lint, type checks, unit tests and builds for all three components, audits production dependencies (high and critical advisories fail the build; Dependabot proposes updates weekly), verifies the generated TypeScript contracts are current,
@@ -156,7 +177,7 @@ and compiles the Bicep templates. The suites below that need the running stack a
 
 ## Azure deployment
 
-The Bicep and `azd` deployment runbook, Entra prerequisites, cost drivers, validation checklist, and teardown cautions are in [docs/deployment.md](docs/deployment.md). Infrastructure has been validated with Bicep compilation and `azd provision --preview`; no Azure resources are created until an owner explicitly approves provisioning.
+The Bicep and `azd` deployment runbook, Entra prerequisites, cost drivers, validation checklist, and teardown cautions are in [docs/deployment.md](docs/deployment.md). Infrastructure has been validated with Bicep compilation and `azd provision --preview`, and a reference development environment has been deployed; provisioning in a new subscription happens only after an owner explicitly approves it. See the deployment guide for the status and what has not been accepted yet.
 
 ## Production notes
 
