@@ -44,8 +44,7 @@ strings into committed files.
   role on the Rules API registration. An Entra administrator may need to
   complete or consent to the directory operations.
 - A Citadel APIM subscription key authorized to call the selected model through
-  your gateway's `/models/responses` route (set `CITADEL_ENDPOINT`; the repository
-  default is the original developer's gateway and must be replaced).
+  your gateway's `/models/responses` route (set `CITADEL_ENDPOINT`; it has no default).
 
 The reference setup uses a single-tenant SSO registration and a dedicated
 single-tenant Rules API registration with the `access_as_application` role. The
@@ -170,9 +169,9 @@ before provisioning; never put the actual value in commands saved to shell histo
 Bicep writes it to the `citadel-subscription-key` Key Vault secret. If omitted,
 that secret must already exist (as with the JWT and SSO secrets); otherwise
 Container Apps cannot resolve its secret reference. Blank provisioning values do
-not overwrite an existing key. Set `CITADEL_ENDPOINT` to your gateway's base URL (the repository default,
-`https://np-aigw-apim.azure-api.net/models`, is the original developer's gateway
-and must be overridden), and `CITADEL_MODEL` to choose a
+not overwrite an existing key. `CITADEL_ENDPOINT` has no default: set it to your
+gateway's `/models` base URL (an HTTPS URL, no credentials or query string) before
+provisioning. Set `CITADEL_MODEL` to choose a
 gateway deployment (default `gpt-6-luna`, with `AZURE_FOUNDRY_MODEL` as a
 compatibility fallback). `CITADEL_SUBSCRIPTION_KEY_HEADER` selects the HTTP
 header carrying the subscription key (default `api-key`). Set it to
@@ -187,7 +186,8 @@ Worker
 capacity is configurable through `WORKER_CPU` and `WORKER_MEMORY` (defaults:
 `2` vCPU and `4Gi`). `WORKLOAD_NAME` and `AZURE_ENV_NAME` control resource
 naming. The Bicep parameter file contains placeholder defaults to make offline
-compilation possible; replace required identity and secret values in the local
+compilation possible; replace required identity, gateway (`CITADEL_ENDPOINT`, which
+compiles with a `.invalid` placeholder) and secret values in the local
 `azd` environment before a real deployment.
 
 Keep this environment local and ignored by Git. Do not paste secrets into
@@ -213,8 +213,7 @@ Create a dedicated deployment app/service principal with a federated credential
 whose issuer is `https://token.actions.githubusercontent.com`, audience is
 `api://AzureADTokenExchange` and subject is
 `repo:<owner>@<owner-id>/<repository>@<repository-id>:environment:azure-deployment`
-(for the original repository: `repo:nabeelp@19663473/DataIngestionPlatform@1394763110:environment:azure-deployment`;
-a customer repository has its own IDs).
+(read the exact subject issued for your repository; the IDs are specific to it).
 This repository uses GitHub's ID-qualified OIDC subject; match the exact
 issued subject rather than assuming the older name-only repository format.
 Do not reuse application runtime identities or create a client secret.
@@ -295,11 +294,12 @@ addition to the existing Azure OIDC/subscription/location variables:
 
 - Required: `SQL_ADMIN_OBJECT_ID`, `SQL_ADMIN_LOGIN`,
   `RULES_SERVICE_API_CLIENT_ID`, `RULES_SERVICE_API_AUDIENCE`,
-  `RULES_SERVICE_API_ROLE_ID` and `MS_CLIENT_ID`. Use the existing SQL
+  `RULES_SERVICE_API_ROLE_ID`, `MS_CLIENT_ID` and `CITADEL_ENDPOINT` (your
+  gateway's HTTPS base URL, set as a GitHub environment variable). Use the existing SQL
   administrator and Entra registrations; empty values and placeholder GUIDs
   are rejected before provisioning. Unlike image-only deployment, provisioning
   needs these settings and permission for the postprovision directory operations.
-- Optional: `WORKLOAD_NAME` (default `dataingest`), `CITADEL_ENDPOINT`,
+- Optional: `WORKLOAD_NAME` (default `dataingest`),
   `CITADEL_MODEL`, `CITADEL_SUBSCRIPTION_KEY_HEADER` (default `api-key`),
   `WORKER_CPU`, `WORKER_MEMORY`,
   `APPLICATIONINSIGHTS_SAMPLING_RATIO` and

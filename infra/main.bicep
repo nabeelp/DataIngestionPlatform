@@ -31,8 +31,8 @@ param rulesServiceApiAudience string
 @description('Client ID of the existing Entra SSO application used by the web API.')
 param ssoClientId string
 
-@description('Citadel APIM base URL exposing the Responses API.')
-param citadelEndpoint string = 'https://np-aigw-apim.azure-api.net/models'
+@description('Customer-supplied Citadel APIM base URL exposing the Responses API (no default).')
+param citadelEndpoint string
 
 @description('HTTP header carrying the Citadel APIM subscription key.')
 param citadelSubscriptionKeyHeader string = 'api-key'

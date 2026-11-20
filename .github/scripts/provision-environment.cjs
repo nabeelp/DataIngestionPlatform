@@ -21,7 +21,7 @@ function prepare(env, runCommand = run) {
         'SQL_ADMIN_OBJECT_ID', 'SQL_ADMIN_LOGIN', 'RULES_SERVICE_API_CLIENT_ID',
         'RULES_SERVICE_API_AUDIENCE', 'RULES_SERVICE_API_ROLE_ID', 'MS_CLIENT_ID',
     ];
-    for (const name of [...required, 'AZURE_ENV_NAME', 'CITADEL_SUBSCRIPTION_KEY']) {
+    for (const name of [...required, 'AZURE_ENV_NAME', 'CITADEL_ENDPOINT', 'CITADEL_SUBSCRIPTION_KEY']) {
         if (!env[name]?.trim()) throw new Error(`Required provisioning setting '${name}' is empty.`);
     }
     for (const name of ['SQL_ADMIN_OBJECT_ID', 'RULES_SERVICE_API_CLIENT_ID', 'RULES_SERVICE_API_ROLE_ID', 'MS_CLIENT_ID']) {
@@ -36,7 +36,7 @@ function prepare(env, runCommand = run) {
     const settings = {
         ...Object.fromEntries(required.map(name => [name, env[name]])),
         WORKLOAD_NAME: env.WORKLOAD_NAME || 'dataingest',
-        CITADEL_ENDPOINT: env.CITADEL_ENDPOINT || 'https://np-aigw-apim.azure-api.net/models',
+        CITADEL_ENDPOINT: env.CITADEL_ENDPOINT,
         CITADEL_SUBSCRIPTION_KEY_HEADER: env.CITADEL_SUBSCRIPTION_KEY_HEADER || 'api-key',
         CITADEL_MODEL: env.CITADEL_MODEL || 'gpt-6-luna',
         WORKER_CPU: env.WORKER_CPU || '2',

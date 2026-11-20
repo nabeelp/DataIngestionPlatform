@@ -20,11 +20,11 @@ Checked against the source at the time of this review (November 2026):
 
 | Check | Result |
 |---|---|
-| Backend: zero-warning lint, type check, unit tests, build | Pass (402 tests; 4 database-backed suites skip without `TEST_DB_CONNECTION_STRING`) |
+| Backend: zero-warning lint, type check, unit tests, build | Pass (403 tests; 4 database-backed suites skip without `TEST_DB_CONNECTION_STRING`) |
 | Frontend: zero-warning lint, unit tests, production build | Pass (205 tests) |
-| Validation service: `uv run pytest` including the golden sample corpus | Pass (436 tests, 1 skipped) |
-| `node scripts/check-docs.mjs` (links, removed concepts, documented settings exist) | Pass |
-| Dependency advisories | Backend production advisories were reduced by an in-range `npm audit fix` (the critical `proxy-addr` finding and the high findings in `multer`, `body-parser`, `ws`, `socket.io-parser` and others); one moderate OpenTelemetry finding remains. The frontend audit was not completed (SEC-01) |
+| Validation service: `ruff`, `mypy`, `uv run pytest` including the golden sample corpus | Pass (436 tests, 1 skipped) |
+| `node scripts/check-docs.mjs`, deployment-script tests and Bicep compilation | Pass |
+| Dependency advisories | Production dependencies of the frontend and the validation service have no known advisories; the backend has one moderate OpenTelemetry advisory (`@opentelemetry/instrumentation-http`, query strings on inbound spans), mitigated because the span allow-list in `Back-End/src/telemetry/privacy.ts` never exports `url.query`. Remaining findings are in dev-only tooling (frontend `vitest`/`typescript-eslint`, which need major upgrades). CI now fails on high or critical production advisories, and Dependabot is configured (SEC-01) |
 | Local stack, browser (Playwright) suites and sample-corpus run | Manual gates; run before each demo or release ([README](../README.md#testing)) |
 | Azure deployment | Infrastructure compiled and previewed; API, frontend and rules service were deployed to a development environment. **Authenticated delivery, replay, download and deletion in Azure (OPS-01) has not been accepted.** |
 
@@ -34,20 +34,21 @@ Nothing below is shipped as a customer value. Replace each before first use in t
 
 1. **Azure subscription, region and approvals.** The documented target region is France Central; confirm capacity with
    `azd provision --preview` and obtain approval before any provisioning ([deployment](deployment.md)).
-2. **Model gateway.** Rule authoring calls a Citadel/Azure API Management gateway. The repository defaults
-   (`CITADEL_ENDPOINT` in `Back-End/src/config/appConfig.ts`, `infra/main.bicep`, `infra/main.bicepparam`, `Back-End/.env.example`)
-   point at the original developer's gateway. Set `CITADEL_ENDPOINT`, `CITADEL_MODEL`, `CITADEL_SUBSCRIPTION_KEY` and
-   `CITADEL_SUBSCRIPTION_KEY_HEADER` to the customer's gateway. Rule text and schema names (never file contents) leave the platform.
+2. **Model gateway.** Rule authoring calls a Citadel/Azure API Management gateway. `CITADEL_ENDPOINT` has no default: set it
+   (and `CITADEL_SUBSCRIPTION_KEY`, optionally `CITADEL_MODEL` and `CITADEL_SUBSCRIPTION_KEY_HEADER`) to the customer's gateway.
+   Until it is set, rule review fails with a clear "CITADEL_ENDPOINT is required" message, provisioning refuses to run, and
+   `azd` compiles with a `.invalid` placeholder host. Rule text and schema names (never file contents) leave the platform.
 3. **Entra registrations.** A single-tenant SSO app registration and a Rules API registration with the `access_as_application`
    role, and an administrator to consent ([deployment](deployment.md#parameters-and-secrets)).
 4. **Secrets.** Generate a new `JWT_SECRET`, SSO client secret and Citadel key. Rotate the SSO secret before its one-year expiry.
    Nothing secret is committed; `.env` files are git-ignored.
-5. **CI/CD identity.** The GitHub OIDC federated-credential subject in the deployment guide belongs to the original repository.
-   Create a new deployment identity and subject for the customer's repository.
+5. **CI/CD identity.** Create a new deployment identity and federated credential for the customer's repository; the deployment
+   guide gives the subject format only.
 6. **First administrator.** There is no production bootstrap (AUTH-02). Decide SSO-only or a password lifecycle, and seed the first
    admin deliberately. The seeded mock accounts and `password123` are **local development only**; they are ignored unless
    `NODE_ENV=development` and `DEV_BYPASS_AUTH=true`, and must never be deployed.
-7. **Licence.** The repository carries no licence file (HAND-01). Agree ownership and licensing terms before the customer reuses the code.
+7. **Licence.** The repository is MIT-licensed ([LICENSE](../LICENSE), "DataIngestionPlatform contributors"). Replace the
+   copyright holder or licence if the engagement terms require it.
 8. **Container and SQL Server emulator licences** for local use are accepted by the person running Docker Compose (`ACCEPT_EULA`).
 
 ## Known limits to accept for a PoC
@@ -72,7 +73,7 @@ Minimum gate, in order (priority IDs refer to [TODO.md](../TODO.md)):
 3. Put the session design and first-administrator lifecycle in place (AUTH-01, AUTH-02).
 4. Close validation-semantics gaps (VAL-01 to VAL-03) and CSV export formula injection (EXP-01).
 5. Define retention, malware scanning, alerts, SLOs, RPO/RTO and a rollback record (DATA-01, OPS-06, OPS-08).
-6. Resolve dependency advisories and move the lockfiles off third-party package mirrors (SEC-01, PKG-01), and add a CI job that runs against a disposable SQL Server and the
+6. Upgrade the dev-only tooling advisories and the OpenTelemetry package when upstream allows (SEC-01), and add a CI job that runs against a disposable SQL Server and the
    Service Bus emulator (QA-01).
 7. Re-assess the networking deviations in [architecture](architecture.md#12-risks-gaps-and-recommendations) against customer policy.
 

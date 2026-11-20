@@ -75,7 +75,7 @@ export const appConfig = {
     // Azure Storage and Citadel Configuration
     azure: {
         citadel: {
-            endpoint: process.env.CITADEL_ENDPOINT || 'https://np-aigw-apim.azure-api.net/models',
+            endpoint: process.env.CITADEL_ENDPOINT || '',
             subscriptionKey: process.env.CITADEL_SUBSCRIPTION_KEY || '',
             subscriptionKeyHeader: process.env.CITADEL_SUBSCRIPTION_KEY_HEADER ?? 'api-key',
             model: process.env.CITADEL_MODEL || process.env.AZURE_FOUNDRY_MODEL || 'gpt-6-luna',

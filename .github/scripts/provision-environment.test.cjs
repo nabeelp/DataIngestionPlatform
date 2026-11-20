@@ -13,6 +13,7 @@ const env = {
     RULES_SERVICE_API_AUDIENCE: `api://${guid}`,
     RULES_SERVICE_API_ROLE_ID: guid,
     MS_CLIENT_ID: guid,
+    CITADEL_ENDPOINT: 'https://gateway.example.test/models',
     CITADEL_SUBSCRIPTION_KEY: 'synthetic-test-key',
 };
 
@@ -36,7 +37,7 @@ test('prepares non-secret provisioning settings without persisting the subscript
     assert.equal(settings.SQL_ADMIN_LOGIN, env.SQL_ADMIN_LOGIN);
     assert.equal(settings.RULES_SERVICE_API_ROLE_ID, guid);
     assert.equal(settings.CITADEL_MODEL, 'gpt-6-luna');
-    assert.equal(settings.CITADEL_ENDPOINT, 'https://np-aigw-apim.azure-api.net/models');
+    assert.equal(settings.CITADEL_ENDPOINT, env.CITADEL_ENDPOINT);
     assert.equal(settings.CITADEL_SUBSCRIPTION_KEY_HEADER, 'api-key');
     assert.equal(settings.CITADEL_SUBSCRIPTION_KEY, undefined);
     assert.ok(!JSON.stringify(runner.calls).includes(env.CITADEL_SUBSCRIPTION_KEY));
@@ -104,7 +105,7 @@ function verificationFixture() {
         }],
         env: [
             { name: 'CITADEL_SUBSCRIPTION_KEY', secretRef: 'citadel-subscription-key' },
-            { name: 'CITADEL_ENDPOINT', value: 'https://np-aigw-apim.azure-api.net/models' },
+            { name: 'CITADEL_ENDPOINT', value: 'https://gateway.example.test/models' },
             { name: 'CITADEL_MODEL', value: 'gpt-6-luna' },
             { name: 'CITADEL_SUBSCRIPTION_KEY_HEADER', value: 'api-key' },
         ],

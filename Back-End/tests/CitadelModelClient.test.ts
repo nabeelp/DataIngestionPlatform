@@ -15,7 +15,7 @@ const call: ModelCall = {
 beforeEach(() => {
     fetchMock.mockReset();
     appConfig.azure.citadel = {
-        endpoint: 'https://np-aigw-apim.azure-api.net/models/',
+        endpoint: 'https://gateway.example.test/models/',
         subscriptionKey: 'unit-test-subscription-key',
         subscriptionKeyHeader: 'api-key',
         model: 'test-model',
@@ -47,7 +47,7 @@ it('sends streaming Responses requests only to Citadel with the APIM header and 
     expect(result).toMatchObject({ text: '{}', responseId: 'resp_citadel' });
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, options] = fetch.mock.calls[0];
-    expect(String(url)).toBe('https://np-aigw-apim.azure-api.net/models/responses');
+    expect(String(url)).toBe('https://gateway.example.test/models/responses');
     expect(options?.method).toBe('POST');
     const headers = new Headers(options?.headers);
     expect(headers.get('api-key')).toBe('unit-test-subscription-key');
@@ -84,8 +84,9 @@ it.each(['', ' ', 'invalid header', 'api-key:', 'api-key\r\nInjected'])(
 );
 
 it.each([
-    'http://np-aigw-apim.azure-api.net/models',
+    'http://gateway.example.test/models',
     'not-a-url',
+    '',
     'https://user:password@example.com/models',
     'https://example.com/models?key=value',
     'https://example.com/models#fragment',
