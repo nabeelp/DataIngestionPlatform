@@ -19,6 +19,31 @@ Sign in with an application password or Microsoft Entra SSO if configured.
 Open **My Files** to see definitions available to you, including their
 published columns and rules. Local mock login is for development only.
 
+## Screenshots
+
+These screenshots show the local development UI with a mock user and synthetic
+demo records; they do not represent live customer or Azure data.
+
+### Dashboard
+
+The dashboard summarizes recent uploads, outcomes and processing activity.
+
+![User dashboard with upload activity, recent tasks and outcomes](images/user-dashboard.png)
+
+### My Files
+
+Open **My Files** to inspect a definition's published version, columns and
+validation rules before uploading.
+
+![My Files showing the published Customer Register definition and its columns](images/my-files.png)
+
+### Upload History
+
+Upload history shows each file's definition version, status and delivery
+destination when one is available. Select **View** to open an upload's details.
+
+![Upload history with delivered, failed and processing example uploads](images/upload-history.png)
+
 ## Main Workflows
 
 ### Upload and review
