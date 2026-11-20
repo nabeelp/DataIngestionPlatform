@@ -4,7 +4,125 @@ Users upload CSV/TSV/TXT or Excel files against **file definitions**. The Node A
 
 > **Proof of concept.** This solution is handed over as a PoC, not a production-ready system. Read the [PoC handover](docs/poc-handover.md) for scope, verified state, what you must supply or replace, accepted limits and the gate to close before production or real customer data.
 
-**Documentation:** [PoC handover](docs/poc-handover.md) · [architecture](docs/architecture.md) · [Azure deployment](docs/deployment.md) · [natural-language and cross-sheet rules](docs/natural-language-rules.md) · [contracts](contracts/README.md) · [validation service](Validation-Service/README.md) · [sample files](samples/README.md) · [backlog](TODO.md).
+**Documentation:** [User guide](docs/user-guide.md) · [administrator guide](docs/admin-guide.md) · [architecture decisions](docs/adr/index.md) · [Unreleased notes](docs/releases/unreleased.md) · [changelog](CHANGELOG.md) · [PoC handover](docs/poc-handover.md) · [architecture](docs/architecture.md) · [Azure deployment](docs/deployment.md) · [natural-language and cross-sheet rules](docs/natural-language-rules.md) · [contracts](contracts/README.md) · [validation service](Validation-Service/README.md) · [sample files](samples/README.md) · [backlog](TODO.md).
+
+## Table of Contents
+
+- [About](#about) · [Features](#features) · [Tech Stack](#tech-stack) · [Architecture](#architecture)
+- [Project Structure](#project-structure) · [Getting Started](#getting-started) · [Configuration](#configuration) · [Security](#security)
+- [How to Contribute](#how-to-contribute) · [What's Next](#whats-next) · [License](#license) · [Acknowledgements](#acknowledgements) · [Author](#author)
+- [Local development](#local-development) · [Validation](#validation) · [Testing](#testing) · [Azure deployment](#azure-deployment)
+
+## About
+
+The platform helps data administrators define checks and users submit files for
+asynchronous validation and optional delivery. It is an implemented PoC, not a
+production service; see the [handover](docs/poc-handover.md).
+
+## Features
+
+| Capability | Description |
+|---|---|
+| Definitions | Publish versioned tables, columns and rules for authorized uploaders. |
+| Validation | Inspect file-level results, warnings and issues reports. |
+| Rule authoring | Review built-in and model-proposed rules before publishing. |
+| Delivery | Optionally deliver validated files and allow authorized downloads. |
+| Administration | Manage users and access; inspect audit, monitoring and compliance views. |
+
+## Tech Stack
+
+React 19 and Vite 7, Node.js 24 with Express and TypeScript, and Python 3.12
+with FastAPI and Polars. SQL, Blob Storage and Service Bus provide persistence
+and messaging; local development uses Docker emulators.
+
+## Architecture
+
+The browser calls the Node API; the API stores data and queues validation for
+the Python worker. The rules service validates rule proposals. Azure uses
+Container Apps, Azure SQL, Blob Storage, Service Bus and Key Vault. See the
+[architecture overview](docs/architecture.md) and [decisions](docs/adr/index.md).
+
+## Project Structure
+
+- `Back-End/` — API, database scripts and backend tests.
+- `Front-End/` — React UI and browser tests.
+- `Validation-Service/` — rules API, validation worker and Python tests.
+- `contracts/` — shared schemas and examples.
+- `infra/`, `azure.yaml` and `scripts/` — Azure deployment and operations.
+- `samples/` — sample inputs and definitions; some large files are generated.
+- `docs/` — architecture, guides and operational documentation.
+- `.github/` — CI, deployment workflows and automation.
+
+Generated contracts, build outputs, dependencies, logs and local data are not
+standalone documentation artifacts.
+
+## Getting Started
+
+On Windows, with Git, Docker Desktop, Node.js 24, Python 3.12, `uv` and
+PowerShell installed:
+
+```powershell
+git clone https://github.com/nabeelp/DataIngestionPlatform.git
+Set-Location DataIngestionPlatform
+Push-Location Back-End; npm ci; Pop-Location
+Push-Location Front-End; npm ci; Pop-Location
+Push-Location Validation-Service; uv sync; Pop-Location
+Copy-Item Back-End\.env.example Back-End\.env
+# Configure Back-End\.env as described below, then:
+.\start.ps1
+```
+
+Clone access depends on repository permissions. Do not overwrite an existing
+`.env` file. Read the [local development steps](#local-development) for
+required settings and emulator license acceptance before starting. The
+[user guide](docs/user-guide.md) covers upload and administration flows;
+the [administrator guide](docs/admin-guide.md) covers operation.
+
+## Configuration
+
+Local defaults and setting names are in
+[`Back-End/.env.example`](Back-End/.env.example),
+[`Front-End/.env.example`](Front-End/.env.example) and
+[`Validation-Service/.env.example`](Validation-Service/.env.example).
+Secrets must remain outside source control. See the
+[administrator guide](docs/admin-guide.md#configuration) for configuration
+scope and [deployment](docs/deployment.md#parameters-and-secrets) for Azure.
+
+## Security
+
+The API supports password login and optional Entra SSO with role and
+definition-based access. Azure uses managed identities and Key Vault; local
+bypass authentication is for development only. The session, retention and
+networking limitations in the [handover](docs/poc-handover.md) must be assessed
+before real customer data. Report suspected vulnerabilities privately to the
+repository maintainer rather than including sensitive details in a public issue.
+
+## How to Contribute
+
+Create a branch, follow the local setup and [testing](#testing) instructions,
+and submit a pull request for review. Keep documentation and shared contracts
+in step with behavior; do not commit secrets, uploaded data or generated local
+artifacts.
+
+## What's Next
+
+Planned, not shipped: authenticated Azure acceptance, recoverable queue handoff,
+session revocation, data retention and operational recovery. Priorities and
+other known gaps are tracked in the [backlog](TODO.md).
+
+## License
+
+This project is available under the [MIT License](LICENSE).
+
+## Acknowledgements
+
+The solution builds on React, Express, Polars and the Azure SDK and emulator
+projects identified in the component manifests and deployment documentation.
+
+## Author
+
+Maintained in the [nabeelp/DataIngestionPlatform repository](https://github.com/nabeelp/DataIngestionPlatform).
+Use its issue tracker for questions and non-sensitive bug reports.
 
 ## Local development
 
