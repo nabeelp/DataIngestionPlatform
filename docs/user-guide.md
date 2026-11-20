@@ -44,6 +44,20 @@ destination when one is available. Select **View** to open an upload's details.
 
 ![Upload history with delivered, failed and processing example uploads](images/upload-history.png)
 
+### Administrator views
+
+The admin dashboard summarizes user, upload and processing activity.
+
+![Administrator dashboard with synthetic user, upload and queue statistics](images/admin-dashboard.png)
+
+Administrators can edit an existing validation rule or configure a new
+allowed-values rule in the definition workspace. These examples show draft
+changes only; they are not saved or published.
+
+![Editing the Amount range validation rule in the definition workspace](images/admin-edit-rule.png)
+
+![Configuring an allowed-values rule for order statuses](images/admin-add-rule.png)
+
 ## Main Workflows
 
 ### Upload and review
