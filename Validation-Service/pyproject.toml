@@ -4,19 +4,19 @@ version = "0.1.0"
 description = "Python and Polars data quality engine"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "azure-identity>=1.19,<2",
+  "azure-identity>=1.27.0,<2",
   "azure-monitor-opentelemetry>=1.6,<2",
-  "azure-servicebus>=7.14,<8",
-  "azure-storage-blob>=12.24,<13",
-  "fastapi>=0.115,<1",
+  "azure-servicebus>=7.15.0,<8",
+  "azure-storage-blob>=12.31.1,<13",
+  "fastapi>=0.165.0,<1",
   "fastexcel>=0.21.0",
   "jsonschema>=4.25,<5",
-  "mssql-python>=1.0,<2",
+  "mssql-python>=1.18.0,<2",
   "polars>=1.44.2",
   "pyarrow>=25.0.1",
-  "pydantic>=2.11,<3",
+  "pydantic>=2.14.4,<3",
   "referencing>=0.36,<1",
-  "sqlglot>=26,<31",
+  "sqlglot>=30.33.0,<31",
   "uvicorn[standard]>=0.34,<1",
 ]
 
@@ -27,7 +27,7 @@ dq-engine = "dq_engine.cli:main"
 dev = [
   "mypy>=1.18,<2",
   "pytest>=9.0.3,<10",
-  "ruff>=0.14,<1",
+  "ruff>=0.17.6,<1",
 ]
 
 [build-system]
