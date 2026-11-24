@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 
 WORKDIR /workspace
 COPY Back-End/package.json Back-End/package-lock.json ./Back-End/
@@ -10,7 +10,7 @@ COPY Back-End/tsconfig.json Back-End/tsconfig.test.json ./Back-End/
 COPY contracts ./contracts
 RUN npm run build --prefix Back-End
 
-FROM node:24-bookworm-slim
+FROM node:25-bookworm-slim
 
 ENV NODE_ENV=production \
     PORT=3000 \
